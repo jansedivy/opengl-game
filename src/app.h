@@ -89,6 +89,7 @@ struct Model {
   const char *path = NULL;
 
   std::vector<Mesh> meshes;
+  float radius = 300.0f;
 
   bool is_being_loaded = false;
   bool has_data = false;

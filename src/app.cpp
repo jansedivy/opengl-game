@@ -17,6 +17,21 @@ inline Entity *get_entity_by_id(App *app, u32 id) {
   return NULL;
 }
 
+float distance_from_plane(Plane plane, glm::vec3 position) {
+  return plane.normal.x * position.x + plane.normal.y * position.y + plane.normal.z * position.z + plane.distance;
+}
+
+bool is_sphere_in_frustum(Frustum *frustum, glm::vec3 position, float radius) {
+  for (int i=0; i<6; i++) {
+    float distance = distance_from_plane(frustum->planes[i], position);
+    if (distance + radius < 0) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 void fill_frustum_with_matrix(Frustum *frustum, glm::mat4 matrix) {
   frustum->planes[LeftPlane].normal.x = matrix[0][3] + matrix[0][0];
   frustum->planes[LeftPlane].normal.y = matrix[1][3] + matrix[1][0];
@@ -687,8 +702,10 @@ void init(Memory *memory) {
       }
 
       app->sphere_model.meshes.push_back(mesh);
+      app->sphere_model.path = "sphere";
 
       app->sphere_model.has_data = true;
+      app->sphere_model.initialized = false;
       app->sphere_model.is_being_loaded = false;
     }
 
@@ -1010,6 +1027,8 @@ void load_model_work(void *data) {
 
     Model *model = work->model;
 
+    float max_distance = 0.0f;
+
     if (scene->HasMeshes()) {
       u32 indices_offset = 0;
 
@@ -1048,6 +1067,11 @@ void load_model_work(void *data) {
           mesh.data.vertices[vertices_index++] = mesh_data->mVertices[l].y;
           mesh.data.vertices[vertices_index++] = mesh_data->mVertices[l].z;
 
+          float new_distance = glm::length(glm::vec3(mesh_data->mVertices[l].x, mesh_data->mVertices[l].y, mesh_data->mVertices[l].z));
+          if (new_distance > max_distance) {
+            max_distance = new_distance;
+          }
+
           mesh.data.normals[normals_index++] = mesh_data->mNormals[l].x;
           mesh.data.normals[normals_index++] = mesh_data->mNormals[l].y;
           mesh.data.normals[normals_index++] = mesh_data->mNormals[l].z;
@@ -1075,6 +1099,7 @@ void load_model_work(void *data) {
     platform.debug_free_file(result);
 
     model->has_data = true;
+    model->radius = max_distance;
   }
 
   free(work);
@@ -1421,12 +1446,16 @@ void tick(Memory *memory, Input input) {
 
     float speed = 1.3f;
 
-    bool can_fly = input.shift;
-
-    if (!can_fly) {
-      movement.y = 0;
-    } else {
+    if (app->editing_mode) {
       speed = 10.0f;
+      if (input.space) {
+        movement.y += 1;
+      }
+      if (input.shift) {
+        movement.y += -1;
+      }
+    } else {
+      movement.y = 0;
     }
 
     if (glm::length(movement) > 0.0f) {
@@ -1454,7 +1483,7 @@ void tick(Memory *memory, Input input) {
     if (follow_entity->position.x < 0) { follow_entity->position.x = 0; }
     if (follow_entity->position.z < 0) { follow_entity->position.z = 0; }
 
-    if (!can_fly) {
+    if (!app->editing_mode) {
       follow_entity->position.y = get_terrain_height_at(follow_entity->position.x, follow_entity->position.z);
     } else {
       float terrain = get_terrain_height_at(follow_entity->position.x, follow_entity->position.z);
@@ -1558,7 +1587,6 @@ void tick(Memory *memory, Input input) {
       glEnable(GL_CULL_FACE);
     }
 
-
     {
       use_program(app, &app->terrain_program);
 
@@ -1619,17 +1647,42 @@ void tick(Memory *memory, Input input) {
 
         if (model_wait || texture_wait) { continue; }
 
+        if (!is_sphere_in_frustum(&app->camera.frustum, entity->position, entity->model->radius * glm::compMax(entity->scale))) {
+          continue;
+        }
+
         glm::mat4 model_view;
 
         model_view = glm::translate(model_view, entity->position);
+
+        model_view = glm::scale(model_view, entity->scale);
 
         model_view = glm::rotate(model_view, entity->rotation.x, glm::vec3(1.0, 0.0, 0.0));
         model_view = glm::rotate(model_view, entity->rotation.y, glm::vec3(0.0, 1.0, 0.0));
         model_view = glm::rotate(model_view, entity->rotation.z, glm::vec3(0.0, 0.0, 1.0));
 
-        model_view = glm::scale(model_view, entity->scale);
-
         glm::mat3 normal = glm::inverseTranspose(glm::mat3(model_view));
+
+#if 0
+        {
+          if (!process_model(memory, &app->sphere_model)) {
+            glm::mat4 sphere_view;
+            sphere_view = glm::translate(sphere_view, entity->position);
+            sphere_view = glm::scale(sphere_view, glm::vec3(entity->model->radius) * glm::compMax(entity->scale));
+
+            RenderCommand command;
+            command.shader = &app->another_program;
+            command.model_view = sphere_view;
+            command.render_flags = 0;
+
+            command.normal = glm::inverseTranspose(glm::mat3(sphere_view));
+            command.color = glm::vec3(1.0f);
+
+            command.model_mesh = &app->sphere_model.meshes[0];
+            add_command_to_render_group(&app->render_group, command);
+          }
+        }
+#endif
 
         RenderCommand command;
         command.shader = &app->another_program;
