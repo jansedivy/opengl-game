@@ -3972,6 +3972,54 @@ __/contrib/poly2tri/poly2tri/sweep/sweep_context.cc.s:
 	cd /Users/sedivy/Documents/scratch/opengl-app/libs/assimp && $(MAKE) -f code/CMakeFiles/assimp.dir/build.make code/CMakeFiles/assimp.dir/__/contrib/poly2tri/poly2tri/sweep/sweep_context.cc.s
 .PHONY : __/contrib/poly2tri/poly2tri/sweep/sweep_context.cc.s
 
+__/contrib/unzip/ioapi.o: __/contrib/unzip/ioapi.c.o
+.PHONY : __/contrib/unzip/ioapi.o
+
+# target to build an object file
+__/contrib/unzip/ioapi.c.o:
+	cd /Users/sedivy/Documents/scratch/opengl-app/libs/assimp && $(MAKE) -f code/CMakeFiles/assimp.dir/build.make code/CMakeFiles/assimp.dir/__/contrib/unzip/ioapi.c.o
+.PHONY : __/contrib/unzip/ioapi.c.o
+
+__/contrib/unzip/ioapi.i: __/contrib/unzip/ioapi.c.i
+.PHONY : __/contrib/unzip/ioapi.i
+
+# target to preprocess a source file
+__/contrib/unzip/ioapi.c.i:
+	cd /Users/sedivy/Documents/scratch/opengl-app/libs/assimp && $(MAKE) -f code/CMakeFiles/assimp.dir/build.make code/CMakeFiles/assimp.dir/__/contrib/unzip/ioapi.c.i
+.PHONY : __/contrib/unzip/ioapi.c.i
+
+__/contrib/unzip/ioapi.s: __/contrib/unzip/ioapi.c.s
+.PHONY : __/contrib/unzip/ioapi.s
+
+# target to generate assembly for a file
+__/contrib/unzip/ioapi.c.s:
+	cd /Users/sedivy/Documents/scratch/opengl-app/libs/assimp && $(MAKE) -f code/CMakeFiles/assimp.dir/build.make code/CMakeFiles/assimp.dir/__/contrib/unzip/ioapi.c.s
+.PHONY : __/contrib/unzip/ioapi.c.s
+
+__/contrib/unzip/unzip.o: __/contrib/unzip/unzip.c.o
+.PHONY : __/contrib/unzip/unzip.o
+
+# target to build an object file
+__/contrib/unzip/unzip.c.o:
+	cd /Users/sedivy/Documents/scratch/opengl-app/libs/assimp && $(MAKE) -f code/CMakeFiles/assimp.dir/build.make code/CMakeFiles/assimp.dir/__/contrib/unzip/unzip.c.o
+.PHONY : __/contrib/unzip/unzip.c.o
+
+__/contrib/unzip/unzip.i: __/contrib/unzip/unzip.c.i
+.PHONY : __/contrib/unzip/unzip.i
+
+# target to preprocess a source file
+__/contrib/unzip/unzip.c.i:
+	cd /Users/sedivy/Documents/scratch/opengl-app/libs/assimp && $(MAKE) -f code/CMakeFiles/assimp.dir/build.make code/CMakeFiles/assimp.dir/__/contrib/unzip/unzip.c.i
+.PHONY : __/contrib/unzip/unzip.c.i
+
+__/contrib/unzip/unzip.s: __/contrib/unzip/unzip.c.s
+.PHONY : __/contrib/unzip/unzip.s
+
+# target to generate assembly for a file
+__/contrib/unzip/unzip.c.s:
+	cd /Users/sedivy/Documents/scratch/opengl-app/libs/assimp && $(MAKE) -f code/CMakeFiles/assimp.dir/build.make code/CMakeFiles/assimp.dir/__/contrib/unzip/unzip.c.s
+.PHONY : __/contrib/unzip/unzip.c.s
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -4462,6 +4510,12 @@ help:
 	@echo "... __/contrib/poly2tri/poly2tri/sweep/sweep_context.o"
 	@echo "... __/contrib/poly2tri/poly2tri/sweep/sweep_context.i"
 	@echo "... __/contrib/poly2tri/poly2tri/sweep/sweep_context.s"
+	@echo "... __/contrib/unzip/ioapi.o"
+	@echo "... __/contrib/unzip/ioapi.i"
+	@echo "... __/contrib/unzip/ioapi.s"
+	@echo "... __/contrib/unzip/unzip.o"
+	@echo "... __/contrib/unzip/unzip.i"
+	@echo "... __/contrib/unzip/unzip.s"
 .PHONY : help
 
 

@@ -406,10 +406,16 @@ Model generate_ground(TerrainChunk *chunk, int chunk_x, int chunk_y, float detai
 
 void delete_shader(Shader *shader) {
   glDeleteProgram(shader->id);
-  free(shader);
+  shader->initialized = false;
+  shader->uniforms.clear();
+  shader->attributes.clear();
 }
 
-Shader *create_shader(Memory *memory, const char *vert_filename, const char *frag_filename) {
+Shader *create_shader(Shader *shader, const char *vert_filename, const char *frag_filename) {
+  if (shader->initialized) {
+    delete_shader(shader);
+  }
+
   GLuint vertexShader;
   GLuint fragmentShader;
 
@@ -427,6 +433,7 @@ Shader *create_shader(Memory *memory, const char *vert_filename, const char *fra
       glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
       printf("ERROR::SHADER::VERTEX::COMPILATION_FAILED\n %s\n", infoLog);
     }
+
     platform.debug_free_file(vertex);
   }
 
@@ -458,8 +465,8 @@ Shader *create_shader(Memory *memory, const char *vert_filename, const char *fra
   glDeleteShader(vertexShader);
   glDeleteShader(fragmentShader);
 
-  Shader *shader = new Shader();
   shader->id = shaderProgram;
+  shader->initialized = true;
 
   glUseProgram(shaderProgram);
 
@@ -560,8 +567,41 @@ void generate_trees(App *app) {
   }
 }
 
+void quit(Memory *memory) {
+}
+
 void init(Memory *memory) {
+  glewExperimental = GL_TRUE;
+  glewInit();
+
   App *app = static_cast<App*>(memory->permanent_storage);
+
+    /* std::unordered_map<std::string, u32> uniforms; */
+    /* std::unordered_map<std::string, GLuint> attributes; */
+
+  app->program.uniforms = std::unordered_map<std::string, u32>();
+  app->program.attributes = std::unordered_map<std::string, GLuint>();
+
+  app->another_program.uniforms = std::unordered_map<std::string, u32>();
+  app->another_program.attributes = std::unordered_map<std::string, GLuint>();
+
+  app->debug_program.uniforms = std::unordered_map<std::string, u32>();
+  app->debug_program.attributes = std::unordered_map<std::string, GLuint>();
+
+  app->solid_program.uniforms = std::unordered_map<std::string, u32>();
+  app->solid_program.attributes = std::unordered_map<std::string, GLuint>();
+
+  app->fullscreen_program.uniforms = std::unordered_map<std::string, u32>();
+  app->fullscreen_program.attributes = std::unordered_map<std::string, GLuint>();
+
+  app->terrain_program.uniforms = std::unordered_map<std::string, u32>();
+  app->terrain_program.attributes = std::unordered_map<std::string, GLuint>();
+
+  app->skybox_program.uniforms = std::unordered_map<std::string, u32>();
+  app->skybox_program.attributes = std::unordered_map<std::string, GLuint>();
+
+  app->textured_program.uniforms = std::unordered_map<std::string, u32>();
+  app->textured_program.attributes = std::unordered_map<std::string, GLuint>();
 
   debug_global_memory = memory;
 
@@ -572,26 +612,20 @@ void init(Memory *memory) {
 
   app->camera.aspect_ratio = static_cast<float>(memory->width)/static_cast<float>(memory->height);
   app->camera.near = 0.5f;
-  app->camera.far = 20000.0f;
+  app->camera.far = 50000.0f;
 
   app->current_program = 0;
 
-  glewExperimental = GL_TRUE;
-  glewInit();
+  glGenVertexArrays(1, &app->vao);
+  glBindVertexArray(app->vao);
 
-  /* glEnable(GL_MULTISAMPLE); */
+  glEnable(GL_MULTISAMPLE);
   glEnable(GL_DEPTH_TEST);
   glEnable(GL_CULL_FACE);
-  glEnable(GL_TEXTURE_2D);
 
   glCullFace(GL_BACK);
 
   {
-    GLuint vao;
-    glGenVertexArrays(1, &vao);
-
-    glBindVertexArray(vao);
-
     {
       float latitude_bands = 30;
       float longitude_bands = 30;
@@ -735,7 +769,6 @@ void init(Memory *memory) {
       app->model0.initialized = false;
     }
 
-    app->tree_model.path = "tree.obj";
     /* app->grass_model.path = "grass.obj"; */
     app->rock_model.path = "rock.obj";
 
@@ -743,12 +776,14 @@ void init(Memory *memory) {
     app->trees[1].path = "trees/tree_02.obj";
   }
 
-  app->another_program = create_shader(memory, "another_vert.glsl", "another_frag.glsl");
-  app->fullscreen_program = create_shader(memory, "fullscreen.vert", "fullscreen.frag");
-  app->terrain_program = create_shader(memory, "terrain.vert", "terrain.frag");
-  app->skybox_program = create_shader(memory, "skybox.vert", "skybox.frag");
-  app->program = create_shader(memory, "vert.glsl", "frag.glsl");
-  app->textured_program = create_shader(memory, "textured.vert", "textured.frag");
+  create_shader(&app->solid_program, "solid_vert.glsl", "solid_frag.glsl");
+  create_shader(&app->another_program, "another_vert.glsl", "another_frag.glsl");
+  create_shader(&app->debug_program, "debug_vert.glsl", "debug_frag.glsl");
+  create_shader(&app->fullscreen_program, "fullscreen.vert", "fullscreen.frag");
+  create_shader(&app->terrain_program, "terrain.vert", "terrain.frag");
+  create_shader(&app->skybox_program, "skybox.vert", "skybox.frag");
+  create_shader(&app->program, "vert.glsl", "frag.glsl");
+  create_shader(&app->textured_program, "textured.vert", "textured.frag");
 
   {
     Entity *entity = app->entities + app->entity_count;
@@ -889,37 +924,42 @@ void init(Memory *memory) {
   {
     app->frame_width = memory->width;
     app->frame_height = memory->height;
-    glGenFramebuffers(1, &app->frame_buffer);
-    glBindFramebuffer(GL_FRAMEBUFFER, app->frame_buffer);
 
     glGenTextures(1, &app->frame_texture);
+    glGenTextures(1, &app->frame_depth_texture);
+
+    glGenFramebuffers(1, &app->frame_buffer);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, app->frame_buffer);
 
     glBindTexture(GL_TEXTURE_2D, app->frame_texture);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, app->frame_width, app->frame_height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, app->frame_texture, 0);
+
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glBindTexture(GL_TEXTURE_2D, 0);
 
-    glGenTextures(1, &app->frame_depth_texture);
     glBindTexture(GL_TEXTURE_2D, app->frame_depth_texture);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, app->frame_width, app->frame_height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, app->frame_depth_texture, 0);
+
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, app->frame_depth_texture, 0);
-
-
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glBindTexture(GL_TEXTURE_2D, 0);
   }
+
+  glGenBuffers(1, &app->debug_buffer);
+}
+
+inline bool shader_has_uniform(Shader *shader, const char *name) {
+  return shader->uniforms.count(name);
 }
 
 inline GLuint shader_get_uniform_location(Shader *shader, const char *name) {
-  assert(shader->uniforms.count(name));
+  assert(shader_has_uniform(shader, name));
   return shader->uniforms[name];
 }
 
@@ -1274,9 +1314,11 @@ void tick(Memory *memory, Input input) {
 
   if (memory->should_reload) {
     memory->should_reload = false;
+
+    glewExperimental = GL_TRUE;
     glewInit();
 
-    unload_texture(&app->grass_texture);
+    /* unload_texture(&app->grass_texture); */
     /* unload_texture(&app->gradient_texture); */
 
 #if 0
@@ -1288,21 +1330,15 @@ void tick(Memory *memory, Input input) {
   }
 
   if (input.key_r) {
-    delete_shader(app->program);
-    delete_shader(app->another_program);
-    delete_shader(app->fullscreen_program);
-    delete_shader(app->terrain_program);
-    delete_shader(app->skybox_program);
-    delete_shader(app->textured_program);
+    create_shader(&app->another_program, "another_vert.glsl", "another_frag.glsl");
+    create_shader(&app->debug_program, "debug_vert.glsl", "debug_frag.glsl");
+    create_shader(&app->solid_program, "solid_vert.glsl", "solid_frag.glsl");
+    create_shader(&app->fullscreen_program, "fullscreen.vert", "fullscreen.frag");
+    create_shader(&app->terrain_program, "terrain.vert", "terrain.frag");
+    create_shader(&app->skybox_program, "skybox.vert", "skybox.frag");
+    create_shader(&app->program, "vert.glsl", "frag.glsl");
+    create_shader(&app->textured_program, "textured.vert", "textured.frag");
 
-    app->another_program = create_shader(memory, "another_vert.glsl", "another_frag.glsl");
-    app->fullscreen_program = create_shader(memory, "fullscreen.vert", "fullscreen.frag");
-    app->terrain_program = create_shader(memory, "terrain.vert", "terrain.frag");
-    app->skybox_program = create_shader(memory, "skybox.vert", "skybox.frag");
-    app->program = create_shader(memory, "vert.glsl", "frag.glsl");
-    app->textured_program = create_shader(memory, "textured.vert", "textured.frag");
-
-    unload_model(&app->tree_model);
     unload_model(&app->rock_model);
     /* unload_model(&app->grass_model); */
 
@@ -1311,22 +1347,39 @@ void tick(Memory *memory, Input input) {
     }
   }
 
-  if (input.mouse_click) {
-    platform.lock_mouse();
+  Entity *follow_entity = get_entity_by_id(app, app->camera_follow);
+
+  if (input.once.key_p) {
+    app->editing_mode = !app->editing_mode;
+    if (!app->editing_mode) {
+      platform.lock_mouse();
+    }
   }
 
-  if (input.escape) {
-    platform.unlock_mouse();
+  if (app->editing_mode) {
+    if (input.right_mouse_down) {
+      platform.lock_mouse();
+    } else {
+      platform.unlock_mouse();
+    }
+
+  } else {
+    if (input.mouse_click) {
+      platform.lock_mouse();
+    }
+
+    if (input.escape) {
+      platform.unlock_mouse();
+    }
   }
 
   // NOTE(sedivy): update
   {
     PROFILE(update);
-    Entity *follow_entity = get_entity_by_id(app, app->camera_follow);
 
     if (input.is_mouse_locked) {
-      follow_entity->rotation.y += static_cast<float>(input.mouseX)/200.0f;
-      follow_entity->rotation.x += static_cast<float>(input.mouseY)/200.0f;
+      follow_entity->rotation.y += static_cast<float>(input.rel_mouse_x)/200.0f;
+      follow_entity->rotation.x += static_cast<float>(input.rel_mouse_y)/200.0f;
     }
 
     static float halfpi = glm::half_pi<float>();
@@ -1385,7 +1438,14 @@ void tick(Memory *memory, Input input) {
     for (u32 i=0; i<app->entity_count; i++) {
       Entity *entity = app->entities + i;
 
-      if (entity->type == EntityPlayer) {
+      if (entity->type == EntityBlock) {
+        float distance = glm::distance(entity->position, follow_entity->position);
+        if (distance < 1000) {
+          entity->render_flags |= RenderWireframe;
+        } else {
+          entity->render_flags = entity->render_flags & ~RenderWireframe;
+        }
+      } else if (entity->type == EntityPlayer) {
         entity->position += entity->velocity;
         entity->velocity *= 0.6;
       }
@@ -1416,6 +1476,27 @@ void tick(Memory *memory, Input input) {
     app->camera.view_matrix = glm::translate(app->camera.view_matrix, (app->camera.position * -1.0f) - glm::vec3(0.0f, 3.2f, 0.0f));
 
     fill_frustum_with_matrix(&app->camera.frustum, app->camera.view_matrix);
+
+    if (app->editing_mode && input.mouse_click) {
+        glm::vec3 from = glm::unProject(
+            glm::vec3(input.mouse_x, memory->height - input.mouse_y, 0.0),
+            glm::mat4(),
+            app->camera.view_matrix,
+            glm::vec4(0.0, 0.0, memory->width, memory->height));
+
+        glm::vec3 to = glm::unProject(
+            glm::vec3(input.mouse_x, memory->height - input.mouse_y, 1.0),
+            glm::mat4(),
+            app->camera.view_matrix,
+            glm::vec4(0.0, 0.0, memory->width, memory->height));
+
+      glm::vec3 direction = glm::normalize(to - from);
+
+      app->debug_lines.push_back(from);
+      app->debug_lines.push_back(from + direction * 10000.0f);
+    }
+
+
     PROFILE_END(update);
   }
 
@@ -1440,8 +1521,7 @@ void tick(Memory *memory, Input input) {
       /*   } */
       /* } */
 
-      app->current_program = app->skybox_program;
-      glUseProgram(app->skybox_program->id);
+      use_program(app, &app->skybox_program);
 
       for (auto iter = app->current_program->attributes.begin(); iter != app->current_program->attributes.end(); ++iter) {
         glEnableVertexAttribArray(iter->second);
@@ -1480,15 +1560,9 @@ void tick(Memory *memory, Input input) {
 
 
     {
-      use_program(app, app->terrain_program);
+      use_program(app, &app->terrain_program);
 
       send_shader_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
-
-      if (input.space) {
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-      } else {
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-      }
 
 #if 1
       int x_coord = static_cast<int>(app->camera.position.x / CHUNK_SIZE_X);
@@ -1523,13 +1597,9 @@ void tick(Memory *memory, Input input) {
       }
       PROFILE_END_COUNTED(render_chunks, chunk_count);
 
-      glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-
-      /* Shader *last_program = 0; */
-
       start_render_group(&app->render_group);
 
-      use_program(app, app->another_program);
+      use_program(app, &app->another_program);
 
       send_shader_uniform(app->current_program, "eye_position", app->camera.position);
       send_shader_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
@@ -1562,7 +1632,7 @@ void tick(Memory *memory, Input input) {
         glm::mat3 normal = glm::inverseTranspose(glm::mat3(model_view));
 
         RenderCommand command;
-        command.shader = app->another_program;
+        command.shader = &app->another_program;
         command.model_view = model_view;
         command.render_flags = entity->render_flags;
         command.normal = normal;
@@ -1579,6 +1649,15 @@ void tick(Memory *memory, Input input) {
       PROFILE_END_COUNTED(render_entities, app->entity_count);
     }
 
+    {
+      use_program(app, &app->debug_program);
+      glBindBuffer(GL_ARRAY_BUFFER, app->debug_buffer);
+      glBufferData(GL_ARRAY_BUFFER, app->debug_lines.size() * sizeof(GLfloat)*3*2, &app->debug_lines[0], GL_STREAM_DRAW);
+      send_shader_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
+      glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+      glDrawArrays(GL_LINES, 0, app->debug_lines.size()*2);
+    }
+
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     {
@@ -1586,24 +1665,25 @@ void tick(Memory *memory, Input input) {
       glDisable(GL_DEPTH_TEST);
       glDisable(GL_CULL_FACE);
 
-      use_program(app, app->fullscreen_program);
-      glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+      use_program(app, &app->fullscreen_program);
 
       glActiveTexture(GL_TEXTURE0 + 0);
       glBindTexture(GL_TEXTURE_2D, app->frame_texture);
-      send_shader_uniformi(app->current_program, "uSampler", 0);
 
       glActiveTexture(GL_TEXTURE0 + 1);
       glBindTexture(GL_TEXTURE_2D, app->frame_depth_texture);
-      send_shader_uniformi(app->current_program, "uDepth", 1);
 
       glActiveTexture(GL_TEXTURE0 + 2);
       glBindTexture(GL_TEXTURE_2D, app->gradient_texture.id);
+
+      send_shader_uniformi(app->current_program, "uSampler", 0);
+      send_shader_uniformi(app->current_program, "uDepth", 1);
       send_shader_uniformi(app->current_program, "uGradient", 2);
 
       send_shader_uniformf(app->current_program, "znear", app->camera.near);
       send_shader_uniformf(app->current_program, "zfar", app->camera.far);
 
+      glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
       glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
       glDrawArrays(GL_TRIANGLES, 0, 6);
     }
@@ -1616,7 +1696,7 @@ void tick(Memory *memory, Input input) {
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
       glEnable(GL_BLEND);
 
-      use_program(app, app->program);
+      use_program(app, &app->program);
 
       glm::mat4 projection = glm::ortho(0.0f, float(memory->width), float(memory->height), 0.0f);
       send_shader_uniform(app->current_program, "uPMatrix", projection);

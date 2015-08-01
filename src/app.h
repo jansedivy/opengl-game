@@ -1,5 +1,6 @@
 #pragma once
 
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -20,7 +21,7 @@
 #include <glm/gtx/string_cast.hpp>
 
 #include <vector>
-#include <map>
+#include <unordered_map>
 
 #include "array.h"
 
@@ -35,11 +36,11 @@
 #include "stb_image_write.h"
 #include "stb_image.h"
 
-#include "font.h"
-
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+
+#include "font.h"
 
 #define CHUNK_SIZE_X 5000
 #define CHUNK_SIZE_Y 5000
@@ -49,8 +50,9 @@ PlatformAPI platform;
 class Shader {
   public:
     GLuint id;
-    std::map<std::string, u32> uniforms;
-    std::map<std::string, GLuint> attributes;
+    std::unordered_map<std::string, u32> uniforms;
+    std::unordered_map<std::string, GLuint> attributes;
+    bool initialized = false;
 };
 
 struct Box {
@@ -123,7 +125,6 @@ struct TerrainChunk {
 enum EntityType {
   EntityPlayer,
   EntityBlock,
-  EntityBullet,
 
   EntityCount
 };
@@ -197,18 +198,24 @@ struct Camera {
 struct App {
   u32 last_id;
 
-  Shader *program;
-  Shader *another_program;
-  Shader *fullscreen_program;
-  Shader *terrain_program;
-  Shader *skybox_program;
-  Shader *textured_program;
+  Shader program;
+  Shader another_program;
+  Shader debug_program;
+  Shader solid_program;
+  Shader fullscreen_program;
+  Shader terrain_program;
+  Shader skybox_program;
+  Shader textured_program;
 
   Shader *current_program;
 
   GLuint font_quad;
-
   GLuint fullscreen_quad;
+
+  GLuint vao;
+
+  GLuint debug_buffer;
+  std::vector<glm::vec3> debug_lines;
 
   GLuint frame_buffer;
   GLuint frame_texture;
@@ -223,7 +230,6 @@ struct App {
 
   Model model0;
   Model sphere_model;
-  Model tree_model;
   Model rock_model;
   Model grass_model;
 
@@ -243,6 +249,8 @@ struct App {
   CubeMap cubemap;
 
   RenderGroup render_group;
+
+  bool editing_mode = false;
 };
 
 Memory *debug_global_memory;

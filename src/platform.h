@@ -14,9 +14,16 @@ typedef int64_t s64;
 #define Terabytes(Value) (Gigabytes(Value)*1024LL)
 
 extern "C" {
+  struct InputOnce {
+    bool key_p;
+  };
+
   struct Input {
-    int mouseX;
-    int mouseY;
+    int rel_mouse_x;
+    int rel_mouse_y;
+
+    int mouse_x;
+    int mouse_y;
 
     bool up;
     bool left;
@@ -25,11 +32,14 @@ extern "C" {
 
     bool key_r;
 
+    InputOnce once;
+
     bool shift;
     bool escape;
 
     bool space;
     bool mouse_click;
+    bool right_mouse_down;
 
     bool is_mouse_locked;
   };
@@ -104,4 +114,7 @@ extern "C" {
 
   void init(Memory *memory);
   typedef void InitType(Memory *memory);
+
+  void quit(Memory *memory);
+  typedef void QuitType(Memory *memory);
 }

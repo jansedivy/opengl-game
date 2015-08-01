@@ -5,7 +5,7 @@ set -e
 app_name='Explore.app'
 executable_name='explore'
 
-shared_flags='-Wall -Wextra -std=c++11 -Wno-missing-field-initializers'
+shared_flags='-g -Wall -Wextra -std=c++11 -Wno-missing-field-initializers'
 optimalization='-O0'
 
 libraries="

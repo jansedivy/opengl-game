@@ -1,17 +1,17 @@
+
 #include <stdio.h>
 #include <dlfcn.h>
 #include <unistd.h>
 #include <sys/stat.h>
 
 #include "app.h"
-#include <OpenGl/gl.h>
 
 #include <fcntl.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include "SDL2/SDL.h"
+#include <SDL2/SDL.h>
 #include "platform.h"
 
 #include "app.h"
@@ -19,6 +19,7 @@
 struct AppCode {
   TickType* tick;
   InitType* init;
+  QuitType* quit;
 
   time_t last_time_write;
 
@@ -55,6 +56,7 @@ AppCode load_app_code() {
 
   result.init = (InitType*)dlsym(lib, "init");
   result.tick = (TickType*)dlsym(lib, "tick");
+  result.quit = (InitType*)dlsym(lib, "quit");
 
   return result;
 }
@@ -82,7 +84,7 @@ DebugReadFileResult debug_read_entire_file(const char *path) {
     char *buffer = (char *)malloc(size + 1);
 
     if (buffer != NULL) {
-      size_t bytes_read = fread(buffer, sizeof(*buffer), size, file);
+      size_t bytes_read = fread(buffer, 1, size, file);
       if (bytes_read == size) {
         fclose(file);
         result.fileSize = size;
@@ -296,16 +298,21 @@ int main() {
         case SDL_QUIT:
           running = false;
           break;
-      case SDL_MOUSEBUTTONUP:
+        case SDL_KEYDOWN:
+          if (event.key.keysym.scancode == SDL_SCANCODE_P) {
+            input.once.key_p = true;
+          }
           break;
-      case SDL_MOUSEBUTTONDOWN:
-          input.mouse_click = true;
+        case SDL_MOUSEBUTTONDOWN:
+          if (event.button.button == SDL_BUTTON_LEFT) {
+            input.mouse_click = true;
+          }
           break;
-      case SDL_WINDOWEVENT:
-        if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
-          unlock_mouse();
-        }
-        break;
+        case SDL_WINDOWEVENT:
+          if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+            unlock_mouse();
+          }
+          break;
       }
     }
 
@@ -322,12 +329,17 @@ int main() {
     input.escape = state[SDL_SCANCODE_ESCAPE];
     input.is_mouse_locked = SDL_GetRelativeMouseMode();
 
-    SDL_GetRelativeMouseState(&input.mouseX, &input.mouseY);
+    u32 mouse_state = SDL_GetRelativeMouseState(&input.rel_mouse_x, &input.rel_mouse_y);
+    SDL_GetMouseState(&input.mouse_x, &input.mouse_y);
+
+    input.right_mouse_down = mouse_state & SDL_BUTTON(SDL_BUTTON_RIGHT);
 
     code.tick(&memory, input);
 
     SDL_GL_SwapWindow(window);
   }
+
+  code.quit(&memory);
 
   return 1;
 }

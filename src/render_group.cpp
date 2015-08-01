@@ -42,6 +42,7 @@ void end_render_group(App *app, RenderGroup *group) {
     }
 
     group->draw_calls += 1;
+
     glDrawElements(GL_TRIANGLES, it->model_mesh->data.indices_count, GL_UNSIGNED_INT, 0);
   }
 }
