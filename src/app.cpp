@@ -17,8 +17,41 @@ inline Entity *get_entity_by_id(App *app, u32 id) {
   return NULL;
 }
 
+void load_texture(Texture *texture, int type=0) {
+  if (!texture->initialized && !texture->has_data) {
+    int channels;
+
+    int width, height;
+    u8* image = stbi_load(texture->path, &width, &height, &channels, type);
+
+    texture->width = width;
+    texture->height = height;
+
+    texture->data = image;
+    texture->has_data = true;
+  }
+}
+
 float distance_from_plane(Plane plane, glm::vec3 position) {
   return plane.normal.x * position.x + plane.normal.y * position.y + plane.normal.z * position.z + plane.distance;
+}
+
+bool ray_match_sphere(Ray ray, glm::vec3 position, float radius) {
+  glm::vec3 offset = ray.start - position;
+  float a = glm::dot(ray.direction, ray.direction);
+  float b = 2 * glm::dot(ray.direction, offset);
+
+  float c = glm::dot(offset, offset) - radius * radius;
+  float discriminant = b * b - 4 * a * c;
+
+  if (discriminant > 0.0f) {
+    float t = (-b - sqrt(discriminant)) / (2 * a);
+    if (t >= 0.0f) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 bool is_sphere_in_frustum(Frustum *frustum, glm::vec3 position, float radius) {
@@ -113,18 +146,15 @@ void unload_texture(Texture *texture) {
 };
 
 void unload_model(Model *model) {
-  for (auto it = model->meshes.begin(); it != model->meshes.end(); it++) {
-    if (model->initialized) {
-      glDeleteBuffers(1, &it->vertices_id);
-      glDeleteBuffers(1, &it->indices_id);
-      glDeleteBuffers(1, &it->normals_id);
-      glDeleteBuffers(1, &it->uv_id);
-    }
-
-    free(it->data.data);
+  if (model->initialized) {
+    glDeleteBuffers(1, &model->mesh.vertices_id);
+    glDeleteBuffers(1, &model->mesh.indices_id);
+    glDeleteBuffers(1, &model->mesh.normals_id);
+    glDeleteBuffers(1, &model->mesh.uv_id);
   }
 
-  model->meshes.clear();
+  free(model->mesh.data.data);
+
   model->initialized = false;
   model->has_data = false;
   model->is_being_loaded = false;
@@ -160,38 +190,34 @@ void initialize_texture(Texture *texture, GLenum type=GL_RGB, bool mipmap=true) 
 }
 
 void initialize_model(Model *model) {
-  for (auto it = model->meshes.begin(); it != model->meshes.end(); it++) {
-    Mesh *mesh = &(*it);
+  GLuint vertices_id;
+  glGenBuffers(1, &vertices_id);
+  glBindBuffer(GL_ARRAY_BUFFER, vertices_id);
+  glBufferData(GL_ARRAY_BUFFER, model->mesh.data.vertices_count * sizeof(GLfloat), model->mesh.data.vertices, GL_STATIC_DRAW);
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    GLuint vertices_id;
-    glGenBuffers(1, &vertices_id);
-    glBindBuffer(GL_ARRAY_BUFFER, vertices_id);
-    glBufferData(GL_ARRAY_BUFFER, mesh->data.vertices_count * sizeof(GLfloat), mesh->data.vertices, GL_STATIC_DRAW);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+  GLuint normals_id;
+  glGenBuffers(1, &normals_id);
+  glBindBuffer(GL_ARRAY_BUFFER, normals_id);
+  glBufferData(GL_ARRAY_BUFFER, model->mesh.data.normals_count * sizeof(GLfloat), model->mesh.data.normals, GL_STATIC_DRAW);
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    GLuint normals_id;
-    glGenBuffers(1, &normals_id);
-    glBindBuffer(GL_ARRAY_BUFFER, normals_id);
-    glBufferData(GL_ARRAY_BUFFER, mesh->data.normals_count * sizeof(GLfloat), mesh->data.normals, GL_STATIC_DRAW);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+  GLuint uv_id;
+  glGenBuffers(1, &uv_id);
+  glBindBuffer(GL_ARRAY_BUFFER, uv_id);
+  glBufferData(GL_ARRAY_BUFFER, model->mesh.data.uv_count * sizeof(GLfloat), model->mesh.data.uv, GL_STATIC_DRAW);
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    GLuint uv_id;
-    glGenBuffers(1, &uv_id);
-    glBindBuffer(GL_ARRAY_BUFFER, uv_id);
-    glBufferData(GL_ARRAY_BUFFER, mesh->data.uv_count * sizeof(GLfloat), mesh->data.uv, GL_STATIC_DRAW);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+  GLuint indices_id;
+  glGenBuffers(1, &indices_id);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indices_id);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER, model->mesh.data.indices_count * sizeof(GLint), model->mesh.data.indices, GL_STATIC_DRAW);
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    GLuint indices_id;
-    glGenBuffers(1, &indices_id);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indices_id);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, mesh->data.indices_count * sizeof(GLint), mesh->data.indices, GL_STATIC_DRAW);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-    mesh->vertices_id = vertices_id;
-    mesh->indices_id = indices_id;
-    mesh->normals_id = normals_id;
-    mesh->uv_id = uv_id;
-  }
+  model->mesh.vertices_id = vertices_id;
+  model->mesh.indices_id = indices_id;
+  model->mesh.normals_id = normals_id;
+  model->mesh.uv_id = uv_id;
 
   model->initialized = true;
 }
@@ -315,7 +341,7 @@ Model generate_ground(TerrainChunk *chunk, int chunk_x, int chunk_y, float detai
   bool first = true;
 
   u32 vertices_count = width * height * 3;
-  u32 normals_count = width * height * 3;
+  u32 normals_count = vertices_count;
   u32 indices_count = (width - 1) * (height - 1) * 6;
 
   Mesh mesh;
@@ -327,7 +353,6 @@ Model generate_ground(TerrainChunk *chunk, int chunk_x, int chunk_y, float detai
 
   for (int x=0; x<width; x++) {
     for (int y=0; y<height; y++) {
-
       float x_coord = static_cast<float>(x) / detail;
       float y_coord = static_cast<float>(y) / detail;
 
@@ -411,7 +436,7 @@ Model generate_ground(TerrainChunk *chunk, int chunk_x, int chunk_y, float detai
 
   Model model;
   model.path = "chunk";
-  model.meshes.push_back(mesh);
+  model.mesh = mesh;
   model.initialized = false;
   model.has_data = true;
   model.is_being_loaded = false;
@@ -634,7 +659,7 @@ void init(Memory *memory) {
   glGenVertexArrays(1, &app->vao);
   glBindVertexArray(app->vao);
 
-  glEnable(GL_MULTISAMPLE);
+  /* glEnable(GL_MULTISAMPLE); */
   glEnable(GL_DEPTH_TEST);
   glEnable(GL_CULL_FACE);
 
@@ -701,8 +726,9 @@ void init(Memory *memory) {
         }
       }
 
-      app->sphere_model.meshes.push_back(mesh);
+      app->sphere_model.mesh = mesh;
       app->sphere_model.path = "sphere";
+      app->sphere_model.radius = radius;
 
       app->sphere_model.has_data = true;
       app->sphere_model.initialized = false;
@@ -779,11 +805,12 @@ void init(Memory *memory) {
       memcpy(mesh.data.normals, &normals, sizeof(normals));
       memcpy(mesh.data.indices, &indices, sizeof(indices));
 
-      app->model0.path = "cube";
-      app->model0.meshes.push_back(mesh);
-      app->model0.has_data = true;
-      app->model0.is_being_loaded = false;
-      app->model0.initialized = false;
+      app->cube_model.path = "cube";
+      app->cube_model.radius = 1.0f;
+      app->cube_model.mesh = mesh;
+      app->cube_model.has_data = true;
+      app->cube_model.is_being_loaded = false;
+      app->cube_model.initialized = false;
     }
 
     /* app->grass_model.path = "grass.obj"; */
@@ -865,16 +892,9 @@ void init(Memory *memory) {
   {
     app->gradient_texture.path = "gradient.png";
 
-    int channels, width, height;
-    app->gradient_texture.data = stbi_load(app->gradient_texture.path, &width, &height, &channels, STBI_rgb_alpha);
-    app->gradient_texture.width = width;
-    app->gradient_texture.height = height;
-
-    app->gradient_texture.has_data = true;
-    app->gradient_texture.initialized = false;
-    app->gradient_texture.is_being_loaded = false;
-
+    load_texture(&app->gradient_texture, STBI_rgb_alpha);
     initialize_texture(&app->gradient_texture, GL_RGBA, false);
+
     stbi_image_free(app->gradient_texture.data);
     app->gradient_texture.data = NULL;
   }
@@ -887,25 +907,26 @@ void init(Memory *memory) {
 
   glGenBuffers(1, &app->font_quad);
 
-  app->cubemap.model = &app->model0;
+  app->cubemap.model = &app->cube_model;
 
-  std::vector<const char*> faces;
-  faces.push_back("right.jpg");
-  faces.push_back("left.jpg");
-  faces.push_back("top.jpg");
-  faces.push_back("bottom.jpg");
-  faces.push_back("back.jpg");
-  faces.push_back("front.jpg");
+  const char* faces[] = {
+    "right.jpg",
+    "left.jpg",
+    "top.jpg",
+    "bottom.jpg",
+    "back.jpg",
+    "front.jpg"
+  };
 
   glGenTextures(1, &app->cubemap.id);
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_CUBE_MAP, app->cubemap.id);
 
   GLuint number = 0;
-  for (auto it = faces.begin(); it != faces.end(); it++) {
+  for (u32 i=0; i<array_count(faces); i++) {
     int width, height;
     int channels;
-    u8 *image = stbi_load(*it, &width, &height, &channels, 0);
+    u8 *image = stbi_load(faces[i], &width, &height, &channels, 0);
     glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + number, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, image);
     stbi_image_free(image);
     number += 1;
@@ -942,30 +963,37 @@ void init(Memory *memory) {
     app->frame_width = memory->width;
     app->frame_height = memory->height;
 
-    glGenTextures(1, &app->frame_texture);
-    glGenTextures(1, &app->frame_depth_texture);
+    // NOTE(sedivy): texture
+    {
+      glGenTextures(1, &app->frame_texture);
+      glBindTexture(GL_TEXTURE_2D, app->frame_texture);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, app->frame_width, app->frame_height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
 
-    glGenFramebuffers(1, &app->frame_buffer);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
 
-    glBindFramebuffer(GL_FRAMEBUFFER, app->frame_buffer);
+    // NOTE(sedivy): depth
+    {
+      glGenTextures(1, &app->frame_depth_texture);
+      glBindTexture(GL_TEXTURE_2D, app->frame_depth_texture);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, app->frame_width, app->frame_height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL);
 
-    glBindTexture(GL_TEXTURE_2D, app->frame_texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, app->frame_width, app->frame_height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, app->frame_texture, 0);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    glBindTexture(GL_TEXTURE_2D, app->frame_depth_texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, app->frame_width, app->frame_height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, app->frame_depth_texture, 0);
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    // NOTE(sedivy): Framebuffer
+    {
+      glGenFramebuffers(1, &app->frame_buffer);
+      glBindFramebuffer(GL_FRAMEBUFFER, app->frame_buffer);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, app->frame_texture, 0);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, app->frame_depth_texture, 0);
+    }
   }
 
   glGenBuffers(1, &app->debug_buffer);
@@ -1093,7 +1121,7 @@ void load_model_work(void *data) {
         indices_offset += mesh_data->mNumVertices;
       }
 
-      model->meshes.push_back(mesh);
+      model->mesh = mesh;
     }
 
     platform.debug_free_file(result);
@@ -1105,53 +1133,23 @@ void load_model_work(void *data) {
   free(work);
 };
 
-struct LoadTextureWork {
-  Texture *texture;
-};
-
 void load_texture_work(void *data) {
-  LoadTextureWork *work = static_cast<LoadTextureWork *>(data);
-
-  if (!work->texture->initialized && !work->texture->has_data) {
-    int channels;
-
-    int width, height;
-    u8* image = stbi_load(work->texture->path, &width, &height, &channels, 0);
-
-    work->texture->width = width;
-    work->texture->height = height;
-
-    work->texture->data = image;
-    work->texture->has_data = true;
-  }
-
-  free(work);
-};
-
-struct GenerateGroundWorkData {
-  TerrainChunk *chunk;
+  load_texture(static_cast<Texture*>(data));
 };
 
 void generate_ground_work(void *data) {
-  GenerateGroundWorkData *work = static_cast<GenerateGroundWorkData *>(data);
-
-  TerrainChunk *chunk = work->chunk;
+  TerrainChunk *chunk = static_cast<TerrainChunk*>(data);
   chunk->model = generate_ground(chunk, chunk->x, chunk->y, 0.03f);
   chunk->model_mid = generate_ground(chunk, chunk->x, chunk->y, 0.01f);
   chunk->model_low = generate_ground(chunk, chunk->x, chunk->y, 0.005f);
   chunk->has_data = true;
   chunk->is_being_loaded = true;
-
-  free(work);
 }
 
 inline bool process_texture(Memory *memory, Entity *entity) {
   if (!entity->texture->initialized && !entity->texture->has_data && !entity->texture->is_being_loaded) {
     if (platform.queue_has_free_spot(memory->low_queue)) {
-      LoadTextureWork *work = static_cast<LoadTextureWork *>(malloc(sizeof(LoadTextureWork)));
-      work->texture = entity->texture;
-
-      platform.add_work(memory->low_queue, load_texture_work, work);
+      platform.add_work(memory->low_queue, load_texture_work, entity->texture);
 
       entity->texture->is_being_loaded = true;
     }
@@ -1218,10 +1216,7 @@ bool render_terrain_chunk(Memory *memory, App *app, TerrainChunk *chunk, int det
 
       chunk->is_being_loaded = true;
 
-      GenerateGroundWorkData *work = static_cast<GenerateGroundWorkData *>(malloc(sizeof(GenerateGroundWorkData)));
-      work->chunk = chunk;
-
-      platform.add_work(memory->main_queue, generate_ground_work, work);
+      platform.add_work(memory->main_queue, generate_ground_work, chunk);
     }
 
     return false;
@@ -1271,12 +1266,8 @@ bool render_terrain_chunk(Memory *memory, App *app, TerrainChunk *chunk, int det
   }
 #endif
 
-  for (auto it = model->meshes.begin(); it != model->meshes.end(); it++) {
-    Mesh *mesh = &(*it);
-    use_model_mesh(app, mesh);
-
-    glDrawElements(GL_TRIANGLES, mesh->data.indices_count, GL_UNSIGNED_INT, 0);
-  }
+  use_model_mesh(app, &model->mesh);
+  glDrawElements(GL_TRIANGLES, model->mesh.data.indices_count, GL_UNSIGNED_INT, 0);
 
   return true;
 }
@@ -1325,8 +1316,20 @@ void draw_string(App *app, Font *font, float x, float y, char *text, glm::vec3 c
   }
 }
 
-glm::mat4 get_camera_perspective(Camera *camera) {
-  return glm::perspective(glm::radians(75.0f), camera->aspect_ratio, camera->near, camera->far);
+glm::mat4 get_camera_projection(Camera *camera) {
+  glm::mat4 projection;
+
+  if (camera->ortho) {
+    projection = glm::ortho(0.0f, 1280.0f, 0.0f, 720.0f, 0.0f, camera->far);
+  } else {
+    projection = glm::perspective(glm::radians(75.0f), camera->aspect_ratio, camera->near, camera->far);
+  }
+
+  projection = glm::rotate(projection, camera->rotation.x, glm::vec3(1.0, 0.0, 0.0));
+  projection = glm::rotate(projection, camera->rotation.y, glm::vec3(0.0, 1.0, 0.0));
+  projection = glm::rotate(projection, camera->rotation.z, glm::vec3(0.0, 0.0, 1.0));
+
+  return projection;
 }
 
 #include "render_group.cpp"
@@ -1343,10 +1346,7 @@ void tick(Memory *memory, Input input) {
     glewExperimental = GL_TRUE;
     glewInit();
 
-    /* unload_texture(&app->grass_texture); */
-    /* unload_texture(&app->gradient_texture); */
-
-#if 0
+#if 1
     for (u32 i=0; i<app->chunk_cache_count; i++) {
       TerrainChunk *chunk = app->chunk_cache + i;
       unload_chunk(chunk);
@@ -1354,7 +1354,7 @@ void tick(Memory *memory, Input input) {
 #endif
   }
 
-  if (input.key_r) {
+  if (input.once.key_r) {
     create_shader(&app->another_program, "another_vert.glsl", "another_frag.glsl");
     create_shader(&app->debug_program, "debug_vert.glsl", "debug_frag.glsl");
     create_shader(&app->solid_program, "solid_vert.glsl", "solid_frag.glsl");
@@ -1364,12 +1364,21 @@ void tick(Memory *memory, Input input) {
     create_shader(&app->program, "vert.glsl", "frag.glsl");
     create_shader(&app->textured_program, "textured.vert", "textured.frag");
 
+    unload_texture(&app->gradient_texture);
+    load_texture(&app->gradient_texture, STBI_rgb_alpha);
+    initialize_texture(&app->gradient_texture, GL_RGBA, false);
+
     unload_model(&app->rock_model);
-    /* unload_model(&app->grass_model); */
 
     for (u32 i=0; i<array_count(app->trees); i++) {
       unload_model(app->trees + i);
     }
+  }
+
+  if (input.key_o) {
+    app->camera.ortho = true;
+  } else {
+    app->camera.ortho = false;
   }
 
   Entity *follow_entity = get_entity_by_id(app, app->camera_follow);
@@ -1496,11 +1505,7 @@ void tick(Memory *memory, Input input) {
     app->camera.rotation = follow_entity->rotation;
     app->camera.position = follow_entity->position;
 
-    app->camera.view_matrix = get_camera_perspective(&app->camera);
-
-    app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.x, glm::vec3(1.0, 0.0, 0.0));
-    app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.y, glm::vec3(0.0, 1.0, 0.0));
-    app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.z, glm::vec3(0.0, 0.0, 1.0));
+    app->camera.view_matrix = get_camera_projection(&app->camera);
 
     app->camera.view_matrix = glm::translate(app->camera.view_matrix, (app->camera.position * -1.0f) - glm::vec3(0.0f, 3.2f, 0.0f));
 
@@ -1521,8 +1526,20 @@ void tick(Memory *memory, Input input) {
 
       glm::vec3 direction = glm::normalize(to - from);
 
-      app->debug_lines.push_back(from);
-      app->debug_lines.push_back(from + direction * 10000.0f);
+      /* app->debug_lines.push_back(from); */
+      /* app->debug_lines.push_back(from + direction * 10000.0f); */
+
+      Ray ray;
+      ray.start = from;
+      ray.direction = direction;
+
+      for (u32 i=0; i<app->entity_count; i++) {
+        Entity *entity = app->entities + i;
+
+        if (ray_match_sphere(ray, entity->position, entity->model->radius * glm::compMax(entity->scale))) {
+          entity->position = glm::vec3(0.0f);
+        }
+      }
     }
 
 
@@ -1544,27 +1561,10 @@ void tick(Memory *memory, Input input) {
       glDisable(GL_DEPTH_TEST);
       glDepthMask(GL_FALSE);
 
-      /* if (app->current_program != 0) { */
-      /*   for (auto iter = app->current_program->attributes.begin(); iter != app->current_program->attributes.end(); ++iter) { */
-      /*     glDisableVertexAttribArray(iter->second); */
-      /*   } */
-      /* } */
-
       use_program(app, &app->skybox_program);
 
-      for (auto iter = app->current_program->attributes.begin(); iter != app->current_program->attributes.end(); ++iter) {
-        glEnableVertexAttribArray(iter->second);
-      }
+      glm::mat4 projection = get_camera_projection(&app->camera);
 
-      glm::mat4 projection = get_camera_perspective(&app->camera);
-
-      glm::mat4 view;
-
-      view = glm::rotate(view, app->camera.rotation.x, glm::vec3(1.0, 0.0, 0.0));
-      view = glm::rotate(view, app->camera.rotation.y, glm::vec3(0.0, 1.0, 0.0));
-      view = glm::rotate(view, app->camera.rotation.z, glm::vec3(0.0, 0.0, 1.0));
-
-      send_shader_uniform(app->current_program, "view", view);
       send_shader_uniform(app->current_program, "projection", projection);
 
       glActiveTexture(GL_TEXTURE0);
@@ -1572,7 +1572,7 @@ void tick(Memory *memory, Input input) {
       send_shader_uniformi(app->current_program, "uSampler", 0);
 
       if (!process_model(memory, app->cubemap.model)) {
-        Mesh *mesh = &app->cubemap.model->meshes[0];
+        Mesh *mesh = &app->cubemap.model->mesh;
 
         glBindBuffer(GL_ARRAY_BUFFER, mesh->vertices_id);
         glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 3, GL_FLOAT, GL_FALSE, 0, 0);
@@ -1588,42 +1588,45 @@ void tick(Memory *memory, Input input) {
     }
 
     {
-      use_program(app, &app->terrain_program);
+      // NOTE(sedivy): Terrain
+      {
+        use_program(app, &app->terrain_program);
 
-      send_shader_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
+        send_shader_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
 
 #if 1
-      int x_coord = static_cast<int>(app->camera.position.x / CHUNK_SIZE_X);
-      int y_coord = static_cast<int>(app->camera.position.z / CHUNK_SIZE_Y);
+        int x_coord = static_cast<int>(app->camera.position.x / CHUNK_SIZE_X);
+        int y_coord = static_cast<int>(app->camera.position.z / CHUNK_SIZE_Y);
 #else
-      int x_coord = static_cast<int>(20000.0f / CHUNK_SIZE_X);
-      int y_coord = static_cast<int>(20000.0f / CHUNK_SIZE_Y);
+        int x_coord = static_cast<int>(20000.0f / CHUNK_SIZE_X);
+        int y_coord = static_cast<int>(20000.0f / CHUNK_SIZE_Y);
 #endif
 
-      u32 chunk_count = 0;
+        u32 chunk_count = 0;
 
-      PROFILE(render_chunks);
-      for (int y=-4 + y_coord; y<=4 + y_coord; y++) {
-        for (int x=-4 + x_coord; x<=4 + x_coord; x++) {
-          if (x < 0 || y < 0 ) { continue; }
+        PROFILE(render_chunks);
+        for (int y=-4 + y_coord; y<=4 + y_coord; y++) {
+          for (int x=-4 + x_coord; x<=4 + x_coord; x++) {
+            if (x < 0 || y < 0 ) { continue; }
 
-          TerrainChunk *chunk = get_chunk_at(app->chunk_cache, app->chunk_cache_count, x, y);
+            TerrainChunk *chunk = get_chunk_at(app->chunk_cache, app->chunk_cache_count, x, y);
 
-          int dx = chunk->x - x_coord;
-          int dy = chunk->y - y_coord;
+            int dx = chunk->x - x_coord;
+            int dy = chunk->y - y_coord;
 
-          float distance = glm::pow(dx, 2) + glm::pow(dy, 2);
+            float distance = glm::pow(dx, 2) + glm::pow(dy, 2);
 
-          int detail_level = 0;
-          if (distance < 16.0f) { detail_level = 2; }
-          if (distance < 4.0f) { detail_level = 1; }
+            int detail_level = 0;
+            if (distance < 16.0f) { detail_level = 2; }
+            if (distance < 4.0f) { detail_level = 1; }
 
-          if (render_terrain_chunk(memory, app, chunk, detail_level)) {
-            chunk_count += 1;
+            if (render_terrain_chunk(memory, app, chunk, detail_level)) {
+              chunk_count += 1;
+            }
           }
         }
+        PROFILE_END_COUNTED(render_chunks, chunk_count);
       }
-      PROFILE_END_COUNTED(render_chunks, chunk_count);
 
       start_render_group(&app->render_group);
 
@@ -1678,7 +1681,7 @@ void tick(Memory *memory, Input input) {
             command.normal = glm::inverseTranspose(glm::mat3(sphere_view));
             command.color = glm::vec3(1.0f);
 
-            command.model_mesh = &app->sphere_model.meshes[0];
+            command.model_mesh = &app->sphere_model.mesh;
             add_command_to_render_group(&app->render_group, command);
           }
         }
@@ -1691,12 +1694,8 @@ void tick(Memory *memory, Input input) {
         command.normal = normal;
         command.color = entity->color;
 
-        for (u32 i=0; i<entity->model->meshes.size(); i++) {
-          Mesh *mesh = entity->model->meshes.data() + i;
-
-          command.model_mesh = mesh;
-          add_command_to_render_group(&app->render_group, command);
-        }
+        command.model_mesh = &entity->model->mesh;
+        add_command_to_render_group(&app->render_group, command);
       }
       end_render_group(app, &app->render_group);
       PROFILE_END_COUNTED(render_entities, app->entity_count);

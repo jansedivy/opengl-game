@@ -263,8 +263,8 @@ int main() {
   SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
   SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
-  SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
-  SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
+  /* SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1); */
+  /* SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4); */
 
   SDL_Window *window = SDL_CreateWindow("Explore",
       SDL_WINDOWPOS_UNDEFINED,
@@ -302,6 +302,9 @@ int main() {
           if (event.key.keysym.scancode == SDL_SCANCODE_P) {
             input.once.key_p = true;
           }
+          if (event.key.keysym.scancode == SDL_SCANCODE_R) {
+            input.once.key_r = true;
+          }
           break;
         case SDL_MOUSEBUTTONDOWN:
           if (event.button.button == SDL_BUTTON_LEFT) {
@@ -326,6 +329,7 @@ int main() {
     input.space = state[SDL_SCANCODE_SPACE];
     input.shift = state[SDL_SCANCODE_LSHIFT];
     input.key_r = state[SDL_SCANCODE_R];
+    input.key_o = state[SDL_SCANCODE_O];
     input.escape = state[SDL_SCANCODE_ESCAPE];
     input.is_mouse_locked = SDL_GetRelativeMouseMode();
 

@@ -16,6 +16,7 @@ typedef int64_t s64;
 extern "C" {
   struct InputOnce {
     bool key_p;
+    bool key_r;
   };
 
   struct Input {
@@ -31,6 +32,7 @@ extern "C" {
     bool down;
 
     bool key_r;
+    bool key_o;
 
     InputOnce once;
 

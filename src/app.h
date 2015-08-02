@@ -88,7 +88,9 @@ struct Mesh {
 struct Model {
   const char *path = NULL;
 
-  std::vector<Mesh> meshes;
+  Mesh mesh;
+  u32 mesh_count = 0;
+
   float radius = 300.0f;
 
   bool is_being_loaded = false;
@@ -165,6 +167,11 @@ struct Entity {
   Texture *texture = 0;
 };
 
+struct Ray {
+  glm::vec3 start;
+  glm::vec3 direction;
+};
+
 struct Plane {
   glm::vec3 normal;
   float distance;
@@ -189,6 +196,8 @@ struct Camera {
   glm::vec3 rotation;
   glm::vec3 position;
   Frustum frustum;
+
+  bool ortho = false;
 
   float far;
   float near;
@@ -229,7 +238,7 @@ struct App {
 
   Font font;
 
-  Model model0;
+  Model cube_model;
   Model sphere_model;
   Model rock_model;
   Model grass_model;
