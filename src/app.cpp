@@ -101,37 +101,6 @@ void fill_frustum_with_matrix(Frustum *frustum, glm::mat4 matrix) {
   }
 }
 
-bool is_box_inside_frustum(Frustum *frustum, Box box) {
-  glm::vec3 points[] = {
-    glm::vec3(box.min.x, box.min.y, box.min.z),
-    glm::vec3(box.max.x, box.min.y, box.min.z),
-    glm::vec3(box.max.x, box.max.y, box.min.z),
-    glm::vec3(box.min.x, box.max.y, box.min.z),
-
-    glm::vec3(box.min.x, box.min.y, box.max.z),
-    glm::vec3(box.max.x, box.min.y, box.max.z),
-    glm::vec3(box.max.x, box.max.y, box.max.z),
-    glm::vec3(box.min.x, box.max.y, box.max.z)
-  };
-
-  for(int i=0; i<6; i++) {
-    bool inside = false;
-
-    for (int l=0; l<8; l++) {
-      if (glm::dot(points[l], frustum->planes[i].normal) > 0) {
-        inside = true;
-        break;
-      }
-    }
-
-    if (!inside) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
 void unload_texture(Texture *texture) {
   if (texture->initialized) {
     glDeleteTextures(1, &texture->id);
@@ -351,6 +320,8 @@ Model generate_ground(TerrainChunk *chunk, int chunk_x, int chunk_y, float detai
   u32 normals_index = 0;
   u32 indices_index = 0;
 
+  float radius = 0.0f;
+
   for (int x=0; x<width; x++) {
     for (int y=0; y<height; y++) {
       float x_coord = static_cast<float>(x) / detail;
@@ -361,6 +332,12 @@ Model generate_ground(TerrainChunk *chunk, int chunk_x, int chunk_y, float detai
       mesh.data.vertices[vertices_index++] = x_coord;
       mesh.data.vertices[vertices_index++] = value;
       mesh.data.vertices[vertices_index++] = y_coord;
+
+      // TODO(sedivy): calculate center
+      float distance = glm::length(glm::vec3(x_coord, value, y_coord));
+      if (distance > radius) {
+        radius = distance;
+      }
 
       mesh.data.normals[normals_index++] = 0.0f;
       mesh.data.normals[normals_index++] = 0.0f;
@@ -440,6 +417,7 @@ Model generate_ground(TerrainChunk *chunk, int chunk_x, int chunk_y, float detai
   model.initialized = false;
   model.has_data = true;
   model.is_being_loaded = false;
+  model.radius = radius;
 
   return model;
 }
@@ -534,9 +512,10 @@ u32 next_entity_id(App *app) {
   return app->last_id++;
 }
 
-u32 generate_blue_noise(glm::vec2 *positions, u32 position_count, float min_radius, float radius) {
-  static float tau = glm::pi<float>() * 2.0f;
+static float tau = glm::pi<float>() * 2.0f;
+static float pi = glm::pi<float>();
 
+u32 generate_blue_noise(glm::vec2 *positions, u32 position_count, float min_radius, float radius) {
   u32 noise_count = 0;
 
   positions[0] = glm::vec2(20000.0, 20000.0);
@@ -588,7 +567,7 @@ u32 generate_blue_noise(glm::vec2 *positions, u32 position_count, float min_radi
 
 void generate_trees(App *app) {
   glm::vec2 noise_records[2000];
-  u32 size = generate_blue_noise(noise_records, 2000, 1200.0f, 400.0f);
+  u32 size = generate_blue_noise(noise_records, 2000, 500.0f, 400.0f);
 
   Random random = create_random_sequence();
 
@@ -600,7 +579,7 @@ void generate_trees(App *app) {
     entity->position.x = noise_records[i].x;
     entity->position.z = noise_records[i].y;
     entity->position.y = get_terrain_height_at(entity->position.x, entity->position.z) - 10.0f;
-    entity->scale = glm::vec3(100.0f);
+    entity->scale = glm::vec3(1.0f);
     entity->model = app->trees + (i % array_count(app->trees));
     entity->color = glm::vec3(0.7f, 0.3f, 0.2f);
     entity->rotation = glm::vec3(0.0f, get_next_float(&random) * glm::pi<float>(), 0.0f);
@@ -634,6 +613,9 @@ void init(Memory *memory) {
   app->fullscreen_program.uniforms = std::unordered_map<std::string, u32>();
   app->fullscreen_program.attributes = std::unordered_map<std::string, GLuint>();
 
+  app->fullscreen_depth_program.uniforms = std::unordered_map<std::string, u32>();
+  app->fullscreen_depth_program.attributes = std::unordered_map<std::string, GLuint>();
+
   app->terrain_program.uniforms = std::unordered_map<std::string, u32>();
   app->terrain_program.attributes = std::unordered_map<std::string, GLuint>();
 
@@ -650,9 +632,15 @@ void init(Memory *memory) {
   app->entity_count = 0;
   app->last_id = 0;
 
-  app->camera.aspect_ratio = static_cast<float>(memory->width)/static_cast<float>(memory->height);
+  app->shadow_camera.ortho = false;
   app->camera.near = 0.5f;
   app->camera.far = 50000.0f;
+  app->camera.size = glm::vec2(memory->width, memory->height);
+
+  app->shadow_camera.ortho = true;
+  app->shadow_camera.near = 0.5f;
+  app->shadow_camera.far = 10000.0f;
+  app->shadow_camera.size = glm::vec2(4096.0f, 4096.0f);
 
   app->current_program = 0;
 
@@ -824,6 +812,7 @@ void init(Memory *memory) {
   create_shader(&app->another_program, "another_vert.glsl", "another_frag.glsl");
   create_shader(&app->debug_program, "debug_vert.glsl", "debug_frag.glsl");
   create_shader(&app->fullscreen_program, "fullscreen.vert", "fullscreen.frag");
+  create_shader(&app->fullscreen_depth_program, "fullscreen.vert", "fullscreen_depth.frag");
   create_shader(&app->terrain_program, "terrain.vert", "terrain.frag");
   create_shader(&app->skybox_program, "skybox.vert", "skybox.frag");
   create_shader(&app->program, "vert.glsl", "frag.glsl");
@@ -996,6 +985,54 @@ void init(Memory *memory) {
     }
   }
 
+  {
+    app->shadow_width = 1024;
+    app->shadow_height = 1024;
+
+    // NOTE(sedivy): texture
+    {
+      glGenTextures(1, &app->shadow_texture);
+      glBindTexture(GL_TEXTURE_2D, app->shadow_texture);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, app->shadow_width, app->shadow_height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+      /* glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); */
+      /* glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST); */
+
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    }
+
+    // NOTE(sedivy): depth
+    {
+      glGenTextures(1, &app->shadow_depth_texture);
+      glBindTexture(GL_TEXTURE_2D, app->shadow_depth_texture);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, app->shadow_width, app->shadow_height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL);
+
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+      /* glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); */
+      /* glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST); */
+
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    }
+
+    // NOTE(sedivy): Framebuffer
+    {
+      glGenFramebuffers(1, &app->shadow_buffer);
+      glBindFramebuffer(GL_FRAMEBUFFER, app->shadow_buffer);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, app->shadow_texture, 0);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, app->shadow_depth_texture, 0);
+    }
+  }
+
   glGenBuffers(1, &app->debug_buffer);
 }
 
@@ -1031,6 +1068,11 @@ inline void send_shader_uniformf(Shader *shader, const char *name, float value) 
 inline void send_shader_uniform(Shader *shader, const char *name, glm::vec3 value) {
   GLint location = shader_get_uniform_location(shader, name);
   glUniform3fv(location, 1, glm::value_ptr(value));
+}
+
+inline void send_shader_uniform(Shader *shader, const char *name, glm::vec2 value) {
+  GLint location = shader_get_uniform_location(shader, name);
+  glUniform2fv(location, 1, glm::value_ptr(value));
 }
 
 struct LoadModelWork {
@@ -1158,9 +1200,6 @@ inline bool process_texture(Memory *memory, Entity *entity) {
 
   if (!entity->texture->initialized && entity->texture->has_data) {
     initialize_texture(entity->texture);
-  }
-
-  if (!entity->texture->initialized) {
     return true;
   }
 
@@ -1182,9 +1221,6 @@ inline bool process_model(Memory *memory, Model *model) {
 
   if (!model->initialized && model->has_data) {
     initialize_model(model);
-  }
-
-  if (!model->initialized) {
     return true;
   }
 
@@ -1210,20 +1246,27 @@ inline void use_model_mesh(App *app, Mesh *mesh) {
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->indices_id);
 }
 
-bool render_terrain_chunk(Memory *memory, App *app, TerrainChunk *chunk, int detail_level) {
+inline bool process_terrain(Memory *memory, TerrainChunk *chunk, Model *model) {
   if (!chunk->has_data) {
     if (!chunk->is_being_loaded && platform.queue_has_free_spot(memory->main_queue)) {
-
       chunk->is_being_loaded = true;
 
       platform.add_work(memory->main_queue, generate_ground_work, chunk);
     }
 
-    return false;
+    return true;
   }
 
-  Model *model;
+  if (!model->initialized) {
+    initialize_model(model);
+    return true;
+  }
 
+  return false;
+}
+
+bool render_terrain_chunk(Memory *memory, App *app, TerrainChunk *chunk, int detail_level) {
+  Model *model;
   if (detail_level == 1) {
     model = &chunk->model;
   } else if (detail_level == 2) {
@@ -1232,15 +1275,9 @@ bool render_terrain_chunk(Memory *memory, App *app, TerrainChunk *chunk, int det
     model = &chunk->model_low;
   }
 
-  if (!model->initialized) {
-    initialize_model(model);
+  if (process_terrain(memory, chunk, model)) {
+    return false;
   }
-
-  Box box;
-  box.min = glm::vec3(chunk->x * CHUNK_SIZE_X, chunk->min, chunk->y * CHUNK_SIZE_Y);
-  box.max = glm::vec3((chunk->x + 1) * CHUNK_SIZE_X, chunk->max, (chunk->y + 1) * CHUNK_SIZE_Y);
-
-  /* if (!is_box_inside_frustum(&app->camera.frustum, box)) { return; } */
 
   glm::mat4 model_view;
   model_view = glm::translate(model_view, glm::vec3(chunk->x * CHUNK_SIZE_X, 0.0f, chunk->y * CHUNK_SIZE_Y));
@@ -1320,9 +1357,9 @@ glm::mat4 get_camera_projection(Camera *camera) {
   glm::mat4 projection;
 
   if (camera->ortho) {
-    projection = glm::ortho(0.0f, 1280.0f, 0.0f, 720.0f, 0.0f, camera->far);
+    projection = glm::ortho(camera->size.x / -2.0f, camera->size.y / 2.0f, camera->size.x / 2.0f, camera->size.y / -2.0f, camera->near, camera->far);
   } else {
-    projection = glm::perspective(glm::radians(75.0f), camera->aspect_ratio, camera->near, camera->far);
+    projection = glm::perspective(glm::radians(75.0f), camera->size.x / camera->size.y, camera->near, camera->far);
   }
 
   projection = glm::rotate(projection, camera->rotation.x, glm::vec3(1.0, 0.0, 0.0));
@@ -1346,7 +1383,7 @@ void tick(Memory *memory, Input input) {
     glewExperimental = GL_TRUE;
     glewInit();
 
-#if 1
+#if 0
     for (u32 i=0; i<app->chunk_cache_count; i++) {
       TerrainChunk *chunk = app->chunk_cache + i;
       unload_chunk(chunk);
@@ -1359,6 +1396,7 @@ void tick(Memory *memory, Input input) {
     create_shader(&app->debug_program, "debug_vert.glsl", "debug_frag.glsl");
     create_shader(&app->solid_program, "solid_vert.glsl", "solid_frag.glsl");
     create_shader(&app->fullscreen_program, "fullscreen.vert", "fullscreen.frag");
+    create_shader(&app->fullscreen_depth_program, "fullscreen.vert", "fullscreen_depth.frag");
     create_shader(&app->terrain_program, "terrain.vert", "terrain.frag");
     create_shader(&app->skybox_program, "skybox.vert", "skybox.frag");
     create_shader(&app->program, "vert.glsl", "frag.glsl");
@@ -1500,15 +1538,13 @@ void tick(Memory *memory, Input input) {
         follow_entity->position.y = terrain;
       }
     }
-    /* printf("%f %f %f\n", follow_entity->position.x, follow_entity->position.y, follow_entity->position.z); */
+    /* printf("position: %f %f %f\n", follow_entity->position.x, follow_entity->position.y, follow_entity->position.z); */
+    /* printf("rotation: %f %f %f\n\n", follow_entity->rotation.x, follow_entity->rotation.y, follow_entity->rotation.z); */
 
     app->camera.rotation = follow_entity->rotation;
     app->camera.position = follow_entity->position;
-
     app->camera.view_matrix = get_camera_projection(&app->camera);
-
     app->camera.view_matrix = glm::translate(app->camera.view_matrix, (app->camera.position * -1.0f) - glm::vec3(0.0f, 3.2f, 0.0f));
-
     fill_frustum_with_matrix(&app->camera.frustum, app->camera.view_matrix);
 
     if (app->editing_mode && input.mouse_click) {
@@ -1526,8 +1562,10 @@ void tick(Memory *memory, Input input) {
 
       glm::vec3 direction = glm::normalize(to - from);
 
-      /* app->debug_lines.push_back(from); */
-      /* app->debug_lines.push_back(from + direction * 10000.0f); */
+#if 0
+      app->debug_lines.push_back(from);
+      app->debug_lines.push_back(to);
+#endif
 
       Ray ray;
       ray.start = from;
@@ -1542,6 +1580,14 @@ void tick(Memory *memory, Input input) {
       }
     }
 
+    {
+      app->shadow_camera.position = follow_entity->position + glm::vec3(0.0, 4000.0, 0.0);
+      app->shadow_camera.rotation = glm::vec3(1.229797, -1.170025, 0.0f);
+      app->shadow_camera.view_matrix = get_camera_projection(&app->shadow_camera);
+      app->shadow_camera.view_matrix = glm::translate(app->shadow_camera.view_matrix, (app->shadow_camera.position * -1.0f));
+      fill_frustum_with_matrix(&app->shadow_camera.frustum, app->shadow_camera.view_matrix);
+    }
+
 
     PROFILE_END(update);
   }
@@ -1549,6 +1595,58 @@ void tick(Memory *memory, Input input) {
   // NOTE(sedivy): render
   {
     PROFILE(render);
+
+    {
+      glBindFramebuffer(GL_FRAMEBUFFER, app->shadow_buffer);
+      glViewport(0, 0, app->shadow_width, app->shadow_height);
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+      start_render_group(&app->render_group);
+
+      use_program(app, &app->solid_program);
+
+      send_shader_uniform(app->current_program, "uPMatrix", app->shadow_camera.view_matrix);
+
+      for (u32 i=0; i<app->entity_count; i++) {
+        Entity *entity = app->entities + i;
+
+        if (entity->render_flags & RenderHidden) { continue; }
+
+        bool model_wait = process_model(memory, entity->model);
+        bool texture_wait = false;
+
+        if (entity->texture) {
+          texture_wait = process_texture(memory, entity);
+        }
+
+        if (model_wait || texture_wait) { continue; }
+
+        if (!is_sphere_in_frustum(&app->shadow_camera.frustum, entity->position, entity->model->radius * glm::compMax(entity->scale))) {
+          continue;
+        }
+
+        glm::mat4 model_view;
+        model_view = glm::translate(model_view, entity->position);
+        model_view = glm::scale(model_view, entity->scale);
+        model_view = glm::rotate(model_view, entity->rotation.x, glm::vec3(1.0, 0.0, 0.0));
+        model_view = glm::rotate(model_view, entity->rotation.y, glm::vec3(0.0, 1.0, 0.0));
+        model_view = glm::rotate(model_view, entity->rotation.z, glm::vec3(0.0, 0.0, 1.0));
+
+        RenderCommand command;
+        command.shader = &app->solid_program;
+        command.model_view = model_view;
+        command.render_flags = 0;
+        command.color = glm::vec3(1.0f);
+        command.cull_type = GL_FRONT;
+
+        command.model_mesh = &entity->model->mesh;
+        add_command_to_render_group(&app->render_group, command);
+      }
+
+      end_render_group(app, &app->render_group);
+      glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+
     glBindFramebuffer(GL_FRAMEBUFFER, app->frame_buffer);
 
     glViewport(0, 0, app->frame_width, app->frame_height);
@@ -1592,7 +1690,15 @@ void tick(Memory *memory, Input input) {
       {
         use_program(app, &app->terrain_program);
 
+        glCullFace(GL_BACK);
+
         send_shader_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
+
+        glActiveTexture(GL_TEXTURE0 + 0);
+        glBindTexture(GL_TEXTURE_2D, app->shadow_texture);
+        send_shader_uniformi(app->current_program, "uShadow", 0);
+        send_shader_uniform(app->current_program, "shadow_matrix", app->shadow_camera.view_matrix);
+        send_shader_uniform(app->current_program, "texmapscale", 1.0f / glm::vec2(app->shadow_width, app->shadow_height));
 
 #if 1
         int x_coord = static_cast<int>(app->camera.position.x / CHUNK_SIZE_X);
@@ -1611,6 +1717,10 @@ void tick(Memory *memory, Input input) {
 
             TerrainChunk *chunk = get_chunk_at(app->chunk_cache, app->chunk_cache_count, x, y);
 
+            if (!is_sphere_in_frustum(&app->camera.frustum, glm::vec3(chunk->x * CHUNK_SIZE_X, 0.0f, chunk->y * CHUNK_SIZE_Y), chunk->model.radius)) {
+              continue;
+            }
+
             int dx = chunk->x - x_coord;
             int dy = chunk->y - y_coord;
 
@@ -1628,77 +1738,80 @@ void tick(Memory *memory, Input input) {
         PROFILE_END_COUNTED(render_chunks, chunk_count);
       }
 
-      start_render_group(&app->render_group);
+      {
+        start_render_group(&app->render_group);
 
-      use_program(app, &app->another_program);
+        use_program(app, &app->another_program);
 
-      send_shader_uniform(app->current_program, "eye_position", app->camera.position);
-      send_shader_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
+        send_shader_uniform(app->current_program, "eye_position", app->camera.position);
+        send_shader_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
 
-      PROFILE(render_entities);
-      for (u32 i=0; i<app->entity_count; i++) {
-        Entity *entity = app->entities + i;
+        PROFILE(render_entities);
+        for (u32 i=0; i<app->entity_count; i++) {
+          Entity *entity = app->entities + i;
 
-        if (entity->render_flags & RenderHidden) { continue; }
+          if (entity->render_flags & RenderHidden) { continue; }
 
-        bool model_wait = process_model(memory, entity->model);
-        bool texture_wait = false;
+          bool model_wait = process_model(memory, entity->model);
+          bool texture_wait = false;
 
-        if (entity->texture) {
-          texture_wait = process_texture(memory, entity);
-        }
+          if (entity->texture) {
+            texture_wait = process_texture(memory, entity);
+          }
 
-        if (model_wait || texture_wait) { continue; }
+          if (model_wait || texture_wait) { continue; }
 
-        if (!is_sphere_in_frustum(&app->camera.frustum, entity->position, entity->model->radius * glm::compMax(entity->scale))) {
-          continue;
-        }
+          if (!is_sphere_in_frustum(&app->camera.frustum, entity->position, entity->model->radius * glm::compMax(entity->scale))) {
+            continue;
+          }
 
-        glm::mat4 model_view;
+          glm::mat4 model_view;
 
-        model_view = glm::translate(model_view, entity->position);
+          model_view = glm::translate(model_view, entity->position);
 
-        model_view = glm::scale(model_view, entity->scale);
+          model_view = glm::scale(model_view, entity->scale);
 
-        model_view = glm::rotate(model_view, entity->rotation.x, glm::vec3(1.0, 0.0, 0.0));
-        model_view = glm::rotate(model_view, entity->rotation.y, glm::vec3(0.0, 1.0, 0.0));
-        model_view = glm::rotate(model_view, entity->rotation.z, glm::vec3(0.0, 0.0, 1.0));
+          model_view = glm::rotate(model_view, entity->rotation.x, glm::vec3(1.0, 0.0, 0.0));
+          model_view = glm::rotate(model_view, entity->rotation.y, glm::vec3(0.0, 1.0, 0.0));
+          model_view = glm::rotate(model_view, entity->rotation.z, glm::vec3(0.0, 0.0, 1.0));
 
-        glm::mat3 normal = glm::inverseTranspose(glm::mat3(model_view));
+          glm::mat3 normal = glm::inverseTranspose(glm::mat3(model_view));
 
 #if 0
-        {
-          if (!process_model(memory, &app->sphere_model)) {
-            glm::mat4 sphere_view;
-            sphere_view = glm::translate(sphere_view, entity->position);
-            sphere_view = glm::scale(sphere_view, glm::vec3(entity->model->radius) * glm::compMax(entity->scale));
+          {
+            if (!process_model(memory, &app->sphere_model)) {
+              glm::mat4 sphere_view;
+              sphere_view = glm::translate(sphere_view, entity->position);
+              sphere_view = glm::scale(sphere_view, glm::vec3(entity->model->radius) * glm::compMax(entity->scale));
 
-            RenderCommand command;
-            command.shader = &app->another_program;
-            command.model_view = sphere_view;
-            command.render_flags = 0;
+              RenderCommand command;
+              command.shader = &app->another_program;
+              command.model_view = sphere_view;
+              command.render_flags = 0;
 
-            command.normal = glm::inverseTranspose(glm::mat3(sphere_view));
-            command.color = glm::vec3(1.0f);
+              command.normal = glm::inverseTranspose(glm::mat3(sphere_view));
+              command.color = glm::vec3(1.0f);
 
-            command.model_mesh = &app->sphere_model.mesh;
-            add_command_to_render_group(&app->render_group, command);
+              command.model_mesh = &app->sphere_model.mesh;
+              add_command_to_render_group(&app->render_group, command);
+            }
           }
-        }
 #endif
 
-        RenderCommand command;
-        command.shader = &app->another_program;
-        command.model_view = model_view;
-        command.render_flags = entity->render_flags;
-        command.normal = normal;
-        command.color = entity->color;
+          RenderCommand command;
+          command.shader = &app->another_program;
+          command.model_view = model_view;
+          command.render_flags = entity->render_flags;
+          command.normal = normal;
+          command.color = entity->color;
+          command.cull_type = GL_BACK;
 
-        command.model_mesh = &entity->model->mesh;
-        add_command_to_render_group(&app->render_group, command);
+          command.model_mesh = &entity->model->mesh;
+          add_command_to_render_group(&app->render_group, command);
+        }
+        end_render_group(app, &app->render_group);
+        PROFILE_END_COUNTED(render_entities, app->entity_count);
       }
-      end_render_group(app, &app->render_group);
-      PROFILE_END_COUNTED(render_entities, app->entity_count);
     }
 
     {
@@ -1717,6 +1830,7 @@ void tick(Memory *memory, Input input) {
       glDisable(GL_DEPTH_TEST);
       glDisable(GL_CULL_FACE);
 
+#if 1
       use_program(app, &app->fullscreen_program);
 
       glActiveTexture(GL_TEXTURE0 + 0);
@@ -1734,6 +1848,17 @@ void tick(Memory *memory, Input input) {
 
       send_shader_uniformf(app->current_program, "znear", app->camera.near);
       send_shader_uniformf(app->current_program, "zfar", app->camera.far);
+#else
+      use_program(app, &app->fullscreen_depth_program);
+
+      glActiveTexture(GL_TEXTURE0 + 0);
+      glBindTexture(GL_TEXTURE_2D, app->shadow_depth_texture);
+
+      send_shader_uniformi(app->current_program, "uDepth", 0);
+
+      send_shader_uniformf(app->current_program, "znear", app->camera.near);
+      send_shader_uniformf(app->current_program, "zfar", app->camera.far);
+#endif
 
       glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
       glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);

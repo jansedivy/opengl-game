@@ -9,6 +9,8 @@ struct RenderCommand {
   glm::mat3 normal;
   glm::vec3 color;
 
+  GLenum cull_type;
+
   u32 render_flags;
   Mesh *model_mesh;
 };

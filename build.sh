@@ -5,7 +5,9 @@ set -e
 app_name='Explore.app'
 executable_name='explore'
 
-shared_flags='-g -Wall -Wextra -std=c++11 -Wno-missing-field-initializers'
+shared_flags='
+-g -Wall -Wextra -std=c++11 -Wno-missing-field-initializers
+'
 optimalization='-O0'
 
 libraries="
@@ -16,16 +18,15 @@ libraries="
   ./libs/glew/lib/libGLEW.a
 
   -I./libs/glm
+
+  -F./build/$app_name/Contents/Frameworks
+  -rpath @executable_path/../Frameworks
 "
 
 engine_main="src/osx_main.cpp $libraries"
 engine_flags="
-  -F ./build/$app_name/Contents/Frameworks
-
   -framework SDL2
   -framework OpenGl
-
-  -rpath @executable_path/../Frameworks
 "
 
 game_main="src/app.cpp $libraries"

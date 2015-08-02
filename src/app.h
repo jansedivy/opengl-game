@@ -23,14 +23,11 @@
 #include <vector>
 #include <unordered_map>
 
-#include "array.h"
-
-#include "random.h"
-#include "perlin.cpp"
-
 #define STB_TRUETYPE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
+
+#include "perlin.cpp"
 
 #include "stb_truetype.h"
 #include "stb_image_write.h"
@@ -41,6 +38,9 @@
 #include <assimp/postprocess.h>
 
 #include "font.h"
+#include "array.h"
+#include "random.h"
+
 
 #define CHUNK_SIZE_X 5000
 #define CHUNK_SIZE_Y 5000
@@ -91,7 +91,7 @@ struct Model {
   Mesh mesh;
   u32 mesh_count = 0;
 
-  float radius = 300.0f;
+  float radius = 0.0f;
 
   bool is_being_loaded = false;
   bool has_data = false;
@@ -198,11 +198,10 @@ struct Camera {
   Frustum frustum;
 
   bool ortho = false;
+  glm::vec2 size;
 
   float far;
   float near;
-
-  float aspect_ratio;
 };
 
 struct App {
@@ -213,6 +212,7 @@ struct App {
   Shader debug_program;
   Shader solid_program;
   Shader fullscreen_program;
+  Shader fullscreen_depth_program;
   Shader terrain_program;
   Shader skybox_program;
   Shader textured_program;
@@ -233,6 +233,12 @@ struct App {
   u32 frame_width;
   u32 frame_height;
 
+  GLuint shadow_buffer;
+  GLuint shadow_texture;
+  GLuint shadow_depth_texture;
+  u32 shadow_width;
+  u32 shadow_height;
+
   Texture grass_texture;
   Texture gradient_texture;
 
@@ -247,6 +253,8 @@ struct App {
 
   Entity entities[10000];
   u32 entity_count = 0;
+
+  Camera shadow_camera;
 
   Camera camera;
   u32 camera_follow;

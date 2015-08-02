@@ -24,6 +24,8 @@ void end_render_group(App *app, RenderGroup *group) {
   group->model_change = 0;
   group->shader_change = 0;
 
+  glEnable(GL_CULL_FACE);
+
   for (auto it = group->commands.begin(); it != group->commands.end(); it++) {
     if (group->last_shader != it->shader) {
       use_program(app, it->shader);
@@ -31,9 +33,19 @@ void end_render_group(App *app, RenderGroup *group) {
       group->shader_change += 1;
     }
 
-    send_shader_uniform(app->current_program, "uNMatrix", it->normal);
-    send_shader_uniform(app->current_program, "uMVMatrix", it->model_view);
-    send_shader_uniform(app->current_program, "in_color", it->color);
+    glCullFace(it->cull_type);
+
+    if (shader_has_uniform(app->current_program, "uNMatrix")) {
+      send_shader_uniform(app->current_program, "uNMatrix", it->normal);
+    }
+
+    if (shader_has_uniform(app->current_program, "uMVMatrix")) {
+      send_shader_uniform(app->current_program, "uMVMatrix", it->model_view);
+    }
+
+    if (shader_has_uniform(app->current_program, "in_color")) {
+      send_shader_uniform(app->current_program, "in_color", it->color);
+    }
 
     if (group->last_model != it->model_mesh) {
       use_model_mesh(app, it->model_mesh);
