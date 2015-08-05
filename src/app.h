@@ -23,11 +23,11 @@
 #include <vector>
 #include <unordered_map>
 
+#include "perlin.cpp"
+
 #define STB_TRUETYPE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
-
-#include "perlin.cpp"
 
 #include "stb_truetype.h"
 #include "stb_image_write.h"
@@ -89,7 +89,6 @@ struct Model {
   const char *path = NULL;
 
   Mesh mesh;
-  u32 mesh_count = 0;
 
   float radius = 0.0f;
 
@@ -241,6 +240,7 @@ struct App {
 
   Texture grass_texture;
   Texture gradient_texture;
+  Texture debug_texture;
 
   Font font;
 
