@@ -5,7 +5,7 @@ out vec4 color;
 in vec3 inNormals;
 in vec4 inPosition;
 
-uniform vec3 in_color;
+uniform vec4 in_color;
 
 uniform vec3 eye_position;
 
@@ -35,19 +35,7 @@ void main() {
 
   vec4 sc = depthScaleMatrix * shadow_matrix * (inPosition + vec4(normals * 4.0, 0.0));
   float shadow = 1.0;
-  vec4 lookup = sc / sc.w;
-  if (sc.w > 0.0 && (lookup.x > 0 && lookup.y > 0) && (lookup.x < 1 && lookup.y < 1)) {
-    shadow = offset_lookup(uShadow, sc, vec2(0.0, 0.0));
-    shadow = 1.0;
-#if 0
-    float sum, x, y;
-    for (y = -1.5; y <= 1.5; y += 1.0)
-      for (x = -1.5; x <= 1.5; x += 1.0)
-        sum += offset_lookup(uShadow, sc, vec2(x, y));
-
-    shadow = sum / 16.0;
-    shadow = clamp(shadow + 0.8, 0.0, 1.0);
-#else
+  if (sc.w > 0.0 && (sc.x > 0 && sc.y > 0) && (sc.x < 1 && sc.y < 1)) {
     float sum = 0.0;
 
     vec2 uv = sc.xy * texmapscale; // 1 unit - 1 texel
@@ -84,8 +72,7 @@ void main() {
     sum += uw2 * vw2 * offset_lookup(uShadow, sc, vec2(u2, v2));
 
     shadow = sum * 1.0 / 144;
-#endif
   }
 
-  color = vec4(in_color * (vec3(0.7) + light * shadow), 1.0);
+  color = vec4(in_color.xyz * (vec3(0.8) + light * shadow), 1.0);
 }

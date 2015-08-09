@@ -42,8 +42,31 @@ extern "C" {
     bool space;
     bool mouse_click;
     bool right_mouse_down;
+    bool left_mouse_down;
 
     bool is_mouse_locked;
+  };
+
+  struct PlatformDirectory {
+    void *platform;
+  };
+
+  struct PlatformDirectoryEntry {
+    bool empty;
+    char *name;
+
+    void *platform;
+  };
+
+  struct PlatformFileLine {
+    char *contents;
+    size_t length;
+    bool empty;
+  };
+
+  struct PlatformFile {
+    void *platform;
+    bool error;
   };
 
   struct DebugReadFileResult {
@@ -69,6 +92,15 @@ extern "C" {
   typedef void lock_mouse_type();
   typedef void unlock_mouse_type();
 
+  typedef PlatformDirectory open_directory_type(const char *path);
+  typedef PlatformDirectoryEntry read_next_directory_entry_type(PlatformDirectory directory);
+  typedef bool is_directory_entry_file_type(PlatformDirectoryEntry entry);
+  typedef PlatformFile open_file_type(char *path, const char *flags);
+  typedef void close_file_type(PlatformFile file);
+  typedef PlatformFileLine read_file_line_type(PlatformFile file);
+  typedef void close_directory_type(PlatformDirectory directory);
+  typedef void write_to_file_type(PlatformFile file, char *text);
+
   enum {
     DebugCycleCounter_update,
     DebugCycleCounter_render,
@@ -93,6 +125,15 @@ extern "C" {
     delay_type *delay;
     lock_mouse_type *lock_mouse;
     unlock_mouse_type *unlock_mouse;
+
+    open_directory_type *open_directory;
+    read_next_directory_entry_type *read_next_directory_entry;
+    is_directory_entry_file_type *is_directory_entry_file;
+    open_file_type *open_file;
+    write_to_file_type *write_to_file;
+    close_file_type *close_file;
+    read_file_line_type *read_file_line;
+    close_directory_type *close_directory;
   };
 
   struct Memory {

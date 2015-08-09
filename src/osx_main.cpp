@@ -12,8 +12,12 @@
 
 #include <SDL2/SDL.h>
 #include "platform.h"
+#include <dirent.h>
+#include <cstdio>
+
 
 #include "app.h"
+
 
 struct AppCode {
   TickType* tick;
@@ -202,7 +206,12 @@ void delay(u32 time) {
   SDL_Delay(time);
 }
 
+SDL_Window *window;
+int x, y;
+
 void lock_mouse() {
+  SDL_GetMouseState(&x, &y);
+
   SDL_SetRelativeMouseMode(SDL_TRUE);
 
   int x, y;
@@ -210,7 +219,71 @@ void lock_mouse() {
 }
 
 void unlock_mouse() {
-  SDL_SetRelativeMouseMode(SDL_FALSE);
+  if (SDL_GetRelativeMouseMode()) {
+    SDL_SetRelativeMouseMode(SDL_FALSE);
+
+    SDL_WarpMouseInWindow(window, x, y);
+  }
+}
+
+PlatformDirectory open_directory(const char *path) {
+  PlatformDirectory result;
+
+  result.platform = opendir(path);
+
+  return result;
+}
+
+PlatformDirectoryEntry read_next_directory_entry(PlatformDirectory directory) {
+  PlatformDirectoryEntry result;
+
+  dirent *entry = readdir(static_cast<DIR *>(directory.platform));
+  result.platform = entry;
+  if (entry) {
+    result.name = entry->d_name;
+    result.empty = false;
+  } else {
+    result.empty = true;
+  }
+
+  return result;
+}
+
+bool is_directory_entry_file(PlatformDirectoryEntry directory) {
+  return static_cast<dirent *>(directory.platform)->d_type == 0x8;
+}
+
+PlatformFile open_file(char *path, const char *flags) {
+  PlatformFile result;
+
+  result.platform = fopen(path, flags);
+  result.error = result.platform == NULL;
+
+  return result;
+}
+
+void close_file(PlatformFile file) {
+  fclose(static_cast<FILE *>(file.platform));
+}
+
+void write_to_file(PlatformFile file, char *text) {
+}
+
+PlatformFileLine read_file_line(PlatformFile file) {
+  PlatformFileLine result;
+  result.contents = NULL;
+
+  if (getline(&result.contents, &result.length, static_cast<FILE *>(file.platform)) == -1) {
+    result.empty = true;
+  } else {
+    result.empty = false;
+  }
+
+  return result;
+}
+
+void close_directory(PlatformDirectory directory) {
+  closedir(static_cast<DIR *>(directory.platform));
 }
 
 int main() {
@@ -245,10 +318,61 @@ int main() {
   memory.platform.complete_all_work = complete_all_work;
   memory.platform.queue_has_free_spot = queue_has_free_spot;
 
+  memory.platform.open_directory = open_directory;
+  memory.platform.read_next_directory_entry = read_next_directory_entry;
+  memory.platform.is_directory_entry_file = is_directory_entry_file;
+  memory.platform.open_file = open_file;
+  memory.platform.close_file = close_file;
+  memory.platform.read_file_line = read_file_line;
+  memory.platform.close_directory = close_directory;
+  memory.platform.write_to_file = write_to_file;
+
   memory.low_queue = &low_queue;
   memory.main_queue = &main_queue;
 
   chdir(SDL_GetBasePath());
+
+/*   const char *base_path = "../../../level"; */
+
+/*   DIR *dir = opendir(base_path); */
+/*   if (dir) { */
+/*     while (dirent *entry = readdir(dir)) { */
+/*       if (entry->d_type == 0x8) { */
+/*         char *full_path = (char *)alloca(sizeof(base_path) + sizeof(entry->d_name)); */
+
+/*         sprintf(full_path, "%s/%s", base_path, entry->d_name); */
+
+/*         FILE *file = fopen(full_path, "r"); */
+
+/*         char *line = NULL; */
+/*         size_t len; */
+
+/*         Entity entity; */
+
+/*         while (getline(&line, &len, file) != -1) { */
+/*           switch (line[0]) { */
+/*             case 'p': { */
+/*               char *start = (char *)((u8*)line + 2); */
+/*               entity.position = read_vector(start); */
+/*             } break; */
+/*             case 's': { */
+/*               char *start = (char *)((u8*)line + 2); */
+/*               entity.scale = read_vector(start); */
+/*             } break; */
+/*             case 'r': { */
+/*               char *start = (char *)((u8*)line + 2); */
+/*               entity.rotation = read_vector(start); */
+/*             } break; */
+/*           } */
+/*         } */
+/*         free(line); */
+/*         fclose(file); */
+/*       } */
+/*     } */
+/*     closedir(dir); */
+/*   } */
+
+/*   return 1; */
 
   AppCode code = load_app_code();
 
@@ -256,7 +380,7 @@ int main() {
 
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
 
   SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 32);
   SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
@@ -265,7 +389,7 @@ int main() {
   /* SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1); */
   /* SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4); */
 
-  SDL_Window *window = SDL_CreateWindow("Explore",
+  window = SDL_CreateWindow("Explore",
       SDL_WINDOWPOS_UNDEFINED,
       SDL_WINDOWPOS_UNDEFINED,
       memory.width, memory.height,
@@ -336,6 +460,7 @@ int main() {
     SDL_GetMouseState(&input.mouse_x, &input.mouse_y);
 
     input.right_mouse_down = mouse_state & SDL_BUTTON(SDL_BUTTON_RIGHT);
+    input.left_mouse_down = mouse_state & SDL_BUTTON(SDL_BUTTON_LEFT);
 
     code.tick(&memory, input);
 

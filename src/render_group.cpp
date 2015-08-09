@@ -1,6 +1,12 @@
 #include "render_group.h"
 
 bool sort_function(const RenderCommand &a, const RenderCommand &b) {
+  int depth_a = (a.render_flags & RenderIgnoreDepth) != 0 ? 1 : 0;
+  int depth_b = (b.render_flags & RenderIgnoreDepth) != 0 ? 1 : 0;
+
+  if (depth_a < depth_b) { return true; }
+  if (depth_b < depth_a) { return false; }
+
   if (a.shader < b.shader) { return true; }
   if (b.shader < a.shader) { return false; }
 
@@ -18,6 +24,14 @@ void start_render_group(RenderGroup *group) {
   group->draw_calls = 0;
 }
 
+inline void set_depth_mode(RenderGroup *group, GLenum mode, bool force=false) {
+  if (force || group->depth_mode != mode) {
+    glDepthFunc(mode);
+
+    group->depth_mode = mode;
+  }
+}
+
 void end_render_group(App *app, RenderGroup *group) {
   std::sort(group->commands.begin(), group->commands.end(), sort_function);
 
@@ -25,6 +39,7 @@ void end_render_group(App *app, RenderGroup *group) {
   group->shader_change = 0;
 
   glEnable(GL_CULL_FACE);
+  set_depth_mode(group, GL_LESS, true);
 
   for (auto it = group->commands.begin(); it != group->commands.end(); it++) {
     if (group->last_shader != it->shader) {
@@ -34,6 +49,12 @@ void end_render_group(App *app, RenderGroup *group) {
     }
 
     glCullFace(it->cull_type);
+
+    if ((it->render_flags & RenderIgnoreDepth) != 0) {
+      set_depth_mode(group, GL_ALWAYS);
+    } else {
+      set_depth_mode(group, GL_LESS);
+    }
 
     if (shader_has_uniform(app->current_program, "uNMatrix")) {
       send_shader_uniform(app->current_program, "uNMatrix", it->normal);

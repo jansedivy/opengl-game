@@ -19,6 +19,7 @@
 #include <glm/gtx/component_wise.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtx/string_cast.hpp>
+#include <glm/gtx/intersect.hpp>
 
 #include <vector>
 #include <unordered_map>
@@ -40,6 +41,7 @@
 #include "font.h"
 #include "array.h"
 #include "random.h"
+#include <cstdio>
 
 
 #define CHUNK_SIZE_X 5000
@@ -97,8 +99,6 @@ struct Model {
   bool initialized = false;
 };
 
-#include "render_group.h"
-
 struct CubeMap {
   GLuint id;
   Model *model;
@@ -111,9 +111,7 @@ struct TerrainChunk {
   float min;
   float max;
 
-  Model model;
-  Model model_mid;
-  Model model_low;
+  Model models[3];
 
   bool initialized;
 
@@ -132,8 +130,9 @@ enum EntityType {
 };
 
 enum RenderFlags {
-  RenderHidden = 1,
-  RenderWireframe = 2
+  RenderHidden = (1 << 0),
+  RenderWireframe = (1 << 1),
+  RenderIgnoreDepth = (1 << 2)
 };
 
 struct Texture {
@@ -149,18 +148,34 @@ struct Texture {
   bool has_data = false;
 };
 
+#include "render_group.h"
+
+enum EntityFlags {
+  EntityPermanentFlag = (1 << 0),
+  EntityMountToTerrain = (1 << 1)
+};
+
+struct RayMatchResult {
+  bool hit;
+  glm::vec3 hit_position;
+  float distance;
+};
+
 struct Entity {
   u32 id = 0;
 
   u32 render_flags = 0;
+  u32 flags = 0;
 
   Model *model = NULL;
 
   glm::vec3 position;
+
   glm::vec3 rotation;
+
   glm::vec3 velocity;
   glm::vec3 scale;
-  glm::vec3 color;
+  glm::vec4 color;
 
   EntityType type;
   Texture *texture = 0;
@@ -203,6 +218,22 @@ struct Camera {
   float near;
 };
 
+struct Editor {
+  bool holding_entity;
+  u32 entity_id;
+  float distance_from_entity_offset;
+  glm::vec3 hold_offset;
+  float handle_size;
+};
+
+struct FrameBuffer {
+  GLuint id;
+  GLuint texture;
+  GLuint depth;
+  u32 width;
+  u32 height;
+};
+
 struct App {
   u32 last_id;
 
@@ -226,21 +257,16 @@ struct App {
   GLuint debug_buffer;
   std::vector<glm::vec3> debug_lines;
 
-  GLuint frame_buffer;
-  GLuint frame_texture;
-  GLuint frame_depth_texture;
-  u32 frame_width;
-  u32 frame_height;
+  FrameBuffer frame;
 
   GLuint shadow_buffer;
-  GLuint shadow_texture;
   GLuint shadow_depth_texture;
   u32 shadow_width;
   u32 shadow_height;
 
   Texture grass_texture;
   Texture gradient_texture;
-  Texture debug_texture;
+  Texture circle_texture;
 
   Font font;
 
@@ -248,6 +274,7 @@ struct App {
   Model sphere_model;
   Model rock_model;
   Model grass_model;
+  Model quad_model;
 
   Model trees[2];
 
@@ -269,6 +296,10 @@ struct App {
   RenderGroup render_group;
 
   bool editing_mode = false;
+
+  Editor editor;
+
+  bool enabled_vertex[32];
 };
 
 Memory *debug_global_memory;
