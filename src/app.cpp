@@ -732,7 +732,7 @@ void init(Memory *memory) {
 
   App *app = static_cast<App*>(memory->permanent_storage);
 
-  app->editor.handle_size = 60.0f;
+  app->editor.handle_size = 40.0f;
   app->editor.holding_entity = false;
   app->editor.inspect_entity = false;
 
@@ -1807,20 +1807,22 @@ void draw_3d_debug_info(App *app) {
 
   std::vector<EditorHandleRenderCommand> render_commands;
 
-  for (u32 i=0; i<app->entity_count; i++) {
-    Entity *entity = app->entities + i;
+  if (!app->editor.holding_entity) {
+    for (u32 i=0; i<app->entity_count; i++) {
+      Entity *entity = app->entities + i;
 
-    if (entity->flags & EntityFlags::RENDER_HIDDEN) { continue; }
+      if (entity->flags & EntityFlags::RENDER_HIDDEN) { continue; }
 
-    glm::mat4 model_view;
-    model_view = glm::translate(model_view, entity->position);
-    model_view = glm::scale(model_view, glm::vec3(app->editor.handle_size));
-    model_view *= make_billboard_matrix(entity->position, app->camera.position, glm::vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
+      glm::mat4 model_view;
+      model_view = glm::translate(model_view, entity->position);
+      model_view = glm::scale(model_view, glm::vec3(app->editor.handle_size));
+      model_view *= make_billboard_matrix(entity->position, app->camera.position, glm::vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
 
-    EditorHandleRenderCommand command;
-    command.distance_from_camera = glm::distance(app->camera.position, entity->position);
-    command.model_view = model_view;
-    render_commands.push_back(command);
+      EditorHandleRenderCommand command;
+      command.distance_from_camera = glm::distance(app->camera.position, entity->position);
+      command.model_view = model_view;
+      render_commands.push_back(command);
+    }
   }
 
   std::sort(render_commands.begin(), render_commands.end(), sort_by_distance);
