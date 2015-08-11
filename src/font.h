@@ -9,12 +9,15 @@ struct Font {
   GLuint texture;
   int width;
   int height;
+
+  float size;
 };
 
 Font create_font(void *font_data, float font_size) {
   Font font;
   font.width = 512;
   font.height = 512;
+  font.size = font_size;
 
   u8 *alpha = static_cast<u8 *>(malloc(font.width * font.height));
 

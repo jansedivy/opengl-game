@@ -1,8 +1,8 @@
 #include "render_group.h"
 
 bool sort_function(const RenderCommand &a, const RenderCommand &b) {
-  int depth_a = (a.render_flags & RenderIgnoreDepth) != 0 ? 1 : 0;
-  int depth_b = (b.render_flags & RenderIgnoreDepth) != 0 ? 1 : 0;
+  int depth_a = (a.flags & EntityFlags::RENDER_IGNORE_DEPTH) != 0 ? 1 : 0;
+  int depth_b = (b.flags & EntityFlags::RENDER_IGNORE_DEPTH) != 0 ? 1 : 0;
 
   if (depth_a < depth_b) { return true; }
   if (depth_b < depth_a) { return false; }
@@ -50,7 +50,7 @@ void end_render_group(App *app, RenderGroup *group) {
 
     glCullFace(it->cull_type);
 
-    if ((it->render_flags & RenderIgnoreDepth) != 0) {
+    if ((it->flags & EntityFlags::RENDER_IGNORE_DEPTH) != 0) {
       set_depth_mode(group, GL_ALWAYS);
     } else {
       set_depth_mode(group, GL_LESS);

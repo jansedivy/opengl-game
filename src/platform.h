@@ -106,6 +106,7 @@ extern "C" {
     DebugCycleCounter_render,
     DebugCycleCounter_render_entities,
     DebugCycleCounter_render_chunks,
+    DebugCycleCounter_render_ui,
     DebugCycleCounter_count
   };
 
@@ -149,6 +150,7 @@ extern "C" {
 
     PlatformAPI platform;
 
+    DebugCounter last_frame_counters[DebugCycleCounter_count];
     DebugCounter counters[DebugCycleCounter_count];
   };
 

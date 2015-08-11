@@ -11,7 +11,7 @@ struct RenderCommand {
 
   GLenum cull_type = GL_BACK;
 
-  u32 render_flags;
+  u32 flags;
   Mesh *model_mesh;
 };
 

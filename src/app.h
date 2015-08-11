@@ -89,6 +89,7 @@ struct Mesh {
 
 struct Model {
   const char *path = NULL;
+  const char *id_name;
 
   Mesh mesh;
 
@@ -108,9 +109,6 @@ struct TerrainChunk {
   u32 x;
   u32 y;
 
-  float min;
-  float max;
-
   Model models[3];
 
   bool initialized;
@@ -129,12 +127,6 @@ enum EntityType {
   EntityCount
 };
 
-enum RenderFlags {
-  RenderHidden = (1 << 0),
-  RenderWireframe = (1 << 1),
-  RenderIgnoreDepth = (1 << 2)
-};
-
 struct Texture {
   const char *path = NULL;
   GLuint id = 0;
@@ -148,11 +140,16 @@ struct Texture {
   bool has_data = false;
 };
 
-#include "render_group.h"
+namespace EntityFlags {
+  enum EntityFlags {
+    PERMANENT_FLAG = (1 << 0),
+    MOUNT_TO_TERRAIN = (1 << 1),
+    CASTS_SHADOW = (1 << 2),
 
-enum EntityFlags {
-  EntityPermanentFlag = (1 << 0),
-  EntityMountToTerrain = (1 << 1)
+    RENDER_HIDDEN = (1 << 3),
+    RENDER_WIREFRAME = (1 << 4),
+    RENDER_IGNORE_DEPTH = (1 << 5)
+  };
 };
 
 struct RayMatchResult {
@@ -180,6 +177,8 @@ struct Entity {
   EntityType type;
   Texture *texture = 0;
 };
+
+#include "render_group.h"
 
 struct Ray {
   glm::vec3 start;
@@ -218,8 +217,14 @@ struct Camera {
   float near;
 };
 
+struct EditorHandleRenderCommand {
+  float distance_from_camera;
+  glm::mat4 model_view;
+};
+
 struct Editor {
   bool holding_entity;
+  bool inspect_entity;
   u32 entity_id;
   float distance_from_entity_offset;
   glm::vec3 hold_offset;
@@ -234,6 +239,10 @@ struct FrameBuffer {
   u32 height;
 };
 
+struct DebugDrawState {
+  float offset_top = 0;
+};
+
 struct App {
   u32 last_id;
 
@@ -242,6 +251,8 @@ struct App {
   Shader debug_program;
   Shader solid_program;
   Shader fullscreen_program;
+  Shader fullscreen_fog_program;
+  Shader fullscreen_color_program;
   Shader fullscreen_depth_program;
   Shader terrain_program;
   Shader skybox_program;
@@ -258,6 +269,7 @@ struct App {
   std::vector<glm::vec3> debug_lines;
 
   FrameBuffer frame;
+  FrameBuffer ui_frame;
 
   GLuint shadow_buffer;
   GLuint shadow_depth_texture;
@@ -266,6 +278,7 @@ struct App {
 
   Texture grass_texture;
   Texture gradient_texture;
+  Texture color_correction_texture;
   Texture circle_texture;
 
   Font font;

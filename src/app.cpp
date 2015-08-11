@@ -188,6 +188,45 @@ void unload_model(Model *model) {
   model->is_being_loaded = false;
 }
 
+Model *get_model_by_name(App *app, char *name) {
+  if (strcmp(name, "cube") == 0) {
+    return &app->cube_model;
+  } else if (strcmp(name, "sphere") == 0) {
+    return &app->sphere_model;
+  } else if (strcmp(name, "rock") == 0) {
+    return &app->rock_model;
+  } else if (strcmp(name, "quad") == 0) {
+    return &app->quad_model;
+  } else if (strcmp(name, "tree_001") == 0) {
+    return app->trees + 0;
+  } else if (strcmp(name, "tree_002") == 0) {
+    return app->trees + 1;
+  }
+
+  return NULL;
+}
+
+float calculate_radius(Mesh *mesh) {
+  float max_radius = 0.0f;
+
+  for (u32 i=0; i<mesh->data.vertices_count; i += 3) {
+    float radius = glm::length(glm::vec3(mesh->data.vertices[i], mesh->data.vertices[i + 1], mesh->data.vertices[i + 2]));
+    if (radius > max_radius) {
+      max_radius = radius;
+    }
+  }
+
+  return max_radius;
+}
+
+char *allocate_string(const char *string) {
+  char *new_location = static_cast<char *>(malloc(strlen(string)));
+
+  strcpy(new_location, string);
+
+  return new_location;
+}
+
 void initialize_texture(Texture *texture, GLenum type=GL_RGB, bool mipmap=true, GLenum wrap_type=GL_REPEAT) {
   if (!texture->initialized) {
     glGenTextures(1, &texture->id);
@@ -359,8 +398,6 @@ Model generate_ground(TerrainChunk *chunk, int chunk_x, int chunk_y, float detai
   int width = size_x * detail + 1;
   int height = size_y * detail + 1;
 
-  bool first = true;
-
   u32 vertices_count = width * height * 3;
   u32 normals_count = vertices_count;
   u32 indices_count = (width - 1) * (height - 1) * 6;
@@ -394,16 +431,6 @@ Model generate_ground(TerrainChunk *chunk, int chunk_x, int chunk_y, float detai
       mesh.data.normals[normals_index++] = 0.0f;
       mesh.data.normals[normals_index++] = 0.0f;
       mesh.data.normals[normals_index++] = 0.0f;
-
-      if (first) {
-        chunk->min = value;
-        chunk->max = value;
-
-        first = false;
-      } else {
-        if (chunk->min > value) { chunk->min = value; }
-        if (chunk->max < value) { chunk->max = value; }
-      }
     }
   }
 
@@ -464,7 +491,7 @@ Model generate_ground(TerrainChunk *chunk, int chunk_x, int chunk_y, float detai
   }
 
   Model model;
-  model.path = "chunk";
+  model.path = allocate_string("chunk");
   model.mesh = mesh;
   model.initialized = false;
   model.has_data = true;
@@ -635,7 +662,7 @@ void generate_trees(App *app) {
     entity->model = app->trees + (i % array_count(app->trees));
     entity->color = glm::vec4(0.7f, 0.3f, 0.2f, 1.0f);
     entity->rotation = glm::vec3(0.0f, get_next_float(&random) * glm::pi<float>(), 0.0f);
-    entity->flags = EntityPermanentFlag | EntityMountToTerrain;
+    entity->flags = EntityFlags::PERMANENT_FLAG | EntityFlags::MOUNT_TO_TERRAIN;
   }
 }
 
@@ -643,7 +670,7 @@ void save_level(App *app) {
   for (u32 i=0; i<app->entity_count; i++) {
     Entity *entity = app->entities + i;
 
-    if (entity->flags & EntityPermanentFlag) {
+    if (entity->flags & EntityFlags::PERMANENT_FLAG) {
       const char *base_path = "../../../level";
 
       char full_path[256];
@@ -658,6 +685,7 @@ void save_level(App *app) {
       fprintf((FILE *)file.platform, "r: %f, %f, %f\n", entity->rotation.x, entity->rotation.y, entity->rotation.z);
       fprintf((FILE *)file.platform, "c: %f, %f, %f\n", entity->color.x, entity->color.y, entity->color.z);
       fprintf((FILE *)file.platform, "f: %d\n", entity->flags);
+      fprintf((FILE *)file.platform, "m: %s\n", entity->model->id_name);
 
       platform.close_file(file);
     }
@@ -665,9 +693,25 @@ void save_level(App *app) {
 }
 
 void quit(Memory *memory) {
-  App *app = static_cast<App*>(memory->permanent_storage);
+}
 
-  save_level(app);
+void load_color_grading_texture(Texture *texture) {
+  load_texture(texture, STBI_rgb_alpha);
+  glGenTextures(1, &texture->id);
+
+  glBindTexture(GL_TEXTURE_3D, texture->id);
+  glTexImage3D(GL_TEXTURE_3D, 0, GL_RGB8, 16, 16, 16, 0, GL_RGBA, GL_UNSIGNED_BYTE, texture->data);
+
+  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_REPEAT);
+
+  glTexParameterf(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameterf(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glBindTexture(GL_TEXTURE_3D, 0);
+
+  texture->initialized = true;
+  texture->data = NULL;
 }
 
 glm::vec3 read_vector(char *start) {
@@ -690,6 +734,7 @@ void init(Memory *memory) {
 
   app->editor.handle_size = 60.0f;
   app->editor.holding_entity = false;
+  app->editor.inspect_entity = false;
 
     /* std::unordered_map<std::string, u32> uniforms; */
     /* std::unordered_map<std::string, GLuint> attributes; */
@@ -705,6 +750,12 @@ void init(Memory *memory) {
 
   app->solid_program.uniforms = std::unordered_map<std::string, u32>();
   app->solid_program.attributes = std::unordered_map<std::string, GLuint>();
+
+  app->fullscreen_fog_program.uniforms = std::unordered_map<std::string, u32>();
+  app->fullscreen_fog_program.attributes = std::unordered_map<std::string, GLuint>();
+
+  app->fullscreen_color_program.uniforms = std::unordered_map<std::string, u32>();
+  app->fullscreen_color_program.attributes = std::unordered_map<std::string, GLuint>();
 
   app->fullscreen_program.uniforms = std::unordered_map<std::string, u32>();
   app->fullscreen_program.attributes = std::unordered_map<std::string, GLuint>();
@@ -811,7 +862,8 @@ void init(Memory *memory) {
       }
 
       app->sphere_model.mesh = mesh;
-      app->sphere_model.path = "sphere";
+      app->sphere_model.path = allocate_string("sphere");
+      app->sphere_model.id_name = allocate_string("sphere");
       app->sphere_model.radius = radius;
 
       app->sphere_model.has_data = true;
@@ -889,8 +941,9 @@ void init(Memory *memory) {
       memcpy(mesh.data.normals, &normals, sizeof(normals));
       memcpy(mesh.data.indices, &indices, sizeof(indices));
 
-      app->cube_model.path = "cube";
-      app->cube_model.radius = 1.0f;
+      app->cube_model.path = allocate_string("cube");
+      app->cube_model.id_name = allocate_string("cube");
+      app->cube_model.radius = calculate_radius(&mesh);
       app->cube_model.mesh = mesh;
       app->cube_model.has_data = true;
       app->cube_model.is_being_loaded = false;
@@ -921,57 +974,36 @@ void init(Memory *memory) {
       memcpy(mesh.data.indices, &indices, sizeof(indices));
       memcpy(mesh.data.uv, &uvs, sizeof(uvs));
 
-      app->quad_model.path = "quad";
-      app->quad_model.radius = 1.0f;
+      app->quad_model.path = allocate_string("quad");
+      app->quad_model.id_name = allocate_string("quad");
+      app->quad_model.radius = calculate_radius(&mesh);
       app->quad_model.mesh = mesh;
       app->quad_model.has_data = true;
       app->quad_model.is_being_loaded = false;
       app->quad_model.initialized = false;
+      initialize_model(&app->quad_model);
     }
 
     /* app->grass_model.path = "grass.obj"; */
-    app->rock_model.path = "rock.obj";
-
-    app->trees[0].path = "trees/tree_01.obj";
-    app->trees[1].path = "trees/tree_02.obj";
+    app->rock_model.path = allocate_string("rock.obj");
+    app->rock_model.id_name = allocate_string("rock");
+    app->trees[0].path = allocate_string("trees/tree_01.obj");
+    app->trees[0].id_name = allocate_string("tree_001");
+    app->trees[1].path = allocate_string("trees/tree_02.obj");
+    app->trees[1].id_name = allocate_string("tree_002");
   }
 
   create_shader(&app->solid_program, "solid_vert.glsl", "solid_frag.glsl");
   create_shader(&app->another_program, "another_vert.glsl", "another_frag.glsl");
   create_shader(&app->debug_program, "debug_vert.glsl", "debug_frag.glsl");
+  create_shader(&app->fullscreen_fog_program, "fullscreen.vert", "fullscreen_fog.frag");
+  create_shader(&app->fullscreen_color_program, "fullscreen.vert", "fullscreen_color.frag");
   create_shader(&app->fullscreen_program, "fullscreen.vert", "fullscreen.frag");
   create_shader(&app->fullscreen_depth_program, "fullscreen.vert", "fullscreen_depth.frag");
   create_shader(&app->terrain_program, "terrain.vert", "terrain.frag");
   create_shader(&app->skybox_program, "skybox.vert", "skybox.frag");
   create_shader(&app->program, "vert.glsl", "frag.glsl");
   create_shader(&app->textured_program, "textured.vert", "textured.frag");
-
-  {
-    /* generate_trees(app); */
-
-#if 0
-    Random random = create_random_sequence();
-
-    glm::vec2 rock_noise[2000];
-    u32 size = generate_blue_noise(rock_noise, 2000, 1000.0f, 800.0f);
-
-    for (u32 i=0; i<size; i++) {
-      Entity *entity = app->entities + app->entity_count;
-
-      entity->id = next_entity_id(app);
-      entity->type = EntityBlock;
-      entity->position.x = rock_noise[i].x;
-      entity->position.z = rock_noise[i].y;
-      mount_entity_to_terrain(entity);
-      entity->flags = EntityPermanentFlag | EntityMountToTerrain;
-      entity->scale = 100.0f * glm::vec3(0.8f + get_next_float(&random) / 2.0f, 0.8f + get_next_float(&random) / 2.0f, 0.8f + get_next_float(&random) / 2.0f);
-      entity->model = &app->rock_model;
-      entity->color = glm::vec3(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f);
-      entity->rotation = glm::vec3(get_next_float(&random) * 0.5f - 0.25f, get_next_float(&random) * glm::pi<float>(), get_next_float(&random) * 0.5f - 0.25f);
-      app->entity_count += 1;
-    }
-#endif
-  }
 
   app->chunk_cache_count = 4096;
   app->chunk_cache = static_cast<TerrainChunk *>(malloc(sizeof(TerrainChunk) * app->chunk_cache_count));
@@ -984,18 +1016,21 @@ void init(Memory *memory) {
     chunk->initialized = false;
   }
 
-  app->grass_texture.path = "grass.dds";
+  app->grass_texture.path = allocate_string("grass.dds");
+  app->color_correction_texture.path = allocate_string("color_correction.png");
+  app->gradient_texture.path = allocate_string("gradient.png");
+  app->circle_texture.path = allocate_string("circle.png");
 
   {
-    app->gradient_texture.path = "gradient.png";
     load_texture(&app->gradient_texture, STBI_rgb_alpha);
     initialize_texture(&app->gradient_texture, GL_RGBA, false);
     stbi_image_free(app->gradient_texture.data);
     app->gradient_texture.data = NULL;
   }
 
+  load_color_grading_texture(&app->color_correction_texture);
+
   {
-    app->circle_texture.path = "circle.png";
     load_texture(&app->circle_texture, STBI_rgb_alpha);
     initialize_texture(&app->circle_texture, GL_RGBA, true);
     stbi_image_free(app->circle_texture.data);
@@ -1081,16 +1116,13 @@ void init(Memory *memory) {
     {
       glGenTextures(1, &app->frame.depth);
       glBindTexture(GL_TEXTURE_2D, app->frame.depth);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, app->frame.width, app->frame.height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, app->frame.width, app->frame.height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL);
 
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-      /* glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); */
-      /* glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST); */
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-      /* glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_TEXTURE_MODE, GL_INTENSITY); */
     }
 
     // NOTE(sedivy): Framebuffer
@@ -1099,6 +1131,44 @@ void init(Memory *memory) {
       glBindFramebuffer(GL_FRAMEBUFFER, app->frame.id);
       glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, app->frame.texture, 0);
       glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, app->frame.depth, 0);
+    }
+  }
+
+  {
+    app->ui_frame.width = memory->width;
+    app->ui_frame.height = memory->height;
+
+    // NOTE(sedivy): texture
+    {
+      glGenTextures(1, &app->ui_frame.texture);
+      glBindTexture(GL_TEXTURE_2D, app->ui_frame.texture);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, app->ui_frame.width, app->ui_frame.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+
+    // NOTE(sedivy): depth
+    {
+      glGenTextures(1, &app->ui_frame.depth);
+      glBindTexture(GL_TEXTURE_2D, app->ui_frame.depth);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, app->ui_frame.width, app->ui_frame.height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL);
+
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+
+    // NOTE(sedivy): Framebuffer
+    {
+      glGenFramebuffers(1, &app->ui_frame.id);
+      glBindFramebuffer(GL_FRAMEBUFFER, app->ui_frame.id);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, app->ui_frame.texture, 0);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, app->ui_frame.depth, 0);
     }
   }
 
@@ -1154,7 +1224,6 @@ void init(Memory *memory) {
 
             entity->type = EntityBlock;
             entity->color = glm::vec4(1.0f);
-            entity->model = app->trees + 0;
             app->entity_count += 1;
 
             PlatformFileLine line = platform.read_file_line(file);
@@ -1174,6 +1243,12 @@ void init(Memory *memory) {
                             char *start = (char *)((u8*)line.contents + 2);
                             entity->position = read_vector(start);
                           } break;
+                case 'm': {
+                            char *start = (char *)((u8*)line.contents + 2);
+                            char model_name[256];
+                            sscanf(start, "%s", model_name);
+                            entity->model = get_model_by_name(app, model_name);
+                          } break;
                 case 'c': {
                             char *start = (char *)((u8*)line.contents + 2);
                             entity->color = glm::vec4(read_vector(start), 1.0f);
@@ -1192,7 +1267,7 @@ void init(Memory *memory) {
                           } break;
               }
 
-              if (entity->flags & EntityMountToTerrain) {
+              if (entity->flags & EntityFlags::MOUNT_TO_TERRAIN) {
                 mount_entity_to_terrain(entity);
               }
             }
@@ -1211,7 +1286,7 @@ void init(Memory *memory) {
     Entity *entity = app->entities + app->entity_count;
     entity->id = next_entity_id(app);
     entity->type = EntityPlayer;
-    entity->render_flags = RenderHidden;
+    entity->flags = EntityFlags::RENDER_HIDDEN;
     entity->position.x = 0.0f;
     entity->position.y = 0.0f;
     entity->position.z = 0.0f;
@@ -1227,6 +1302,33 @@ void init(Memory *memory) {
   follow_entity->rotation.y = 2.5f;
   follow_entity->position.x = 20000.0f;
   follow_entity->position.z = 20000.0f;
+
+  {
+    /* generate_trees(app); */
+
+#if 0
+    Random random = create_random_sequence();
+
+    glm::vec2 rock_noise[200];
+    u32 size = generate_blue_noise(rock_noise, array_count(rock_noise), 100.0f, 5000.0f);
+
+    for (u32 i=0; i<size; i++) {
+      Entity *entity = app->entities + app->entity_count;
+
+      entity->id = next_entity_id(app);
+      entity->type = EntityBlock;
+      entity->position.x = rock_noise[i].x;
+      entity->position.z = rock_noise[i].y;
+      mount_entity_to_terrain(entity);
+      entity->flags = EntityFlags::PERMANENT_FLAG;
+      entity->scale = 100.0f * glm::vec3(0.8f + get_next_float(&random) / 2.0f, 0.8f + get_next_float(&random) / 2.0f, 0.8f + get_next_float(&random) / 2.0f);
+      entity->model = &app->rock_model;
+      entity->color = glm::vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
+      entity->rotation = glm::vec3(get_next_float(&random) * 0.5f - 0.25f, get_next_float(&random) * glm::pi<float>(), get_next_float(&random) * 0.5f - 0.25f);
+      app->entity_count += 1;
+    }
+#endif
+  }
 }
 
 inline bool shader_has_uniform(Shader *shader, const char *name) {
@@ -1507,8 +1609,30 @@ bool render_terrain_chunk(App *app, TerrainChunk *chunk, Model *model) {
   return true;
 }
 
-void draw_string(App *app, Font *font, float x, float y, char *text, glm::vec3 color=glm::vec3(1.0f, 1.0f, 1.0f)) {
-  float font_x = 0, font_y = 0;
+void debug_render_rect(App *app, glm::mat4 projection, float x, float y, float width, float height, glm::vec4 color) {
+  use_program(app, &app->solid_program);
+
+  send_shader_uniform(app->current_program, "uPMatrix", projection);
+  use_model_mesh(app, &app->quad_model.mesh);
+  glm::mat4 model_view;
+  model_view = glm::translate(model_view, glm::vec3(x, y, 0.0f));
+  model_view = glm::scale(model_view, glm::vec3(width, height, 0.0f));
+  model_view = glm::translate(model_view, glm::vec3(0.5f, 0.5f, 0.0f));
+  model_view = glm::scale(model_view, glm::vec3(0.5f, 0.5f, 0.0f));
+  send_shader_uniform(app->current_program, "uMVMatrix", model_view);
+  send_shader_uniform(app->current_program, "in_color", color);
+  glDrawElements(GL_TRIANGLES, app->quad_model.mesh.data.indices_count, GL_UNSIGNED_INT, 0);
+}
+
+void draw_string(App *app, glm::mat4 projection, Font *font, float x, float y, char *text, glm::vec3 color=glm::vec3(1.0f, 1.0f, 1.0f)) {
+  use_program(app, &app->program);
+
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, app->font.texture);
+  send_shader_uniform(app->current_program, "uPMatrix", projection);
+  send_shader_uniformi(app->current_program, "textureImage", 0);
+
+  float font_x = 0, font_y = font->size;
   stbtt_aligned_quad q;
 
   while (*text != '\0') {
@@ -1561,6 +1685,37 @@ void draw_string(App *app, Font *font, float x, float y, char *text, glm::vec3 c
   }
 }
 
+bool push_debug_button(Input &input, App *app, DebugDrawState *state, glm::mat4 projection, float x, char *text, glm::vec3 color, glm::vec4 background_color) {
+  float min_x = x;
+  float min_y = state->offset_top;;
+  float max_x = min_x + 175.0f;
+  float max_y = min_y + 25.0f;
+
+  bool clicked = false;
+
+  if (input.mouse_x > min_x && input.mouse_y > min_y && input.mouse_x < max_x && input.mouse_y < max_y) {
+    if (input.mouse_click) {
+      background_color = glm::vec4(0.2f, 0.3f, 0.7f, 1.0f);
+      clicked = true;
+      input.mouse_click = false;
+    } else {
+      background_color = glm::vec4(0.5f, 0.6f, 1.0f, 1.0f);
+    }
+  }
+
+  debug_render_rect(app, projection, x, state->offset_top, 175.0f, 25.0f, background_color);
+  draw_string(app, projection, &app->font, x + 5, state->offset_top, text, color);
+  state->offset_top += 25.0f;
+
+  return clicked;
+}
+
+void push_debug_text(App *app, DebugDrawState *state, glm::mat4 projection, float x, char *text, glm::vec3 color, glm::vec4 background_color) {
+  debug_render_rect(app, projection, x, state->offset_top, 175.0f, 25.0f, background_color);
+  draw_string(app, projection, &app->font, x + 5, state->offset_top, text, color);
+  state->offset_top += 25.0f;
+}
+
 glm::mat4 get_camera_projection(Camera *camera) {
   glm::mat4 projection;
 
@@ -1609,6 +1764,162 @@ glm::mat4 make_billboard_matrix(glm::vec3 position, glm::vec3 camera_position, g
 
 #include "render_group.cpp"
 
+void push_debug_vector(DebugDrawState *state, App *app, glm::mat4 projection, float x, const char *name, glm::vec3 vector) {
+  char text[256];
+
+  debug_render_rect(app, projection, x, state->offset_top, 175.0f, 25.0f * 4.0f, glm::vec4(0.2f, 0.4f, 0.9f, 0.8f));
+
+  sprintf(text, "%s", name);
+  draw_string(app, projection, &app->font, x + 5.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  state->offset_top += 25.0f;
+
+  sprintf(text, "%f", vector.x);
+  draw_string(app, projection, &app->font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  state->offset_top += 25.0f;
+
+  sprintf(text, "%f", vector.y);
+  draw_string(app, projection, &app->font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  state->offset_top += 25.0f;
+
+  sprintf(text, "%f", vector.z);
+  draw_string(app, projection, &app->font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  state->offset_top += 25.0f;
+}
+
+bool sort_by_distance(const EditorHandleRenderCommand &a, const EditorHandleRenderCommand &b) {
+  return a.distance_from_camera > b.distance_from_camera;
+}
+
+void draw_3d_debug_info(App *app) {
+  use_program(app, &app->textured_program);
+
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  glDepthFunc(GL_ALWAYS);
+
+  send_shader_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
+
+  glActiveTexture(GL_TEXTURE0 + 0);
+  glBindTexture(GL_TEXTURE_2D, app->circle_texture.id);
+  send_shader_uniformi(app->current_program, "textureImage", 0);
+
+  use_model_mesh(app, &app->quad_model.mesh);
+
+  std::vector<EditorHandleRenderCommand> render_commands;
+
+  for (u32 i=0; i<app->entity_count; i++) {
+    Entity *entity = app->entities + i;
+
+    if (entity->flags & EntityFlags::RENDER_HIDDEN) { continue; }
+
+    glm::mat4 model_view;
+    model_view = glm::translate(model_view, entity->position);
+    model_view = glm::scale(model_view, glm::vec3(app->editor.handle_size));
+    model_view *= make_billboard_matrix(entity->position, app->camera.position, glm::vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
+
+    EditorHandleRenderCommand command;
+    command.distance_from_camera = glm::distance(app->camera.position, entity->position);
+    command.model_view = model_view;
+    render_commands.push_back(command);
+  }
+
+  std::sort(render_commands.begin(), render_commands.end(), sort_by_distance);
+
+  for (auto it = render_commands.begin(); it != render_commands.end(); it++) {
+    send_shader_uniform(app->current_program, "uMVMatrix", it->model_view);
+    glDrawElements(GL_TRIANGLES, app->quad_model.mesh.data.indices_count, GL_UNSIGNED_INT, 0);
+  }
+
+  glDisable(GL_BLEND);
+  glDepthFunc(GL_LESS);
+}
+
+void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
+  glDisable(GL_DEPTH_TEST);
+  glDisable(GL_CULL_FACE);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  glEnable(GL_BLEND);
+
+  glm::mat4 projection = glm::ortho(0.0f, float(memory->width), float(memory->height), 0.0f);
+
+  DebugDrawState draw_state;
+  draw_state.offset_top = 25.0f;
+
+  // NOTE(sedivy): profile data
+  char text[256];
+  {
+    for (u32 i=0; i<array_count(memory->last_frame_counters); i++) {
+      DebugCounter *counter = memory->last_frame_counters + i;
+
+      if (counter->hit_count) {
+        sprintf(text, "%d: %llu %llu %llu\n", i, counter->cycle_count, counter->hit_count, counter->cycle_count / counter->hit_count);
+        push_debug_text(app, &draw_state, projection, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.2f, 0.4f, 0.9f, 0.8f));
+      }
+    }
+  }
+
+  sprintf(text, "model_change: %d\n", app->render_group.model_change);
+  push_debug_text(app, &draw_state, projection, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.2f, 0.4f, 0.9f, 0.8f));
+
+  sprintf(text, "shader_change: %d\n", app->render_group.shader_change);
+  push_debug_text(app, &draw_state, projection, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.2f, 0.4f, 0.9f, 0.8f));
+
+  sprintf(text, "draw_calls: %d\n", app->render_group.draw_calls);
+  push_debug_text(app, &draw_state, projection, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.2f, 0.4f, 0.9f, 0.8f));
+
+  bool clicked = push_debug_button(input, app, &draw_state, projection, 10.0f, (char *)"save!", glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.5f, 0.6f, 0.9f, 0.8f));
+  if (clicked) {
+    save_level(app);
+  }
+
+  if (app->editor.inspect_entity) {
+    Entity *entity = get_entity_by_id(app, app->editor.entity_id);
+    if (entity) {
+      draw_state.offset_top = 25.0f;
+
+      sprintf(text, "id: %d\n", entity->id);
+      push_debug_text(app, &draw_state, projection, memory->width - 200, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.2f, 0.4f, 0.9f, 0.8f));
+
+      sprintf(text, "model: %s\n", entity->model->id_name);
+      push_debug_text(app, &draw_state, projection, memory->width - 200, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.2f, 0.4f, 0.9f, 0.8f));
+
+      push_debug_vector(&draw_state, app, projection, memory->width - 200, "position", entity->position);
+      push_debug_vector(&draw_state, app, projection, memory->width - 200, "rotation", entity->rotation);
+      push_debug_vector(&draw_state, app, projection, memory->width - 200, "scale", entity->scale);
+
+      float start = draw_state.offset_top;
+      push_debug_vector(&draw_state, app, projection, memory->width - 200, "color", glm::vec3(entity->color));
+
+      debug_render_rect(app, projection, memory->width - 150.0f, start + 2.0f, 20.0f, 20.0f, entity->color);
+
+      sprintf(text, "ground mounted: %d\n", (entity->flags & EntityFlags::MOUNT_TO_TERRAIN) != 0);
+      bool clicked = push_debug_button(input, app, &draw_state, projection, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.5f, 0.6f, 0.9f, 0.8f));
+      if (clicked) {
+        entity->flags = entity->flags ^ EntityFlags::MOUNT_TO_TERRAIN;
+        if (entity->flags & EntityFlags::MOUNT_TO_TERRAIN) {
+          mount_entity_to_terrain(entity);
+        }
+      }
+
+      sprintf(text, "casts shadow: %d\n", (entity->flags & EntityFlags::CASTS_SHADOW) != 0);
+      clicked = push_debug_button(input, app, &draw_state, projection, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.5f, 0.6f, 0.9f, 0.8f));
+      if (clicked) {
+        entity->flags = entity->flags ^ EntityFlags::CASTS_SHADOW;
+      }
+
+      sprintf(text, "save to file: %d\n", (entity->flags & EntityFlags::PERMANENT_FLAG) != 0);
+      clicked = push_debug_button(input, app, &draw_state, projection, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.5f, 0.6f, 0.9f, 0.8f));
+      if (clicked) {
+        entity->flags = entity->flags ^ EntityFlags::PERMANENT_FLAG;
+      }
+    }
+  }
+
+  glEnable(GL_CULL_FACE);
+  glDisable(GL_BLEND);
+  glEnable(GL_DEPTH_TEST);
+}
+
 void tick(Memory *memory, Input input) {
   debug_global_memory = memory;
   platform = memory->platform;
@@ -1629,44 +1940,59 @@ void tick(Memory *memory, Input input) {
 #endif
   }
 
-  if (input.once.key_r) {
-    create_shader(&app->another_program, "another_vert.glsl", "another_frag.glsl");
-    create_shader(&app->debug_program, "debug_vert.glsl", "debug_frag.glsl");
-    create_shader(&app->solid_program, "solid_vert.glsl", "solid_frag.glsl");
-    create_shader(&app->fullscreen_program, "fullscreen.vert", "fullscreen.frag");
-    create_shader(&app->fullscreen_depth_program, "fullscreen.vert", "fullscreen_depth.frag");
-    create_shader(&app->terrain_program, "terrain.vert", "terrain.frag");
-    create_shader(&app->skybox_program, "skybox.vert", "skybox.frag");
-    create_shader(&app->program, "vert.glsl", "frag.glsl");
-    create_shader(&app->textured_program, "textured.vert", "textured.frag");
-
-    unload_texture(&app->gradient_texture);
-    load_texture(&app->gradient_texture, STBI_rgb_alpha);
-    initialize_texture(&app->gradient_texture, GL_RGBA, false);
-
-    unload_texture(&app->circle_texture);
-    load_texture(&app->circle_texture, STBI_rgb_alpha);
-    initialize_texture(&app->circle_texture, GL_RGBA, true);
-
-    unload_model(&app->rock_model);
-
-    for (u32 i=0; i<array_count(app->trees); i++) {
-      unload_model(app->trees + i);
-    }
-  }
-
-  Entity *follow_entity = get_entity_by_id(app, app->camera_follow);
-
-  if (input.once.key_p) {
-    app->editing_mode = !app->editing_mode;
-    if (!app->editing_mode) {
-      platform.lock_mouse();
-    }
-  }
+  PROFILE(render_ui);
+  glBindFramebuffer(GL_FRAMEBUFFER, app->ui_frame.id);
+  glViewport(0, 0, app->ui_frame.width, app->ui_frame.height);
+  glClearColor(1.0f, 1.0f, 1.0f, 0.0f);
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  draw_2d_debug_info(app, memory, input);
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  PROFILE_END(render_ui);
 
   // NOTE(sedivy): update
+  Entity *follow_entity = get_entity_by_id(app, app->camera_follow);
   {
     PROFILE(update);
+
+    if (input.once.key_r) {
+      create_shader(&app->another_program, "another_vert.glsl", "another_frag.glsl");
+      create_shader(&app->debug_program, "debug_vert.glsl", "debug_frag.glsl");
+      create_shader(&app->solid_program, "solid_vert.glsl", "solid_frag.glsl");
+      create_shader(&app->fullscreen_fog_program, "fullscreen.vert", "fullscreen_fog.frag");
+      create_shader(&app->fullscreen_color_program, "fullscreen.vert", "fullscreen_color.frag");
+      create_shader(&app->fullscreen_program, "fullscreen.vert", "fullscreen.frag");
+      create_shader(&app->fullscreen_depth_program, "fullscreen.vert", "fullscreen_depth.frag");
+      create_shader(&app->terrain_program, "terrain.vert", "terrain.frag");
+      create_shader(&app->skybox_program, "skybox.vert", "skybox.frag");
+      create_shader(&app->program, "vert.glsl", "frag.glsl");
+      create_shader(&app->textured_program, "textured.vert", "textured.frag");
+
+      unload_texture(&app->gradient_texture);
+      load_texture(&app->gradient_texture, STBI_rgb_alpha);
+      initialize_texture(&app->gradient_texture, GL_RGBA, false);
+      stbi_image_free(app->gradient_texture.data);
+      app->gradient_texture.data = NULL;
+
+      unload_texture(&app->color_correction_texture);
+      load_color_grading_texture(&app->color_correction_texture);
+
+      unload_texture(&app->circle_texture);
+      load_texture(&app->circle_texture, STBI_rgb_alpha);
+      initialize_texture(&app->circle_texture, GL_RGBA, true);
+
+      unload_model(&app->rock_model);
+
+      for (u32 i=0; i<array_count(app->trees); i++) {
+        unload_model(app->trees + i);
+      }
+    }
+
+    if (input.once.key_p) {
+      app->editing_mode = !app->editing_mode;
+      if (!app->editing_mode) {
+        platform.lock_mouse();
+      }
+    }
 
     if (input.is_mouse_locked) {
       follow_entity->rotation.y += static_cast<float>(input.rel_mouse_x)/200.0f;
@@ -1721,6 +2047,9 @@ void tick(Memory *memory, Input input) {
         movement.y += -1;
       }
     } else {
+      if (input.shift) {
+        speed = 10.0f;
+      }
       movement.y = 0;
     }
 
@@ -1735,14 +2064,14 @@ void tick(Memory *memory, Input input) {
 
       if (entity->type == EntityBlock) {
         float distance = glm::distance(entity->position, follow_entity->position);
-        if (distance < 1000) {
-          entity->render_flags |= RenderWireframe;
+        if (distance < 1000.0f) {
+          entity->flags |= EntityFlags::RENDER_WIREFRAME;
         } else {
-          entity->render_flags = entity->render_flags & ~RenderWireframe;
+          entity->flags = entity->flags & ~EntityFlags::RENDER_WIREFRAME;
         }
       } else if (entity->type == EntityPlayer) {
         entity->position += entity->velocity;
-        entity->velocity *= 0.6;
+        entity->velocity *= 0.6f;
       }
     }
 
@@ -1761,12 +2090,12 @@ void tick(Memory *memory, Input input) {
     /* printf("rotation: %f %f %f\n\n", follow_entity->rotation.x, follow_entity->rotation.y, follow_entity->rotation.z); */
 
     app->camera.rotation = follow_entity->rotation;
-    app->camera.position = follow_entity->position;
+    app->camera.position = follow_entity->position + glm::vec3(0.0f, 70.0f, 0.0f);
     app->camera.view_matrix = get_camera_projection(&app->camera);
     app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.x, glm::vec3(1.0, 0.0, 0.0));
     app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.y, glm::vec3(0.0, 1.0, 0.0));
     app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.z, glm::vec3(0.0, 0.0, 1.0));
-    app->camera.view_matrix = glm::translate(app->camera.view_matrix, (app->camera.position * -1.0f) - glm::vec3(0.0f, 3.2f, 0.0f));
+    app->camera.view_matrix = glm::translate(app->camera.view_matrix, (app->camera.position * -1.0f));
     fill_frustum_with_matrix(&app->camera.frustum, app->camera.view_matrix);
 
     if (app->editing_mode && input.mouse_click) {
@@ -1778,7 +2107,7 @@ void tick(Memory *memory, Input input) {
 
       for (u32 i=0; i<app->entity_count; i++) {
         Entity *entity = app->entities + i;
-        if (!(entity->render_flags & RenderHidden)) {
+        if (!(entity->flags & EntityFlags::RENDER_HIDDEN)) {
           RayMatchResult hit = ray_match_sphere(ray, entity->position, app->editor.handle_size);
 
           if (hit.hit) {
@@ -1796,6 +2125,9 @@ void tick(Memory *memory, Input input) {
         app->editor.holding_entity = true;
         app->editor.distance_from_entity_offset = glm::distance(app->camera.position, hit_position);
         app->editor.hold_offset = hit_position - closest_entity->position;
+        app->editor.inspect_entity = true;
+      } else {
+        app->editor.inspect_entity = false;
       }
     }
 
@@ -1869,6 +2201,22 @@ void tick(Memory *memory, Input input) {
     }
 
     if (app->editing_mode) {
+
+#if 0
+      if (input.key_o) {
+        Entity *entity = app->entities + app->entity_count++;
+
+        entity->id = next_entity_id(app);
+        entity->type = EntityBlock;
+        entity->position = follow_entity->position;
+        entity->scale = glm::vec3(100.0f);
+        entity->model = get_model_by_name(app, (char *)"rock");
+        entity->color = glm::vec4(1.0f, 1.0f, 1.9f, 1.0f);
+        entity->rotation = glm::vec3(get_random_float_between(0.0, pi * 2.0f), get_random_float_between(0.0, pi * 2.0f), get_random_float_between(0.0, pi * 2.0f));
+        entity->flags = 0; // EntityFlags::PERMANENT_FLAG;
+      }
+#endif
+
       if (input.right_mouse_down) {
         if (!input.is_mouse_locked) {
           platform.lock_mouse();
@@ -1889,7 +2237,7 @@ void tick(Memory *memory, Input input) {
         Ray ray = get_mouse_ray(app, input, memory);
         entity->position = (ray.start + ray.direction * app->editor.distance_from_entity_offset) - app->editor.hold_offset;
 
-        if ((entity->flags & EntityMountToTerrain) != 0) {
+        if ((entity->flags & EntityFlags::MOUNT_TO_TERRAIN) != 0) {
           mount_entity_to_terrain(entity);
         }
       }
@@ -1963,7 +2311,7 @@ void tick(Memory *memory, Input input) {
       for (u32 i=0; i<app->entity_count; i++) {
         Entity *entity = app->entities + i;
 
-        if (entity->render_flags & RenderHidden) { continue; }
+        if ((entity->flags & EntityFlags::CASTS_SHADOW) == 0 || (entity->flags & EntityFlags::RENDER_HIDDEN) != 0) { continue; }
 
         bool model_wait = process_model(memory, entity->model);
         bool texture_wait = false;
@@ -1988,7 +2336,7 @@ void tick(Memory *memory, Input input) {
         RenderCommand command;
         command.shader = &app->solid_program;
         command.model_view = model_view;
-        command.render_flags = 0;
+        command.flags = 0;
         command.color = glm::vec4(1.0f);
         command.cull_type = GL_FRONT;
 
@@ -2117,12 +2465,13 @@ void tick(Memory *memory, Input input) {
         send_shader_uniformi(app->current_program, "uShadow", 0);
         send_shader_uniform(app->current_program, "shadow_matrix", app->shadow_camera.view_matrix);
         send_shader_uniform(app->current_program, "texmapscale", glm::vec2(1.0f / app->shadow_width, 1.0f / app->shadow_height));
+        send_shader_uniform(app->current_program, "shadow_light_position", app->shadow_camera.position);
 
         PROFILE(render_entities);
         for (u32 i=0; i<app->entity_count; i++) {
           Entity *entity = app->entities + i;
 
-          if (entity->render_flags & RenderHidden) { continue; }
+          if (entity->flags & EntityFlags::RENDER_HIDDEN) { continue; }
 
           bool model_wait = process_model(memory, entity->model);
           bool texture_wait = false;
@@ -2159,7 +2508,7 @@ void tick(Memory *memory, Input input) {
               RenderCommand command;
               command.shader = &app->another_program;
               command.model_view = sphere_view;
-              command.render_flags = 0;
+              command.flags = 0;
 
               command.normal = glm::inverseTranspose(glm::mat3(sphere_view));
               command.color = glm::vec3(1.0f);
@@ -2173,7 +2522,7 @@ void tick(Memory *memory, Input input) {
           RenderCommand command;
           command.shader = &app->another_program;
           command.model_view = model_view;
-          command.render_flags = entity->render_flags;
+          command.flags = entity->flags;
           command.normal = normal;
           command.color = entity->color;
           command.cull_type = GL_BACK;
@@ -2203,23 +2552,28 @@ void tick(Memory *memory, Input input) {
       glDisable(GL_DEPTH_TEST);
       glDisable(GL_CULL_FACE);
 
-      use_program(app, &app->fullscreen_program);
+      use_program(app, &app->fullscreen_fog_program);
+      use_program(app, &app->fullscreen_color_program);
 
       glActiveTexture(GL_TEXTURE0 + 0);
       glBindTexture(GL_TEXTURE_2D, app->frame.texture);
 
-      glActiveTexture(GL_TEXTURE0 + 1);
-      glBindTexture(GL_TEXTURE_2D, app->frame.depth);
+      /* glActiveTexture(GL_TEXTURE0 + 1); */
+      /* glBindTexture(GL_TEXTURE_2D, app->frame.depth); */
 
-      glActiveTexture(GL_TEXTURE0 + 2);
-      glBindTexture(GL_TEXTURE_2D, app->gradient_texture.id);
+      /* glActiveTexture(GL_TEXTURE0 + 2); */
+      /* glBindTexture(GL_TEXTURE_2D, app->gradient_texture.id); */
+
+      glActiveTexture(GL_TEXTURE0 + 1);
+      glBindTexture(GL_TEXTURE_3D, app->color_correction_texture.id);
 
       send_shader_uniformi(app->current_program, "uSampler", 0);
-      send_shader_uniformi(app->current_program, "uDepth", 1);
-      send_shader_uniformi(app->current_program, "uGradient", 2);
+      send_shader_uniformi(app->current_program, "color_correction_texture", 1);
+      /* send_shader_uniformi(app->current_program, "uDepth", 1); */
+      /* send_shader_uniformi(app->current_program, "uGradient", 2); */
 
-      send_shader_uniformf(app->current_program, "znear", app->camera.near);
-      send_shader_uniformf(app->current_program, "zfar", app->camera.far);
+      /* send_shader_uniformf(app->current_program, "znear", app->camera.near); */
+      /* send_shader_uniformf(app->current_program, "zfar", app->camera.far); */
 
       glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
       glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
@@ -2228,91 +2582,39 @@ void tick(Memory *memory, Input input) {
 
     PROFILE_END(render);
 
-    {
-      if (app->editing_mode) {
-        {
-          use_program(app, &app->textured_program);
+    if (app->editing_mode) {
+      draw_3d_debug_info(app);
 
-          glEnable(GL_BLEND);
-          glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+      {
+        glViewport(0, 0, memory->width, memory->height);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_CULL_FACE);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-          send_shader_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
-          glDepthFunc(GL_ALWAYS);
+        use_program(app, &app->fullscreen_program);
 
-          for (u32 i=0; i<app->entity_count; i++) {
-            Entity *entity = app->entities + i;
+        glActiveTexture(GL_TEXTURE0 + 0);
+        glBindTexture(GL_TEXTURE_2D, app->ui_frame.texture);
 
-            if (entity->render_flags & RenderHidden) { continue; }
+        send_shader_uniformi(app->current_program, "uSampler", 0);
 
-            if (!process_model(memory, &app->quad_model)) {
-              use_model_mesh(app, &app->quad_model.mesh);
+        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
 
-              glm::mat4 model_view;
-
-              glActiveTexture(GL_TEXTURE0 + 0);
-              glBindTexture(GL_TEXTURE_2D, app->circle_texture.id);
-              send_shader_uniformi(app->current_program, "textureImage", 0);
-
-              model_view = glm::translate(model_view, entity->position);
-              model_view = glm::scale(model_view, glm::vec3(app->editor.handle_size));
-              model_view *= make_billboard_matrix(entity->position, app->camera.position, glm::vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
-
-              send_shader_uniform(app->current_program, "uMVMatrix", model_view);
-
-              glDrawElements(GL_TRIANGLES, app->quad_model.mesh.data.indices_count, GL_UNSIGNED_INT, 0);
-            }
-          }
-
-          glDisable(GL_BLEND);
-          glDepthFunc(GL_LESS);
-        }
-
-        {
-          use_program(app, &app->program);
-
-          glDisable(GL_DEPTH_TEST);
-
-          glDisable(GL_CULL_FACE);
-          glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-          glEnable(GL_BLEND);
-
-          glm::mat4 projection = glm::ortho(0.0f, float(memory->width), float(memory->height), 0.0f);
-          send_shader_uniform(app->current_program, "uPMatrix", projection);
-
-          glActiveTexture(GL_TEXTURE0);
-          glBindTexture(GL_TEXTURE_2D, app->font.texture);
-          send_shader_uniformi(app->current_program, "textureImage", 0);
-
-          // NOTE(sedivy): profile data
-          char text[256];
-          {
-            for (u32 i=0; i<array_count(memory->counters); i++) {
-              DebugCounter *counter = memory->counters + i;
-
-              if (counter->hit_count) {
-                sprintf(text, "%d: %llu %llu %llu\n", i, counter->cycle_count, counter->hit_count, counter->cycle_count / counter->hit_count);
-                draw_string(app, &app->font, 10.0f, 25.0f + 25.0f * i, text, glm::vec3(1.0f, 1.0f, 1.0f));
-
-                counter->cycle_count = 0;
-                counter->hit_count = 0;
-              }
-            }
-          }
-
-          sprintf(text, "model_change: %d\n", app->render_group.model_change);
-          draw_string(app, &app->font, 10.0f, 130.0f + 25.0f * 0, text, glm::vec3(1.0f, 1.0f, 1.0f));
-
-          sprintf(text, "shader_change: %d\n", app->render_group.shader_change);
-          draw_string(app, &app->font, 10.0f, 130.0f + 25.0f * 1, text, glm::vec3(1.0f, 1.0f, 1.0f));
-
-          sprintf(text, "draw_calls: %d\n", app->render_group.draw_calls);
-          draw_string(app, &app->font, 10.0f, 130.0f + 25.0f * 2, text, glm::vec3(1.0f, 1.0f, 1.0f));
-
-          glEnable(GL_CULL_FACE);
-          glDisable(GL_BLEND);
-          glEnable(GL_DEPTH_TEST);
-        }
+        glDisable(GL_BLEND);
       }
+    }
+  }
+
+  memcpy(memory->last_frame_counters, memory->counters, sizeof(memory->counters));
+  for (u32 i=0; i<array_count(memory->counters); i++) {
+    DebugCounter *counter = memory->counters + i;
+
+    if (counter->hit_count) {
+      counter->cycle_count = 0;
+      counter->hit_count = 0;
     }
   }
 }

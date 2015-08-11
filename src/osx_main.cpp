@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <dlfcn.h>
 #include <unistd.h>
@@ -332,48 +333,6 @@ int main() {
 
   chdir(SDL_GetBasePath());
 
-/*   const char *base_path = "../../../level"; */
-
-/*   DIR *dir = opendir(base_path); */
-/*   if (dir) { */
-/*     while (dirent *entry = readdir(dir)) { */
-/*       if (entry->d_type == 0x8) { */
-/*         char *full_path = (char *)alloca(sizeof(base_path) + sizeof(entry->d_name)); */
-
-/*         sprintf(full_path, "%s/%s", base_path, entry->d_name); */
-
-/*         FILE *file = fopen(full_path, "r"); */
-
-/*         char *line = NULL; */
-/*         size_t len; */
-
-/*         Entity entity; */
-
-/*         while (getline(&line, &len, file) != -1) { */
-/*           switch (line[0]) { */
-/*             case 'p': { */
-/*               char *start = (char *)((u8*)line + 2); */
-/*               entity.position = read_vector(start); */
-/*             } break; */
-/*             case 's': { */
-/*               char *start = (char *)((u8*)line + 2); */
-/*               entity.scale = read_vector(start); */
-/*             } break; */
-/*             case 'r': { */
-/*               char *start = (char *)((u8*)line + 2); */
-/*               entity.rotation = read_vector(start); */
-/*             } break; */
-/*           } */
-/*         } */
-/*         free(line); */
-/*         fclose(file); */
-/*       } */
-/*     } */
-/*     closedir(dir); */
-/*   } */
-
-/*   return 1; */
-
   AppCode code = load_app_code();
 
   SDL_Init(SDL_INIT_EVERYTHING);
@@ -382,7 +341,7 @@ int main() {
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
 
-  SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 32);
+  SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
   SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
   SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
