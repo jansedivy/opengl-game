@@ -88,6 +88,7 @@ extern "C" {
   typedef bool queue_has_free_spot_type(struct Queue *queue);
   typedef u32 get_time_type();
   typedef u64 get_performance_counter_type();
+  typedef u64 get_performance_frequency_type();
   typedef void delay_type(u32 time);
   typedef void lock_mouse_type();
   typedef void unlock_mouse_type();
@@ -100,13 +101,20 @@ extern "C" {
   typedef PlatformFileLine read_file_line_type(PlatformFile file);
   typedef void close_directory_type(PlatformDirectory directory);
   typedef void write_to_file_type(PlatformFile file, char *text);
+  typedef void create_directory_type(char *path);
 
   enum {
     DebugCycleCounter_update,
     DebugCycleCounter_render,
+    DebugCycleCounter_render_shadows,
+    DebugCycleCounter_render_skybox,
+    DebugCycleCounter_render_debug,
+    DebugCycleCounter_render_final,
+    DebugCycleCounter_render_main,
     DebugCycleCounter_render_entities,
     DebugCycleCounter_render_chunks,
     DebugCycleCounter_render_ui,
+    DebugCycleCounter_render_ui_flush,
     DebugCycleCounter_count
   };
 
@@ -123,6 +131,7 @@ extern "C" {
     debugFreeFileType *debug_free_file;
     get_time_type *get_time;
     get_performance_counter_type *get_performance_counter;
+    get_performance_frequency_type *get_performance_frequency;
     delay_type *delay;
     lock_mouse_type *lock_mouse;
     unlock_mouse_type *unlock_mouse;
@@ -132,6 +141,7 @@ extern "C" {
     is_directory_entry_file_type *is_directory_entry_file;
     open_file_type *open_file;
     write_to_file_type *write_to_file;
+    create_directory_type *create_directory;
     close_file_type *close_file;
     read_file_line_type *read_file_line;
     close_directory_type *close_directory;

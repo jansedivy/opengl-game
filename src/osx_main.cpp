@@ -13,12 +13,12 @@
 
 #include <SDL2/SDL.h>
 #include "platform.h"
+
 #include <dirent.h>
 #include <cstdio>
-
+#include <sys/stat.h>
 
 #include "app.h"
-
 
 struct AppCode {
   TickType* tick;
@@ -203,6 +203,10 @@ u64 get_performance_counter() {
   return SDL_GetPerformanceCounter();
 }
 
+u64 get_performance_frequency() {
+  return SDL_GetPerformanceFrequency();
+}
+
 void delay(u32 time) {
   SDL_Delay(time);
 }
@@ -270,6 +274,10 @@ void close_file(PlatformFile file) {
 void write_to_file(PlatformFile file, char *text) {
 }
 
+void create_directory(char *path) {
+  mkdir(path, 0777);
+}
+
 PlatformFileLine read_file_line(PlatformFile file) {
   PlatformFileLine result;
   result.contents = NULL;
@@ -312,6 +320,7 @@ int main() {
   memory.platform.debug_free_file = debug_free_file;
   memory.platform.get_time = get_time;
   memory.platform.get_performance_counter = get_performance_counter;
+  memory.platform.get_performance_frequency = get_performance_frequency;
   memory.platform.delay = delay;
   memory.platform.lock_mouse = lock_mouse;
   memory.platform.unlock_mouse = unlock_mouse;
@@ -327,6 +336,7 @@ int main() {
   memory.platform.read_file_line = read_file_line;
   memory.platform.close_directory = close_directory;
   memory.platform.write_to_file = write_to_file;
+  memory.platform.create_directory = create_directory;
 
   memory.low_queue = &low_queue;
   memory.main_queue = &main_queue;

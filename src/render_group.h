@@ -26,4 +26,5 @@ struct RenderGroup {
   u32 draw_calls;
 
   GLenum depth_mode;
+  GLenum cull_face;
 };

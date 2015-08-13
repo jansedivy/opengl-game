@@ -21,6 +21,8 @@
 #include <glm/gtx/string_cast.hpp>
 #include <glm/gtx/intersect.hpp>
 
+#include <cstdio>
+
 #include <vector>
 #include <unordered_map>
 
@@ -79,8 +81,9 @@ struct ModelData {
 };
 
 struct Mesh {
-  GLuint vertices_id;
   GLuint indices_id;
+
+  GLuint vertices_id;
   GLuint normals_id;
   GLuint uv_id;
 
@@ -222,6 +225,27 @@ struct EditorHandleRenderCommand {
   glm::mat4 model_view;
 };
 
+namespace UICommandType {
+  enum UICommandType {
+    NONE = 0,
+    RECT,
+    TEXT
+  };
+}
+
+struct UICommand {
+  glm::vec4 color;
+  u32 vertices_count;
+  UICommandType::UICommandType type;
+};
+
+struct UICommandBuffer {
+  std::vector<GLfloat> vertices;
+  std::vector<UICommand> commands;
+
+  std::vector<GLfloat> text_vertices;
+};
+
 struct Editor {
   bool holding_entity;
   bool inspect_entity;
@@ -229,6 +253,11 @@ struct Editor {
   float distance_from_entity_offset;
   glm::vec3 hold_offset;
   float handle_size;
+
+  bool show_performance = false;
+  bool show_state_changes = false;
+
+  UICommandBuffer command_buffer;
 };
 
 struct FrameBuffer {
@@ -243,16 +272,39 @@ struct DebugDrawState {
   float offset_top = 0;
 };
 
+#pragma pack(1)
+struct LoadedLevelHeader {
+  u32 entity_count;
+};
+
+struct EntitySave {
+  u32 id;
+  glm::vec3 position;
+  glm::vec3 scale;
+  glm::vec3 rotation;
+  glm::vec4 color;
+  u32 flags;
+  char model_name[128];
+};
+#pragma options align=reset
+
+struct LoadedLevel {
+  std::vector<EntitySave> entities;
+};
+
 struct App {
   u32 last_id;
 
   Shader program;
   Shader another_program;
   Shader debug_program;
+  Shader ui_program;
   Shader solid_program;
   Shader fullscreen_program;
   Shader fullscreen_fog_program;
   Shader fullscreen_color_program;
+  Shader fullscreen_fxaa_program;
+  Shader fullscreen_bloom_program;
   Shader fullscreen_depth_program;
   Shader terrain_program;
   Shader skybox_program;
@@ -268,15 +320,14 @@ struct App {
   GLuint debug_buffer;
   std::vector<glm::vec3> debug_lines;
 
-  FrameBuffer frame;
-  FrameBuffer ui_frame;
+  FrameBuffer frame_1;
+  FrameBuffer frame_2;
 
   GLuint shadow_buffer;
   GLuint shadow_depth_texture;
   u32 shadow_width;
   u32 shadow_height;
 
-  Texture grass_texture;
   Texture gradient_texture;
   Texture color_correction_texture;
   Texture circle_texture;
@@ -286,7 +337,6 @@ struct App {
   Model cube_model;
   Model sphere_model;
   Model rock_model;
-  Model grass_model;
   Model quad_model;
 
   Model trees[2];
@@ -312,11 +362,13 @@ struct App {
 
   Editor editor;
 
-  bool enabled_vertex[32];
+  u32 fps;
+  u32 framecount;
+  u32 frametimelast;
 };
 
 Memory *debug_global_memory;
 
 #define PROFILE(ID) u64 profile_cycle_count##ID = platform.get_performance_counter();
-#define PROFILE_END(ID) debug_global_memory->counters[DebugCycleCounter_##ID].cycle_count += platform.get_performance_counter() - profile_cycle_count##ID; ++debug_global_memory->counters[DebugCycleCounter_##ID].hit_count;
+#define PROFILE_END(ID) debug_global_memory->counters[DebugCycleCounter_##ID].cycle_count += (platform.get_performance_counter()) - profile_cycle_count##ID; ++debug_global_memory->counters[DebugCycleCounter_##ID].hit_count;
 #define PROFILE_END_COUNTED(ID, COUNT) debug_global_memory->counters[DebugCycleCounter_##ID].cycle_count += platform.get_performance_counter() - profile_cycle_count##ID; debug_global_memory->counters[DebugCycleCounter_##ID].hit_count += (COUNT);

@@ -36,6 +36,199 @@ float distance_from_plane(Plane plane, glm::vec3 position) {
   return glm::dot(plane.normal, position) + plane.distance;
 }
 
+const char *get_filename_ext(const char *filename) {
+  const char *dot = strrchr(filename, '.');
+  if(!dot || dot == filename) return "";
+  return dot + 1;
+}
+
+glm::vec3 read_vector(char *start) {
+  glm::vec3 result;
+  sscanf(start, "%f,%f,%f", &result.x, &result.y, &result.z);
+  return result;
+}
+
+Model *get_model_by_name(App *app, char *name) {
+  if (strcmp(name, "cube") == 0) {
+    return &app->cube_model;
+  } else if (strcmp(name, "sphere") == 0) {
+    return &app->sphere_model;
+  } else if (strcmp(name, "rock") == 0) {
+    return &app->rock_model;
+  } else if (strcmp(name, "quad") == 0) {
+    return &app->quad_model;
+  } else if (strcmp(name, "tree_001") == 0) {
+    return app->trees + 0;
+  } else if (strcmp(name, "tree_002") == 0) {
+    return app->trees + 1;
+  }
+
+  return NULL;
+}
+
+float get_terrain_height_at(float x, float y) {
+  return (
+    scaled_octave_noise_2d(20.0f, 0.3f, 10.0f, 0.0f, 40.0f, y / 4000.0f, x / 4000.0f) +
+    scaled_octave_noise_2d(20.0f, 0.3f, 10.0f, 0.0f, 40.0f, x / 4000.0f, y / 4000.0f) +
+    scaled_octave_noise_2d(1.0f, 1.0f, 10.0f, -100.0f, 500.0f, x / 40000.0f, y / 40000.0f) +
+    scaled_octave_noise_2d(1.0f, 1.0f, 10.0f, 00.0f, 1000.0f, x / 400000.0f, y / 400000.0f) +
+
+    0.0f
+  );
+}
+
+void mount_entity_to_terrain(Entity *entity) {
+  entity->position.y = get_terrain_height_at(entity->position.x, entity->position.z);
+}
+
+void save_binary_level_file(LoadedLevel loaded_level) {
+  LoadedLevelHeader header;
+  header.entity_count = loaded_level.entities.size();
+
+  PlatformFile file = platform.open_file((char *)"level.level", "w");
+  fwrite(&header, 1, sizeof(header), (FILE *)file.platform); // TODO(sedivy): remove fwrite
+  for (auto it = loaded_level.entities.begin(); it != loaded_level.entities.end(); it++) {
+    fwrite(&(*it), 1, sizeof(EntitySave), (FILE *)file.platform);
+  }
+  platform.close_file(file);
+}
+
+void save_text_level_file(LoadedLevel level) {
+  const char *base_path = "../../../level";
+
+  platform.create_directory((char *)base_path);
+
+  for (auto it = level.entities.begin(); it != level.entities.end(); it++) {
+    char full_path[256];
+    sprintf(full_path, "%s/%d.entity", base_path, it->id);
+
+    PlatformFile file = platform.open_file(full_path, "w");
+
+    // TODO(sedivy): replace fprintf
+    fprintf((FILE *)file.platform, "%d\n", it->id);
+    fprintf((FILE *)file.platform, "p: %f, %f, %f\n", it->position.x, it->position.y, it->position.z);
+    fprintf((FILE *)file.platform, "s: %f, %f, %f\n", it->scale.x, it->scale.y, it->scale.z);
+    fprintf((FILE *)file.platform, "r: %f, %f, %f\n", it->rotation.x, it->rotation.y, it->rotation.z);
+    fprintf((FILE *)file.platform, "c: %f, %f, %f\n", it->color.x, it->color.y, it->color.z);
+    fprintf((FILE *)file.platform, "f: %d\n", it->flags);
+    fprintf((FILE *)file.platform, "m: %s\n", it->model_name);
+
+    platform.close_file(file);
+  }
+}
+
+LoadedLevel load_binary_level_file() {
+  LoadedLevel result;
+
+  DebugReadFileResult file = platform.debug_read_entire_file("level.level");
+
+  LoadedLevelHeader *header = static_cast<LoadedLevelHeader *>((void *)file.contents);
+
+  for (u32 i=0; i<header->entity_count; i++) {
+    EntitySave *entity = (EntitySave *)((char *)header + sizeof(LoadedLevelHeader) + sizeof(EntitySave) * i);
+
+    result.entities.push_back(*entity);
+  }
+
+  platform.debug_free_file(file);
+
+  return result;
+}
+
+void deserialize_entity(App *app, EntitySave *src, Entity *dest) {
+  dest->id = src->id;
+  dest->position = src->position;
+  dest->scale = src->scale;
+  dest->rotation = src->rotation;
+  dest->color = src->color;
+  dest->flags = src->flags;
+  dest->model = get_model_by_name(app, src->model_name);
+
+  if (dest->flags & EntityFlags::MOUNT_TO_TERRAIN) {
+    mount_entity_to_terrain(dest);
+  }
+}
+
+void load_debug_level(App *app) {
+  const char *base_path = "../../../level";
+
+  PlatformDirectory directory = platform.open_directory(base_path);
+  if (directory.platform != NULL) {
+    LoadedLevel loaded_level;
+
+    while (true) {
+      PlatformDirectoryEntry entry = platform.read_next_directory_entry(directory);
+      if (entry.empty) { break; }
+
+      if (platform.is_directory_entry_file(entry)) {
+        char *full_path = (char *)alloca(sizeof(base_path) + sizeof(entry.name));
+        sprintf(full_path, "%s/%s", base_path, entry.name);
+
+        if (strcmp(get_filename_ext(full_path), "entity") == 0) {
+          PlatformFile file = platform.open_file(full_path, "r");
+          if (!file.error) {
+
+            EntitySave entity = {};
+
+            PlatformFileLine line = platform.read_file_line(file);
+            if (!line.empty) {
+              sscanf(line.contents, "%d", &entity.id);
+            }
+
+            while (true) {
+              PlatformFileLine line = platform.read_file_line(file);
+              if (line.empty) { break; }
+
+              char *start = (char *)((u8*)line.contents + 2);
+
+              switch (line.contents[0]) {
+                case 'p': {
+                  entity.position = read_vector(start);
+                } break;
+                case 'm': {
+                  sscanf(start, "%s", entity.model_name);
+                } break;
+                case 'c': {
+                  entity.color = glm::vec4(read_vector(start), 1.0f);
+                } break;
+                case 's': {
+                  entity.scale = read_vector(start);
+                } break;
+                case 'r': {
+                  entity.rotation = read_vector(start);
+                } break;
+                case 'f': {
+                  sscanf(start, "%d", &entity.flags);
+                } break;
+              }
+            }
+
+            loaded_level.entities.push_back(entity);
+
+            platform.close_file(file);
+          }
+        }
+      }
+    }
+
+    platform.close_directory(directory);
+
+    save_binary_level_file(loaded_level);
+  }
+
+  LoadedLevel bin_loaded_level = load_binary_level_file();
+
+  for (auto it = bin_loaded_level.entities.begin(); it != bin_loaded_level.entities.end(); it++) {
+    Entity *entity = app->entities + app->entity_count++;
+
+    deserialize_entity(app, &(*it), entity);
+
+    if (entity->id > app->last_id) {
+      app->last_id = entity->id;
+    }
+  }
+}
+
 RayMatchResult ray_match_sphere(Ray ray, glm::vec3 position, float radius) {
   RayMatchResult result;
   result.hit = false;
@@ -188,24 +381,6 @@ void unload_model(Model *model) {
   model->is_being_loaded = false;
 }
 
-Model *get_model_by_name(App *app, char *name) {
-  if (strcmp(name, "cube") == 0) {
-    return &app->cube_model;
-  } else if (strcmp(name, "sphere") == 0) {
-    return &app->sphere_model;
-  } else if (strcmp(name, "rock") == 0) {
-    return &app->rock_model;
-  } else if (strcmp(name, "quad") == 0) {
-    return &app->quad_model;
-  } else if (strcmp(name, "tree_001") == 0) {
-    return app->trees + 0;
-  } else if (strcmp(name, "tree_002") == 0) {
-    return app->trees + 1;
-  }
-
-  return NULL;
-}
-
 float calculate_radius(Mesh *mesh) {
   float max_radius = 0.0f;
 
@@ -280,8 +455,8 @@ void initialize_model(Model *model) {
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, model->mesh.data.indices_count * sizeof(GLint), model->mesh.data.indices, GL_STATIC_DRAW);
   glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-  model->mesh.vertices_id = vertices_id;
   model->mesh.indices_id = indices_id;
+  model->mesh.vertices_id = vertices_id;
   model->mesh.normals_id = normals_id;
   model->mesh.uv_id = uv_id;
 
@@ -298,23 +473,19 @@ inline GLuint shader_get_attribute_location(Shader *shader, const char *name) {
 }
 
 void use_program(App* app, Shader *program) {
+  if (program == app->current_program) { return; }
+  if (app->current_program != NULL) {
+    for (auto it = app->current_program->attributes.begin(); it != app->current_program->attributes.end(); it++) {
+      glDisableVertexAttribArray(it->second);
+    }
+  }
+
   app->current_program = program;
   glUseProgram(program->id);
-}
 
-float get_terrain_height_at(float x, float y) {
-  return (
-    scaled_octave_noise_2d(20.0f, 0.3f, 10.0f, 0.0f, 40.0f, y / 4000.0f, x / 4000.0f) +
-    scaled_octave_noise_2d(20.0f, 0.3f, 10.0f, 0.0f, 40.0f, x / 4000.0f, y / 4000.0f) +
-    scaled_octave_noise_2d(1.0f, 1.0f, 10.0f, -100.0f, 500.0f, x / 40000.0f, y / 40000.0f) +
-    scaled_octave_noise_2d(1.0f, 1.0f, 10.0f, 00.0f, 1000.0f, x / 400000.0f, y / 400000.0f) +
-
-    0.0f
-  );
-}
-
-void mount_entity_to_terrain(Entity *entity) {
-  entity->position.y = get_terrain_height_at(entity->position.x, entity->position.z);
+  for (auto it = program->attributes.begin(); it != program->attributes.end(); it++) {
+    glEnableVertexAttribArray(it->second);
+  }
 }
 
 void unload_chunk(TerrainChunk *chunk) {
@@ -388,7 +559,7 @@ void allocate_mesh(Mesh *mesh, u32 vertices_count, u32 normals_count, u32 indice
   mesh->data.uv_count = uv_count;
 }
 
-Model generate_ground(TerrainChunk *chunk, int chunk_x, int chunk_y, float detail) {
+Model generate_ground(int chunk_x, int chunk_y, float detail) {
   int size_x = CHUNK_SIZE_X;
   int size_y = CHUNK_SIZE_Y;
 
@@ -667,29 +838,26 @@ void generate_trees(App *app) {
 }
 
 void save_level(App *app) {
+  LoadedLevel level;
+
   for (u32 i=0; i<app->entity_count; i++) {
     Entity *entity = app->entities + i;
 
     if (entity->flags & EntityFlags::PERMANENT_FLAG) {
-      const char *base_path = "../../../level";
-
-      char full_path[256];
-      sprintf(full_path, "%s/%d.entity", base_path, entity->id);
-
-      PlatformFile file = platform.open_file(full_path, "w");
-
-      // TODO(sedivy): replace fprintf
-      fprintf((FILE *)file.platform, "%d\n", entity->id);
-      fprintf((FILE *)file.platform, "p: %f, %f, %f\n", entity->position.x, entity->position.y, entity->position.z);
-      fprintf((FILE *)file.platform, "s: %f, %f, %f\n", entity->scale.x, entity->scale.y, entity->scale.z);
-      fprintf((FILE *)file.platform, "r: %f, %f, %f\n", entity->rotation.x, entity->rotation.y, entity->rotation.z);
-      fprintf((FILE *)file.platform, "c: %f, %f, %f\n", entity->color.x, entity->color.y, entity->color.z);
-      fprintf((FILE *)file.platform, "f: %d\n", entity->flags);
-      fprintf((FILE *)file.platform, "m: %s\n", entity->model->id_name);
-
-      platform.close_file(file);
+      EntitySave save_entity = {};
+      save_entity.id = entity->id;
+      save_entity.position = entity->position;
+      save_entity.scale = entity->scale;
+      save_entity.rotation = entity->rotation;
+      save_entity.color = entity->color;
+      save_entity.flags = entity->flags;
+      strcpy(save_entity.model_name, entity->model->id_name);
+      level.entities.push_back(save_entity);
     }
   }
+
+  save_binary_level_file(level);
+  save_text_level_file(level);
 }
 
 void quit(Memory *memory) {
@@ -699,31 +867,18 @@ void load_color_grading_texture(Texture *texture) {
   load_texture(texture, STBI_rgb_alpha);
   glGenTextures(1, &texture->id);
 
-  glBindTexture(GL_TEXTURE_3D, texture->id);
-  glTexImage3D(GL_TEXTURE_3D, 0, GL_RGB8, 16, 16, 16, 0, GL_RGBA, GL_UNSIGNED_BYTE, texture->data);
+  glBindTexture(GL_TEXTURE_2D, texture->id);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, 256, 16, 0, GL_RGBA, GL_UNSIGNED_BYTE, texture->data);
 
-  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
-  glTexParameterf(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameterf(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glBindTexture(GL_TEXTURE_3D, 0);
+  glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glBindTexture(GL_TEXTURE_2D, 0);
 
   texture->initialized = true;
   texture->data = NULL;
-}
-
-glm::vec3 read_vector(char *start) {
-  glm::vec3 result;
-  sscanf(start, "%f,%f,%f", &result.x, &result.y, &result.z);
-  return result;
-}
-
-const char *get_filename_ext(const char *filename) {
-  const char *dot = strrchr(filename, '.');
-  if(!dot || dot == filename) return "";
-  return dot + 1;
 }
 
 void init(Memory *memory) {
@@ -731,6 +886,8 @@ void init(Memory *memory) {
   glewInit();
 
   App *app = static_cast<App*>(memory->permanent_storage);
+
+  app->current_program = NULL;
 
   app->editor.handle_size = 40.0f;
   app->editor.holding_entity = false;
@@ -748,6 +905,9 @@ void init(Memory *memory) {
   app->debug_program.uniforms = std::unordered_map<std::string, u32>();
   app->debug_program.attributes = std::unordered_map<std::string, GLuint>();
 
+  app->ui_program.uniforms = std::unordered_map<std::string, u32>();
+  app->ui_program.attributes = std::unordered_map<std::string, GLuint>();
+
   app->solid_program.uniforms = std::unordered_map<std::string, u32>();
   app->solid_program.attributes = std::unordered_map<std::string, GLuint>();
 
@@ -756,6 +916,12 @@ void init(Memory *memory) {
 
   app->fullscreen_color_program.uniforms = std::unordered_map<std::string, u32>();
   app->fullscreen_color_program.attributes = std::unordered_map<std::string, GLuint>();
+
+  app->fullscreen_fxaa_program.uniforms = std::unordered_map<std::string, u32>();
+  app->fullscreen_fxaa_program.attributes = std::unordered_map<std::string, GLuint>();
+
+  app->fullscreen_bloom_program.uniforms = std::unordered_map<std::string, u32>();
+  app->fullscreen_bloom_program.attributes = std::unordered_map<std::string, GLuint>();
 
   app->fullscreen_program.uniforms = std::unordered_map<std::string, u32>();
   app->fullscreen_program.attributes = std::unordered_map<std::string, GLuint>();
@@ -788,8 +954,6 @@ void init(Memory *memory) {
   app->shadow_camera.near = 100.0f;
   app->shadow_camera.far = 6000.0f;
   app->shadow_camera.size = glm::vec2(4096.0f, 4096.0f) / 2.0f;
-
-  app->current_program = 0;
 
   glGenVertexArrays(1, &app->vao);
   glBindVertexArray(app->vao);
@@ -984,7 +1148,6 @@ void init(Memory *memory) {
       initialize_model(&app->quad_model);
     }
 
-    /* app->grass_model.path = "grass.obj"; */
     app->rock_model.path = allocate_string("rock.obj");
     app->rock_model.id_name = allocate_string("rock");
     app->trees[0].path = allocate_string("trees/tree_01.obj");
@@ -996,8 +1159,11 @@ void init(Memory *memory) {
   create_shader(&app->solid_program, "solid_vert.glsl", "solid_frag.glsl");
   create_shader(&app->another_program, "another_vert.glsl", "another_frag.glsl");
   create_shader(&app->debug_program, "debug_vert.glsl", "debug_frag.glsl");
+  create_shader(&app->ui_program, "ui_vert.glsl", "ui_frag.glsl");
   create_shader(&app->fullscreen_fog_program, "fullscreen.vert", "fullscreen_fog.frag");
   create_shader(&app->fullscreen_color_program, "fullscreen.vert", "fullscreen_color.frag");
+  create_shader(&app->fullscreen_fxaa_program, "fullscreen.vert", "fullscreen_fxaa.frag");
+  create_shader(&app->fullscreen_bloom_program, "fullscreen.vert", "fullscreen_bloom.frag");
   create_shader(&app->fullscreen_program, "fullscreen.vert", "fullscreen.frag");
   create_shader(&app->fullscreen_depth_program, "fullscreen.vert", "fullscreen_depth.frag");
   create_shader(&app->terrain_program, "terrain.vert", "terrain.frag");
@@ -1016,7 +1182,6 @@ void init(Memory *memory) {
     chunk->initialized = false;
   }
 
-  app->grass_texture.path = allocate_string("grass.dds");
   app->color_correction_texture.path = allocate_string("color_correction.png");
   app->gradient_texture.path = allocate_string("gradient.png");
   app->circle_texture.path = allocate_string("circle.png");
@@ -1046,12 +1211,15 @@ void init(Memory *memory) {
   app->cubemap.model = &app->cube_model;
 
   const char* faces[] = {
-    "right.jpg",
-    "left.jpg",
-    "top.jpg",
-    "bottom.jpg",
-    "back.jpg",
-    "front.jpg"
+    "right.png", "left.png",
+    "top.png", "bottom.png",
+    "back.png", "front.png"
+  };
+
+  GLenum types[] = {
+    GL_TEXTURE_CUBE_MAP_POSITIVE_X, GL_TEXTURE_CUBE_MAP_NEGATIVE_X,
+    GL_TEXTURE_CUBE_MAP_POSITIVE_Y, GL_TEXTURE_CUBE_MAP_NEGATIVE_Y,
+    GL_TEXTURE_CUBE_MAP_POSITIVE_Z, GL_TEXTURE_CUBE_MAP_NEGATIVE_Z
   };
 
   glGenTextures(1, &app->cubemap.id);
@@ -1059,10 +1227,9 @@ void init(Memory *memory) {
   glBindTexture(GL_TEXTURE_CUBE_MAP, app->cubemap.id);
 
   for (u32 i=0; i<array_count(faces); i++) {
-    int width, height;
-    int channels;
-    u8 *image = stbi_load(faces[i], &width, &height, &channels, 0);
-    glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, image);
+    int width, height, channels;
+    u8 *image = stbi_load(faces[i], &width, &height, &channels, STBI_rgb_alpha);
+    glTexImage2D(types[i], 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
     stbi_image_free(image);
   }
 
@@ -1094,17 +1261,17 @@ void init(Memory *memory) {
 
   // NOTE(sedivy): frame buffer
   {
-    app->frame.width = memory->width;
-    app->frame.height = memory->height;
+    app->frame_1.width = memory->width;
+    app->frame_1.height = memory->height;
 
-    /* app->frame.width = 800; */
-    /* app->frame.height = 400; */
+    /* app->frame_1.width = 800; */
+    /* app->frame_1.height = 400; */
 
     // NOTE(sedivy): texture
     {
-      glGenTextures(1, &app->frame.texture);
-      glBindTexture(GL_TEXTURE_2D, app->frame.texture);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, app->frame.width, app->frame.height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+      glGenTextures(1, &app->frame_1.texture);
+      glBindTexture(GL_TEXTURE_2D, app->frame_1.texture);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, app->frame_1.width, app->frame_1.height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
 
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -1114,9 +1281,9 @@ void init(Memory *memory) {
 
     // NOTE(sedivy): depth
     {
-      glGenTextures(1, &app->frame.depth);
-      glBindTexture(GL_TEXTURE_2D, app->frame.depth);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, app->frame.width, app->frame.height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL);
+      glGenTextures(1, &app->frame_1.depth);
+      glBindTexture(GL_TEXTURE_2D, app->frame_1.depth);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, app->frame_1.width, app->frame_1.height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL);
 
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -1127,22 +1294,25 @@ void init(Memory *memory) {
 
     // NOTE(sedivy): Framebuffer
     {
-      glGenFramebuffers(1, &app->frame.id);
-      glBindFramebuffer(GL_FRAMEBUFFER, app->frame.id);
-      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, app->frame.texture, 0);
-      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, app->frame.depth, 0);
+      glGenFramebuffers(1, &app->frame_1.id);
+      glBindFramebuffer(GL_FRAMEBUFFER, app->frame_1.id);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, app->frame_1.texture, 0);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, app->frame_1.depth, 0);
     }
   }
 
   {
-    app->ui_frame.width = memory->width;
-    app->ui_frame.height = memory->height;
+    app->frame_2.width = memory->width;
+    app->frame_2.height = memory->height;
+
+    /* app->frame_2.width = 800; */
+    /* app->frame_2.height = 400; */
 
     // NOTE(sedivy): texture
     {
-      glGenTextures(1, &app->ui_frame.texture);
-      glBindTexture(GL_TEXTURE_2D, app->ui_frame.texture);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, app->ui_frame.width, app->ui_frame.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+      glGenTextures(1, &app->frame_2.texture);
+      glBindTexture(GL_TEXTURE_2D, app->frame_2.texture);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, app->frame_2.width, app->frame_2.height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
 
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -1152,9 +1322,9 @@ void init(Memory *memory) {
 
     // NOTE(sedivy): depth
     {
-      glGenTextures(1, &app->ui_frame.depth);
-      glBindTexture(GL_TEXTURE_2D, app->ui_frame.depth);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, app->ui_frame.width, app->ui_frame.height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL);
+      glGenTextures(1, &app->frame_2.depth);
+      glBindTexture(GL_TEXTURE_2D, app->frame_2.depth);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, app->frame_2.width, app->frame_2.height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL);
 
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -1165,10 +1335,10 @@ void init(Memory *memory) {
 
     // NOTE(sedivy): Framebuffer
     {
-      glGenFramebuffers(1, &app->ui_frame.id);
-      glBindFramebuffer(GL_FRAMEBUFFER, app->ui_frame.id);
-      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, app->ui_frame.texture, 0);
-      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, app->ui_frame.depth, 0);
+      glGenFramebuffers(1, &app->frame_2.id);
+      glBindFramebuffer(GL_FRAMEBUFFER, app->frame_2.id);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, app->frame_2.texture, 0);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, app->frame_2.depth, 0);
     }
   }
 
@@ -1205,82 +1375,7 @@ void init(Memory *memory) {
 
   glGenBuffers(1, &app->debug_buffer);
 
-  const char *base_path = "../../../level";
-
-  PlatformDirectory directory = platform.open_directory(base_path);
-  if (directory.platform != NULL) {
-    while (true) {
-      PlatformDirectoryEntry entry = platform.read_next_directory_entry(directory);
-      if (entry.empty) { break; }
-
-      if (platform.is_directory_entry_file(entry)) {
-        char *full_path = (char *)alloca(sizeof(base_path) + sizeof(entry.name));
-        sprintf(full_path, "%s/%s", base_path, entry.name);
-
-        if (strcmp(get_filename_ext(full_path), "entity") == 0) {
-          PlatformFile file = platform.open_file(full_path, "r");
-          if (!file.error) {
-            Entity *entity = app->entities + app->entity_count;
-
-            entity->type = EntityBlock;
-            entity->color = glm::vec4(1.0f);
-            app->entity_count += 1;
-
-            PlatformFileLine line = platform.read_file_line(file);
-            if (!line.empty) {
-              sscanf(line.contents, "%d", &entity->id);
-              if (entity->id > app->last_id) {
-                app->last_id = entity->id;
-              }
-            }
-
-            while (true) {
-              PlatformFileLine line = platform.read_file_line(file);
-              if (line.empty) { break; }
-
-              switch (line.contents[0]) {
-                case 'p': {
-                            char *start = (char *)((u8*)line.contents + 2);
-                            entity->position = read_vector(start);
-                          } break;
-                case 'm': {
-                            char *start = (char *)((u8*)line.contents + 2);
-                            char model_name[256];
-                            sscanf(start, "%s", model_name);
-                            entity->model = get_model_by_name(app, model_name);
-                          } break;
-                case 'c': {
-                            char *start = (char *)((u8*)line.contents + 2);
-                            entity->color = glm::vec4(read_vector(start), 1.0f);
-                          } break;
-                case 's': {
-                            char *start = (char *)((u8*)line.contents + 2);
-                            entity->scale = read_vector(start);
-                          } break;
-                case 'r': {
-                            char *start = (char *)((u8*)line.contents + 2);
-                            entity->rotation = read_vector(start);
-                          } break;
-                case 'f': {
-                            char *start = (char *)((u8*)line.contents + 2);
-                            sscanf(start, "%d", &entity->flags);
-                          } break;
-              }
-
-              if (entity->flags & EntityFlags::MOUNT_TO_TERRAIN) {
-                mount_entity_to_terrain(entity);
-              }
-            }
-
-            platform.close_file(file);
-          }
-        }
-      }
-    }
-  }
-
-  platform.close_directory(directory);
-
+  load_debug_level(app);
 
   {
     Entity *entity = app->entities + app->entity_count;
@@ -1329,6 +1424,9 @@ void init(Memory *memory) {
     }
 #endif
   }
+
+  app->framecount = 0;
+  app->frametimelast = platform.get_time();
 }
 
 inline bool shader_has_uniform(Shader *shader, const char *name) {
@@ -1481,9 +1579,9 @@ void load_texture_work(void *data) {
 
 void generate_ground_work(void *data) {
   TerrainChunk *chunk = static_cast<TerrainChunk*>(data);
-  chunk->models[0] = generate_ground(chunk, chunk->x, chunk->y, 0.03f);
-  chunk->models[1] = generate_ground(chunk, chunk->x, chunk->y, 0.01f);
-  chunk->models[2] = generate_ground(chunk, chunk->x, chunk->y, 0.005f);
+  chunk->models[0] = generate_ground(chunk->x, chunk->y, 0.03f);
+  chunk->models[1] = generate_ground(chunk->x, chunk->y, 0.01f);
+  chunk->models[2] = generate_ground(chunk->x, chunk->y, 0.005f);
   chunk->has_data = true;
   chunk->is_being_loaded = true;
 }
@@ -1528,34 +1626,22 @@ inline bool process_model(Memory *memory, Model *model) {
 }
 
 inline void use_model_mesh(App *app, Mesh *mesh) {
-  for (u32 i=0; i<array_count(app->enabled_vertex); i++) {
-    if (app->enabled_vertex[i] == true) {
-      glDisableVertexAttribArray(i);
-    }
-  }
-
   if (shader_has_attribute(app->current_program, "position")) {
     GLuint id = shader_get_attribute_location(app->current_program, "position");
     glBindBuffer(GL_ARRAY_BUFFER, mesh->vertices_id);
-    glEnableVertexAttribArray(id);
     glVertexAttribPointer(id, 3, GL_FLOAT, GL_FALSE, 0, 0);
-    app->enabled_vertex[id] = true;
   }
 
   if (shader_has_attribute(app->current_program, "normals")) {
     GLuint id = shader_get_attribute_location(app->current_program, "normals");
     glBindBuffer(GL_ARRAY_BUFFER, mesh->normals_id);
-    glEnableVertexAttribArray(id);
     glVertexAttribPointer(id, 3, GL_FLOAT, GL_FALSE, 0, 0);
-    app->enabled_vertex[id] = true;
   }
 
   if (shader_has_attribute(app->current_program, "uv")) {
     GLuint id = shader_get_attribute_location(app->current_program, "uv");
     glBindBuffer(GL_ARRAY_BUFFER, mesh->uv_id);
-    glEnableVertexAttribArray(id);
     glVertexAttribPointer(id, 2, GL_FLOAT, GL_FALSE, 0, 0);
-    app->enabled_vertex[id] = true;
   }
 
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->indices_id);
@@ -1609,83 +1695,75 @@ bool render_terrain_chunk(App *app, TerrainChunk *chunk, Model *model) {
   return true;
 }
 
-void debug_render_rect(App *app, glm::mat4 projection, float x, float y, float width, float height, glm::vec4 color) {
-  use_program(app, &app->solid_program);
+void debug_render_rect(UICommandBuffer *command_buffer, float x, float y, float width, float height, glm::vec4 color) {
+  command_buffer->vertices.push_back(x);
+  command_buffer->vertices.push_back(y);
 
-  send_shader_uniform(app->current_program, "uPMatrix", projection);
-  use_model_mesh(app, &app->quad_model.mesh);
-  glm::mat4 model_view;
-  model_view = glm::translate(model_view, glm::vec3(x, y, 0.0f));
-  model_view = glm::scale(model_view, glm::vec3(width, height, 0.0f));
-  model_view = glm::translate(model_view, glm::vec3(0.5f, 0.5f, 0.0f));
-  model_view = glm::scale(model_view, glm::vec3(0.5f, 0.5f, 0.0f));
-  send_shader_uniform(app->current_program, "uMVMatrix", model_view);
-  send_shader_uniform(app->current_program, "in_color", color);
-  glDrawElements(GL_TRIANGLES, app->quad_model.mesh.data.indices_count, GL_UNSIGNED_INT, 0);
+  command_buffer->vertices.push_back(x + width);
+  command_buffer->vertices.push_back(y);
+
+  command_buffer->vertices.push_back(x);
+  command_buffer->vertices.push_back(y + height);
+
+  command_buffer->vertices.push_back(x + width);
+  command_buffer->vertices.push_back(y);
+
+  command_buffer->vertices.push_back(x + width);
+  command_buffer->vertices.push_back(y + height);
+
+  command_buffer->vertices.push_back(x);
+  command_buffer->vertices.push_back(y + height);
+
+  UICommand command;
+  command.vertices_count = 6;
+  command.color = color;
+  command.type = UICommandType::RECT;
+
+  command_buffer->commands.push_back(command);
 }
 
-void draw_string(App *app, glm::mat4 projection, Font *font, float x, float y, char *text, glm::vec3 color=glm::vec3(1.0f, 1.0f, 1.0f)) {
-  use_program(app, &app->program);
-
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, app->font.texture);
-  send_shader_uniform(app->current_program, "uPMatrix", projection);
-  send_shader_uniformi(app->current_program, "textureImage", 0);
-
+void draw_string(UICommandBuffer *command_buffer, Font *font, float x, float y, char *text, glm::vec3 color=glm::vec3(1.0f, 1.0f, 1.0f)) {
   float font_x = 0, font_y = font->size;
   stbtt_aligned_quad q;
+
+  UICommand command;
+  command.type = UICommandType::TEXT;
+  command.vertices_count = 0;
+  command.color = glm::vec4(color, 1.0f);
 
   while (*text != '\0') {
     font_get_quad(font, *text++, &font_x, &font_y, &q);
 
-    GLfloat vertices[] = {
-      q.x0, q.y0, // top left
+    GLfloat vertices_data[] = {
+      x + q.x0, y + q.y0, // top left
       q.s0, q.t0,
 
-      q.x0, q.y1, // bottom left
+      x + q.x0, y + q.y1, // bottom left
       q.s0, q.t1,
 
-      q.x1, q.y0, // top right
+      x + q.x1, y + q.y0, // top right
       q.s1, q.t0,
 
-      q.x1, q.y0, // top right
+      x + q.x1, y + q.y0, // top right
       q.s1, q.t0,
 
-      q.x0, q.y1, // bottom left
+      x + q.x0, y + q.y1, // bottom left
       q.s0, q.t1,
 
-      q.x1, q.y1, // bottom right
+      x + q.x1, y + q.y1, // bottom right
       q.s1, q.t1
     };
 
-    glBindBuffer(GL_ARRAY_BUFFER, app->font_quad);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STREAM_DRAW);
-
-    glm::mat4 model_view;
-    model_view = glm::translate(model_view, glm::vec3(x, y, 0.0f));
-
-    send_shader_uniform(app->current_program, "uMVMatrix", model_view);
-    send_shader_uniform(app->current_program, "font_color", color);
-
-    glBindBuffer(GL_ARRAY_BUFFER, app->font_quad);
-
-    {
-      GLuint id = shader_get_attribute_location(app->current_program, "position");
-      glEnableVertexAttribArray(id);
-      glVertexAttribPointer(id, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), 0);
+    for (u32 i=0; i<array_count(vertices_data); i++) {
+      command_buffer->text_vertices.push_back(vertices_data[i]);
     }
-
-    {
-      GLuint id = shader_get_attribute_location(app->current_program, "uv");
-      glEnableVertexAttribArray(id);
-      glVertexAttribPointer(id, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void *)(2 * sizeof(GLfloat)));
-    }
-
-    glDrawArrays(GL_TRIANGLES, 0, 6);
+    command.vertices_count += 6;
   }
+
+  command_buffer->commands.push_back(command);
 }
 
-bool push_debug_button(Input &input, App *app, DebugDrawState *state, glm::mat4 projection, float x, char *text, glm::vec3 color, glm::vec4 background_color) {
+bool push_debug_button(Input &input, App *app, DebugDrawState *state, UICommandBuffer *command_buffer, float x, char *text, glm::vec3 color, glm::vec4 background_color) {
   float min_x = x;
   float min_y = state->offset_top;;
   float max_x = min_x + 175.0f;
@@ -1703,16 +1781,16 @@ bool push_debug_button(Input &input, App *app, DebugDrawState *state, glm::mat4 
     }
   }
 
-  debug_render_rect(app, projection, x, state->offset_top, 175.0f, 25.0f, background_color);
-  draw_string(app, projection, &app->font, x + 5, state->offset_top, text, color);
+  debug_render_rect(command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color);
+  draw_string(command_buffer, &app->font, x + 5, state->offset_top, text, color);
   state->offset_top += 25.0f;
 
   return clicked;
 }
 
-void push_debug_text(App *app, DebugDrawState *state, glm::mat4 projection, float x, char *text, glm::vec3 color, glm::vec4 background_color) {
-  debug_render_rect(app, projection, x, state->offset_top, 175.0f, 25.0f, background_color);
-  draw_string(app, projection, &app->font, x + 5, state->offset_top, text, color);
+void push_debug_text(App *app, DebugDrawState *state, UICommandBuffer *command_buffer, float x, char *text, glm::vec3 color, glm::vec4 background_color) {
+  debug_render_rect(command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color);
+  draw_string(command_buffer, &app->font, x + 5, state->offset_top, text, color);
   state->offset_top += 25.0f;
 }
 
@@ -1764,25 +1842,25 @@ glm::mat4 make_billboard_matrix(glm::vec3 position, glm::vec3 camera_position, g
 
 #include "render_group.cpp"
 
-void push_debug_vector(DebugDrawState *state, App *app, glm::mat4 projection, float x, const char *name, glm::vec3 vector) {
+void push_debug_vector(DebugDrawState *state, App *app, UICommandBuffer *command_buffer, float x, const char *name, glm::vec3 vector, glm::vec4 background_color) {
   char text[256];
 
-  debug_render_rect(app, projection, x, state->offset_top, 175.0f, 25.0f * 4.0f, glm::vec4(0.2f, 0.4f, 0.9f, 0.8f));
+  debug_render_rect(command_buffer, x, state->offset_top, 175.0f, 25.0f * 4.0f, background_color);
 
   sprintf(text, "%s", name);
-  draw_string(app, projection, &app->font, x + 5.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, &app->font, x + 5.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector.x);
-  draw_string(app, projection, &app->font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, &app->font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector.y);
-  draw_string(app, projection, &app->font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, &app->font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector.z);
-  draw_string(app, projection, &app->font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, &app->font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 }
 
@@ -1836,41 +1914,134 @@ void draw_3d_debug_info(App *app) {
   glDepthFunc(GL_LESS);
 }
 
-void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
+void flush_2d_render(App *app, Memory *memory) {
+  glm::mat4 projection = glm::ortho(0.0f, float(memory->width), float(memory->height), 0.0f);
+
+  UICommandBuffer *command_buffer = &app->editor.command_buffer;
+
   glDisable(GL_DEPTH_TEST);
   glDisable(GL_CULL_FACE);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glEnable(GL_BLEND);
 
-  glm::mat4 projection = glm::ortho(0.0f, float(memory->width), float(memory->height), 0.0f);
+  use_program(app, &app->program);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, app->font.texture);
+  send_shader_uniformi(app->current_program, "textureImage", 0);
+  send_shader_uniform(app->current_program, "uPMatrix", projection);
+
+  use_program(app, &app->ui_program);
+  send_shader_uniform(app->current_program, "uPMatrix", projection);
+
+  u32 vertices_index = 0;
+  u32 text_vertices_index = 0;
+
+  glBindBuffer(GL_ARRAY_BUFFER, app->debug_buffer);
+  glBufferData(GL_ARRAY_BUFFER, command_buffer->vertices.size() * sizeof(GLfloat), NULL, GL_DYNAMIC_DRAW);
+  glBufferSubData(GL_ARRAY_BUFFER, 0, command_buffer->vertices.size() * sizeof(GLfloat), &command_buffer->vertices[0]);
+
+  glBindBuffer(GL_ARRAY_BUFFER, app->font_quad);
+  glBufferData(GL_ARRAY_BUFFER, command_buffer->text_vertices.size() * sizeof(GLfloat), NULL, GL_DYNAMIC_DRAW);
+  glBufferSubData(GL_ARRAY_BUFFER, 0, command_buffer->text_vertices.size() * sizeof(GLfloat), &command_buffer->text_vertices[0]);
+
+  UICommandType::UICommandType last_type = UICommandType::NONE;
+
+  for (auto it = command_buffer->commands.begin(); it != command_buffer->commands.end(); it++) {
+    switch (it->type) {
+      case UICommandType::NONE:
+        break;
+      case UICommandType::RECT:
+        if (last_type != it->type) {
+          glBindBuffer(GL_ARRAY_BUFFER, app->debug_buffer);
+          use_program(app, &app->ui_program);
+          glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
+        }
+
+        send_shader_uniform(app->current_program, "uColor", it->color);
+
+        glDrawArrays(GL_TRIANGLES, vertices_index, it->vertices_count);
+        vertices_index += it->vertices_count;
+        break;
+      case UICommandType::TEXT:
+        if (last_type != it->type) {
+          glBindBuffer(GL_ARRAY_BUFFER, app->font_quad);
+          use_program(app, &app->program);
+          glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), 0);
+          glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void *)(2 * sizeof(GLfloat)));
+        }
+
+        send_shader_uniform(app->current_program, "font_color", glm::vec3(it->color));
+
+        glDrawArrays(GL_TRIANGLES, text_vertices_index, it->vertices_count);
+        text_vertices_index += it->vertices_count;
+        break;
+    }
+
+    last_type = it->type;
+  }
+
+  glEnable(GL_CULL_FACE);
+  glDisable(GL_BLEND);
+  glEnable(GL_DEPTH_TEST);
+}
+
+void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
+  UICommandBuffer *command_buffer = &app->editor.command_buffer;
+  command_buffer->vertices.clear();
+  command_buffer->text_vertices.clear();
+  command_buffer->commands.clear();
 
   DebugDrawState draw_state;
   draw_state.offset_top = 25.0f;
 
-  // NOTE(sedivy): profile data
+  glm::vec4 button_background_color = glm::vec4(0.5f, 0.6f, 0.9f, 0.9f);
+  glm::vec4 default_background_color = glm::vec4(0.2f, 0.4f, 0.9f, 0.9f);
+
   char text[256];
-  {
+
+  sprintf(text, "performance: %d\n", app->editor.show_performance);
+  if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+    app->editor.show_performance = !app->editor.show_performance;
+  }
+
+  if (app->editor.show_performance) {
     for (u32 i=0; i<array_count(memory->last_frame_counters); i++) {
       DebugCounter *counter = memory->last_frame_counters + i;
 
       if (counter->hit_count) {
-        sprintf(text, "%d: %llu %llu %llu\n", i, counter->cycle_count, counter->hit_count, counter->cycle_count / counter->hit_count);
-        push_debug_text(app, &draw_state, projection, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.2f, 0.4f, 0.9f, 0.8f));
+        float time = (float)(counter->cycle_count * 1000) / (float)platform.get_performance_frequency();
+
+        if (counter->hit_count > 1) {
+          sprintf(text, "%d: %.2fms %llu %.2fms\n", i, time, counter->hit_count, time / (float)counter->hit_count);
+        } else {
+          sprintf(text, "%d: %.2fms", i, time);
+        }
+
+        push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.0f, 0.1f, 0.6f, 0.9f));
       }
     }
   }
 
-  sprintf(text, "model_change: %d\n", app->render_group.model_change);
-  push_debug_text(app, &draw_state, projection, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.2f, 0.4f, 0.9f, 0.8f));
+  sprintf(text, "state changes: %d\n", app->editor.show_state_changes);
+  if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+    app->editor.show_state_changes = !app->editor.show_state_changes;
+  }
 
-  sprintf(text, "shader_change: %d\n", app->render_group.shader_change);
-  push_debug_text(app, &draw_state, projection, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.2f, 0.4f, 0.9f, 0.8f));
+  if (app->editor.show_state_changes) {
+    sprintf(text, "model_change: %d\n", app->render_group.model_change);
+    push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.0f, 0.1f, 0.6f, 0.9f));
 
-  sprintf(text, "draw_calls: %d\n", app->render_group.draw_calls);
-  push_debug_text(app, &draw_state, projection, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.2f, 0.4f, 0.9f, 0.8f));
+    sprintf(text, "shader_change: %d\n", app->render_group.shader_change);
+    push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.0f, 0.1f, 0.6f, 0.9f));
 
-  bool clicked = push_debug_button(input, app, &draw_state, projection, 10.0f, (char *)"save!", glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.5f, 0.6f, 0.9f, 0.8f));
-  if (clicked) {
+    sprintf(text, "draw_calls: %d\n", app->render_group.draw_calls);
+    push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.0f, 0.1f, 0.6f, 0.9f));
+  }
+
+  sprintf(text, "fps: %d\n", (u32)app->fps);
+  push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), default_background_color);
+
+  if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, (char *)"save!", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
     save_level(app);
   }
 
@@ -1880,46 +2051,39 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
       draw_state.offset_top = 25.0f;
 
       sprintf(text, "id: %d\n", entity->id);
-      push_debug_text(app, &draw_state, projection, memory->width - 200, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.2f, 0.4f, 0.9f, 0.8f));
+      push_debug_text(app, &draw_state, command_buffer, memory->width - 200, text, glm::vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
       sprintf(text, "model: %s\n", entity->model->id_name);
-      push_debug_text(app, &draw_state, projection, memory->width - 200, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.2f, 0.4f, 0.9f, 0.8f));
+      push_debug_text(app, &draw_state, command_buffer, memory->width - 200, text, glm::vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
-      push_debug_vector(&draw_state, app, projection, memory->width - 200, "position", entity->position);
-      push_debug_vector(&draw_state, app, projection, memory->width - 200, "rotation", entity->rotation);
-      push_debug_vector(&draw_state, app, projection, memory->width - 200, "scale", entity->scale);
+      push_debug_vector(&draw_state, app, command_buffer, memory->width - 200, "position", entity->position, default_background_color);
+      push_debug_vector(&draw_state, app, command_buffer, memory->width - 200, "rotation", entity->rotation, default_background_color);
+      push_debug_vector(&draw_state, app, command_buffer, memory->width - 200, "scale", entity->scale, default_background_color);
 
       float start = draw_state.offset_top;
-      push_debug_vector(&draw_state, app, projection, memory->width - 200, "color", glm::vec3(entity->color));
-
-      debug_render_rect(app, projection, memory->width - 150.0f, start + 2.0f, 20.0f, 20.0f, entity->color);
+      push_debug_vector(&draw_state, app, command_buffer, memory->width - 200, "color", glm::vec3(entity->color), default_background_color);
+      debug_render_rect(command_buffer, memory->width - 150.0f, start + 2.0f, 20.0f, 20.0f, entity->color);
 
       sprintf(text, "ground mounted: %d\n", (entity->flags & EntityFlags::MOUNT_TO_TERRAIN) != 0);
-      bool clicked = push_debug_button(input, app, &draw_state, projection, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.5f, 0.6f, 0.9f, 0.8f));
-      if (clicked) {
+      if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
         entity->flags = entity->flags ^ EntityFlags::MOUNT_TO_TERRAIN;
+
         if (entity->flags & EntityFlags::MOUNT_TO_TERRAIN) {
           mount_entity_to_terrain(entity);
         }
       }
 
       sprintf(text, "casts shadow: %d\n", (entity->flags & EntityFlags::CASTS_SHADOW) != 0);
-      clicked = push_debug_button(input, app, &draw_state, projection, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.5f, 0.6f, 0.9f, 0.8f));
-      if (clicked) {
+      if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
         entity->flags = entity->flags ^ EntityFlags::CASTS_SHADOW;
       }
 
       sprintf(text, "save to file: %d\n", (entity->flags & EntityFlags::PERMANENT_FLAG) != 0);
-      clicked = push_debug_button(input, app, &draw_state, projection, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.5f, 0.6f, 0.9f, 0.8f));
-      if (clicked) {
+      if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
         entity->flags = entity->flags ^ EntityFlags::PERMANENT_FLAG;
       }
     }
   }
-
-  glEnable(GL_CULL_FACE);
-  glDisable(GL_BLEND);
-  glEnable(GL_DEPTH_TEST);
 }
 
 void tick(Memory *memory, Input input) {
@@ -1943,12 +2107,7 @@ void tick(Memory *memory, Input input) {
   }
 
   PROFILE(render_ui);
-  glBindFramebuffer(GL_FRAMEBUFFER, app->ui_frame.id);
-  glViewport(0, 0, app->ui_frame.width, app->ui_frame.height);
-  glClearColor(1.0f, 1.0f, 1.0f, 0.0f);
-  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   draw_2d_debug_info(app, memory, input);
-  glBindFramebuffer(GL_FRAMEBUFFER, 0);
   PROFILE_END(render_ui);
 
   // NOTE(sedivy): update
@@ -1959,9 +2118,12 @@ void tick(Memory *memory, Input input) {
     if (input.once.key_r) {
       create_shader(&app->another_program, "another_vert.glsl", "another_frag.glsl");
       create_shader(&app->debug_program, "debug_vert.glsl", "debug_frag.glsl");
+      create_shader(&app->ui_program, "ui_vert.glsl", "ui_frag.glsl");
       create_shader(&app->solid_program, "solid_vert.glsl", "solid_frag.glsl");
       create_shader(&app->fullscreen_fog_program, "fullscreen.vert", "fullscreen_fog.frag");
       create_shader(&app->fullscreen_color_program, "fullscreen.vert", "fullscreen_color.frag");
+      create_shader(&app->fullscreen_fxaa_program, "fullscreen.vert", "fullscreen_fxaa.frag");
+      create_shader(&app->fullscreen_bloom_program, "fullscreen.vert", "fullscreen_bloom.frag");
       create_shader(&app->fullscreen_program, "fullscreen.vert", "fullscreen.frag");
       create_shader(&app->fullscreen_depth_program, "fullscreen.vert", "fullscreen_depth.frag");
       create_shader(&app->terrain_program, "terrain.vert", "terrain.frag");
@@ -2262,6 +2424,7 @@ void tick(Memory *memory, Input input) {
     PROFILE(render);
 
     {
+      PROFILE(render_shadows);
       glBindFramebuffer(GL_FRAMEBUFFER, app->shadow_buffer);
       glViewport(0, 0, app->shadow_width, app->shadow_height);
       glClear(GL_DEPTH_BUFFER_BIT);
@@ -2348,15 +2511,17 @@ void tick(Memory *memory, Input input) {
 
       end_render_group(app, &app->render_group);
       glBindFramebuffer(GL_FRAMEBUFFER, 0);
+      PROFILE_END(render_shadows);
     }
 
-    glBindFramebuffer(GL_FRAMEBUFFER, app->frame.id);
-    glViewport(0, 0, app->frame.width, app->frame.height);
+    glBindFramebuffer(GL_FRAMEBUFFER, app->frame_1.id);
+    glViewport(0, 0, app->frame_1.width, app->frame_1.height);
     glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     // NOTE(sedivy): skybox
     {
+      PROFILE(render_skybox);
       glDisable(GL_CULL_FACE);
       glDisable(GL_DEPTH_TEST);
       glDepthMask(GL_FALSE);
@@ -2389,9 +2554,11 @@ void tick(Memory *memory, Input input) {
       glDepthMask(GL_TRUE);
       glEnable(GL_DEPTH_TEST);
       glEnable(GL_CULL_FACE);
+      PROFILE_END(render_skybox);
     }
 
     {
+      PROFILE(render_main);
       // NOTE(sedivy): Terrain
       {
         use_program(app, &app->terrain_program);
@@ -2535,78 +2702,128 @@ void tick(Memory *memory, Input input) {
         end_render_group(app, &app->render_group);
         PROFILE_END_COUNTED(render_entities, app->entity_count);
       }
+
+      {
+        PROFILE(render_debug);
+        use_program(app, &app->debug_program);
+        glBindBuffer(GL_ARRAY_BUFFER, app->debug_buffer);
+        glBufferData(GL_ARRAY_BUFFER, app->debug_lines.size() * sizeof(GLfloat)*3*2, &app->debug_lines[0], GL_STREAM_DRAW);
+        send_shader_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+        glDrawArrays(GL_LINES, 0, app->debug_lines.size()*2);
+        app->debug_lines.clear();
+        PROFILE_END(render_debug);
+      }
+
+      PROFILE_END(render_main);
     }
 
     {
-      use_program(app, &app->debug_program);
-      glBindBuffer(GL_ARRAY_BUFFER, app->debug_buffer);
-      glBufferData(GL_ARRAY_BUFFER, app->debug_lines.size() * sizeof(GLfloat)*3*2, &app->debug_lines[0], GL_STREAM_DRAW);
-      send_shader_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
-      glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
-      glDrawArrays(GL_LINES, 0, app->debug_lines.size()*2);
-      app->debug_lines.clear();
-    }
-
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-    {
+      PROFILE(render_final);
       glViewport(0, 0, memory->width, memory->height);
       glDisable(GL_DEPTH_TEST);
       glDisable(GL_CULL_FACE);
 
-      use_program(app, &app->fullscreen_fog_program);
-      use_program(app, &app->fullscreen_color_program);
-
-      glActiveTexture(GL_TEXTURE0 + 0);
-      glBindTexture(GL_TEXTURE_2D, app->frame.texture);
-
-      /* glActiveTexture(GL_TEXTURE0 + 1); */
-      /* glBindTexture(GL_TEXTURE_2D, app->frame.depth); */
-
-      /* glActiveTexture(GL_TEXTURE0 + 2); */
-      /* glBindTexture(GL_TEXTURE_2D, app->gradient_texture.id); */
-
-      glActiveTexture(GL_TEXTURE0 + 1);
-      glBindTexture(GL_TEXTURE_3D, app->color_correction_texture.id);
-
-      send_shader_uniformi(app->current_program, "uSampler", 0);
-      send_shader_uniformi(app->current_program, "color_correction_texture", 1);
-      /* send_shader_uniformi(app->current_program, "uDepth", 1); */
-      /* send_shader_uniformi(app->current_program, "uGradient", 2); */
-
-      /* send_shader_uniformf(app->current_program, "znear", app->camera.near); */
-      /* send_shader_uniformf(app->current_program, "zfar", app->camera.far); */
-
-      glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
-      glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
-      glDrawArrays(GL_TRIANGLES, 0, 6);
-    }
-
-    PROFILE_END(render);
-
-    if (app->editing_mode) {
-      draw_3d_debug_info(app);
-
+#if 0
       {
-        glViewport(0, 0, memory->width, memory->height);
-        glDisable(GL_DEPTH_TEST);
-        glDisable(GL_CULL_FACE);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-        use_program(app, &app->fullscreen_program);
+        use_program(app, &app->fullscreen_fog_program);
 
         glActiveTexture(GL_TEXTURE0 + 0);
-        glBindTexture(GL_TEXTURE_2D, app->ui_frame.texture);
+        glBindTexture(GL_TEXTURE_2D, app->frame_1.texture);
+
+        glActiveTexture(GL_TEXTURE0 + 1);
+        glBindTexture(GL_TEXTURE_2D, app->frame_1.depth);
+
+        glActiveTexture(GL_TEXTURE0 + 2);
+        glBindTexture(GL_TEXTURE_2D, app->gradient_texture.id);
+
+        send_shader_uniformi(app->current_program, "uSampler", 0);
+        send_shader_uniformi(app->current_program, "uDepth", 1);
+        send_shader_uniformi(app->current_program, "uGradient", 2);
+
+        send_shader_uniformf(app->current_program, "znear", app->camera.near);
+        send_shader_uniformf(app->current_program, "zfar", app->camera.far);
+
+        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+      }
+#endif
+
+      {
+        glBindFramebuffer(GL_FRAMEBUFFER, app->frame_2.id);
+        use_program(app, &app->fullscreen_color_program);
+
+        glActiveTexture(GL_TEXTURE0 + 0);
+        glBindTexture(GL_TEXTURE_2D, app->frame_1.texture);
+
+        glActiveTexture(GL_TEXTURE0 + 1);
+        glBindTexture(GL_TEXTURE_2D, app->color_correction_texture.id);
+
+        send_shader_uniformi(app->current_program, "uSampler", 0);
+        send_shader_uniformi(app->current_program, "color_correction_texture", 1);
+        send_shader_uniformf(app->current_program, "lut_size", 16.0f);
+
+        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+      }
+
+      if (app->editing_mode) {
+        draw_3d_debug_info(app);
+      }
+
+      {
+        glBindFramebuffer(GL_FRAMEBUFFER, app->frame_1.id);
+        use_program(app, &app->fullscreen_fxaa_program);
+
+        glActiveTexture(GL_TEXTURE0 + 0);
+        glBindTexture(GL_TEXTURE_2D, app->frame_2.texture);
 
         send_shader_uniformi(app->current_program, "uSampler", 0);
 
         glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
         glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
         glDrawArrays(GL_TRIANGLES, 0, 6);
-
-        glDisable(GL_BLEND);
       }
+
+      {
+        glBindFramebuffer(GL_FRAMEBUFFER, app->frame_2.id);
+        use_program(app, &app->fullscreen_bloom_program);
+
+        glActiveTexture(GL_TEXTURE0 + 0);
+        glBindTexture(GL_TEXTURE_2D, app->frame_1.texture);
+
+        send_shader_uniformi(app->current_program, "uSampler", 0);
+
+        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+      }
+
+      {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        use_program(app, &app->fullscreen_program);
+
+        glActiveTexture(GL_TEXTURE0 + 0);
+        glBindTexture(GL_TEXTURE_2D, app->frame_2.texture);
+
+        send_shader_uniformi(app->current_program, "uSampler", 0);
+
+        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+      }
+
+      PROFILE_END(render_final);
+    }
+
+    PROFILE_END(render);
+
+    if (app->editing_mode) {
+      PROFILE(render_ui_flush);
+      flush_2d_render(app, memory);
+      PROFILE_END(render_ui_flush);
     }
   }
 
@@ -2619,4 +2836,14 @@ void tick(Memory *memory, Input input) {
       counter->hit_count = 0;
     }
   }
+
+  u64 diff = platform.get_time();
+  if (diff > app->frametimelast + 1000) {
+    app->fps = app->framecount;
+    app->framecount = 0;
+    app->frametimelast = diff;
+  } else {
+    app->framecount += 1;
+  }
 }
+

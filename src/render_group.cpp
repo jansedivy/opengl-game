@@ -18,16 +18,11 @@ bool sort_function(const RenderCommand &a, const RenderCommand &b) {
 
 void start_render_group(RenderGroup *group) {
   group->commands.erase(group->commands.begin(), group->commands.end());
-
-  group->last_model = 0;
-  group->last_shader = 0;
-  group->draw_calls = 0;
 }
 
 inline void set_depth_mode(RenderGroup *group, GLenum mode, bool force=false) {
   if (force || group->depth_mode != mode) {
     glDepthFunc(mode);
-
     group->depth_mode = mode;
   }
 }
@@ -35,11 +30,19 @@ inline void set_depth_mode(RenderGroup *group, GLenum mode, bool force=false) {
 void end_render_group(App *app, RenderGroup *group) {
   std::sort(group->commands.begin(), group->commands.end(), sort_function);
 
+  glEnable(GL_CULL_FACE);
+
   group->model_change = 0;
   group->shader_change = 0;
 
-  glEnable(GL_CULL_FACE);
+  group->last_model = 0;
+  group->last_shader = 0;
+  group->draw_calls = 0;
+
   set_depth_mode(group, GL_LESS, true);
+
+  glCullFace(GL_FRONT);
+  group->cull_face = GL_FRONT;
 
   for (auto it = group->commands.begin(); it != group->commands.end(); it++) {
     if (group->last_shader != it->shader) {
@@ -48,7 +51,10 @@ void end_render_group(App *app, RenderGroup *group) {
       group->shader_change += 1;
     }
 
-    glCullFace(it->cull_type);
+    if (it->cull_type != group->cull_face) {
+      glCullFace(it->cull_type);
+      group->cull_face = it->cull_type;
+    }
 
     if ((it->flags & EntityFlags::RENDER_IGNORE_DEPTH) != 0) {
       set_depth_mode(group, GL_ALWAYS);
@@ -68,13 +74,13 @@ void end_render_group(App *app, RenderGroup *group) {
       send_shader_uniform(app->current_program, "in_color", it->color);
     }
 
+    group->draw_calls += 1;
+
     if (group->last_model != it->model_mesh) {
-      use_model_mesh(app, it->model_mesh);
       group->last_model = it->model_mesh;
       group->model_change += 1;
+      use_model_mesh(app, it->model_mesh);
     }
-
-    group->draw_calls += 1;
 
     glDrawElements(GL_TRIANGLES, it->model_mesh->data.indices_count, GL_UNSIGNED_INT, 0);
   }
