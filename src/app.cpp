@@ -680,6 +680,9 @@ void delete_shader(Shader *shader) {
 }
 
 Shader *create_shader(Shader *shader, const char *vert_filename, const char *frag_filename) {
+  shader->uniforms = std::unordered_map<std::string, u32>();
+  shader->attributes = std::unordered_map<std::string, GLuint>();
+
   if (shader->initialized) {
     delete_shader(shader);
   }
@@ -894,51 +897,6 @@ void init(Memory *memory) {
   app->editor.inspect_entity = false;
   app->editor.show_left = true;
   app->editor.show_right = true;
-
-    /* std::unordered_map<std::string, u32> uniforms; */
-    /* std::unordered_map<std::string, GLuint> attributes; */
-
-  app->program.uniforms = std::unordered_map<std::string, u32>();
-  app->program.attributes = std::unordered_map<std::string, GLuint>();
-
-  app->another_program.uniforms = std::unordered_map<std::string, u32>();
-  app->another_program.attributes = std::unordered_map<std::string, GLuint>();
-
-  app->debug_program.uniforms = std::unordered_map<std::string, u32>();
-  app->debug_program.attributes = std::unordered_map<std::string, GLuint>();
-
-  app->ui_program.uniforms = std::unordered_map<std::string, u32>();
-  app->ui_program.attributes = std::unordered_map<std::string, GLuint>();
-
-  app->solid_program.uniforms = std::unordered_map<std::string, u32>();
-  app->solid_program.attributes = std::unordered_map<std::string, GLuint>();
-
-  app->fullscreen_fog_program.uniforms = std::unordered_map<std::string, u32>();
-  app->fullscreen_fog_program.attributes = std::unordered_map<std::string, GLuint>();
-
-  app->fullscreen_color_program.uniforms = std::unordered_map<std::string, u32>();
-  app->fullscreen_color_program.attributes = std::unordered_map<std::string, GLuint>();
-
-  app->fullscreen_fxaa_program.uniforms = std::unordered_map<std::string, u32>();
-  app->fullscreen_fxaa_program.attributes = std::unordered_map<std::string, GLuint>();
-
-  app->fullscreen_bloom_program.uniforms = std::unordered_map<std::string, u32>();
-  app->fullscreen_bloom_program.attributes = std::unordered_map<std::string, GLuint>();
-
-  app->fullscreen_program.uniforms = std::unordered_map<std::string, u32>();
-  app->fullscreen_program.attributes = std::unordered_map<std::string, GLuint>();
-
-  app->fullscreen_depth_program.uniforms = std::unordered_map<std::string, u32>();
-  app->fullscreen_depth_program.attributes = std::unordered_map<std::string, GLuint>();
-
-  app->terrain_program.uniforms = std::unordered_map<std::string, u32>();
-  app->terrain_program.attributes = std::unordered_map<std::string, GLuint>();
-
-  app->skybox_program.uniforms = std::unordered_map<std::string, u32>();
-  app->skybox_program.attributes = std::unordered_map<std::string, GLuint>();
-
-  app->textured_program.uniforms = std::unordered_map<std::string, u32>();
-  app->textured_program.attributes = std::unordered_map<std::string, GLuint>();
 
   debug_global_memory = memory;
 
