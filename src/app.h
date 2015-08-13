@@ -254,6 +254,9 @@ struct Editor {
   glm::vec3 hold_offset;
   float handle_size;
 
+  bool show_left = true;
+  bool show_right = true;
+
   bool show_performance = false;
   bool show_state_changes = false;
 

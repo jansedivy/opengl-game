@@ -892,6 +892,8 @@ void init(Memory *memory) {
   app->editor.handle_size = 40.0f;
   app->editor.holding_entity = false;
   app->editor.inspect_entity = false;
+  app->editor.show_left = true;
+  app->editor.show_right = true;
 
     /* std::unordered_map<std::string, u32> uniforms; */
     /* std::unordered_map<std::string, GLuint> attributes; */
@@ -1999,88 +2001,113 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
   char text[256];
 
-  sprintf(text, "performance: %d\n", app->editor.show_performance);
-  if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-    app->editor.show_performance = !app->editor.show_performance;
+  if (app->editor.show_left) {
+    sprintf(text, "hide");
+  } else {
+    sprintf(text, "show");
   }
 
-  if (app->editor.show_performance) {
-    for (u32 i=0; i<array_count(memory->last_frame_counters); i++) {
-      DebugCounter *counter = memory->last_frame_counters + i;
+  if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+    app->editor.show_left = !app->editor.show_left;
+  }
 
-      if (counter->hit_count) {
-        float time = (float)(counter->cycle_count * 1000) / (float)platform.get_performance_frequency();
+  if (app->editor.show_left) {
+    sprintf(text, "performance: %d\n", app->editor.show_performance);
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+      app->editor.show_performance = !app->editor.show_performance;
+    }
 
-        if (counter->hit_count > 1) {
-          sprintf(text, "%d: %.2fms %llu %.2fms\n", i, time, counter->hit_count, time / (float)counter->hit_count);
-        } else {
-          sprintf(text, "%d: %.2fms", i, time);
+    if (app->editor.show_performance) {
+      for (u32 i=0; i<array_count(memory->last_frame_counters); i++) {
+        DebugCounter *counter = memory->last_frame_counters + i;
+
+        if (counter->hit_count) {
+          float time = (float)(counter->cycle_count * 1000) / (float)platform.get_performance_frequency();
+
+          if (counter->hit_count > 1) {
+            sprintf(text, "%d: %.2fms %llu %.2fms\n", i, time, counter->hit_count, time / (float)counter->hit_count);
+          } else {
+            sprintf(text, "%d: %.2fms", i, time);
+          }
+
+          push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.0f, 0.1f, 0.6f, 0.9f));
         }
-
-        push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.0f, 0.1f, 0.6f, 0.9f));
       }
+    }
+
+    sprintf(text, "state changes: %d\n", app->editor.show_state_changes);
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+      app->editor.show_state_changes = !app->editor.show_state_changes;
+    }
+
+    if (app->editor.show_state_changes) {
+      sprintf(text, "model_change: %d\n", app->render_group.model_change);
+      push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.0f, 0.1f, 0.6f, 0.9f));
+
+      sprintf(text, "shader_change: %d\n", app->render_group.shader_change);
+      push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.0f, 0.1f, 0.6f, 0.9f));
+
+      sprintf(text, "draw_calls: %d\n", app->render_group.draw_calls);
+      push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.0f, 0.1f, 0.6f, 0.9f));
+    }
+
+    sprintf(text, "fps: %d\n", (u32)app->fps);
+    push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), default_background_color);
+
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, (char *)"save!", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+      save_level(app);
     }
   }
 
-  sprintf(text, "state changes: %d\n", app->editor.show_state_changes);
-  if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-    app->editor.show_state_changes = !app->editor.show_state_changes;
-  }
-
-  if (app->editor.show_state_changes) {
-    sprintf(text, "model_change: %d\n", app->render_group.model_change);
-    push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.0f, 0.1f, 0.6f, 0.9f));
-
-    sprintf(text, "shader_change: %d\n", app->render_group.shader_change);
-    push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.0f, 0.1f, 0.6f, 0.9f));
-
-    sprintf(text, "draw_calls: %d\n", app->render_group.draw_calls);
-    push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.0f, 0.1f, 0.6f, 0.9f));
-  }
-
-  sprintf(text, "fps: %d\n", (u32)app->fps);
-  push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), default_background_color);
-
-  if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, (char *)"save!", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-    save_level(app);
-  }
-
   if (app->editor.inspect_entity) {
-    Entity *entity = get_entity_by_id(app, app->editor.entity_id);
-    if (entity) {
-      draw_state.offset_top = 25.0f;
+    draw_state.offset_top = 25.0f;
 
-      sprintf(text, "id: %d\n", entity->id);
-      push_debug_text(app, &draw_state, command_buffer, memory->width - 200, text, glm::vec3(1.0f, 1.0f, 1.0f), default_background_color);
+    if (app->editor.show_right) {
+      sprintf(text, "hide");
+    } else {
+      sprintf(text, "show");
+    }
 
-      sprintf(text, "model: %s\n", entity->model->id_name);
-      push_debug_text(app, &draw_state, command_buffer, memory->width - 200, text, glm::vec3(1.0f, 1.0f, 1.0f), default_background_color);
+    if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+      app->editor.show_right = !app->editor.show_right;
+    }
 
-      push_debug_vector(&draw_state, app, command_buffer, memory->width - 200, "position", entity->position, default_background_color);
-      push_debug_vector(&draw_state, app, command_buffer, memory->width - 200, "rotation", entity->rotation, default_background_color);
-      push_debug_vector(&draw_state, app, command_buffer, memory->width - 200, "scale", entity->scale, default_background_color);
+    if (app->editor.show_right) {
+      Entity *entity = get_entity_by_id(app, app->editor.entity_id);
+      if (entity) {
 
-      float start = draw_state.offset_top;
-      push_debug_vector(&draw_state, app, command_buffer, memory->width - 200, "color", glm::vec3(entity->color), default_background_color);
-      debug_render_rect(command_buffer, memory->width - 150.0f, start + 2.0f, 20.0f, 20.0f, entity->color);
+        sprintf(text, "id: %d\n", entity->id);
+        push_debug_text(app, &draw_state, command_buffer, memory->width - 200, text, glm::vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
-      sprintf(text, "ground mounted: %d\n", (entity->flags & EntityFlags::MOUNT_TO_TERRAIN) != 0);
-      if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-        entity->flags = entity->flags ^ EntityFlags::MOUNT_TO_TERRAIN;
+        sprintf(text, "model: %s\n", entity->model->id_name);
+        push_debug_text(app, &draw_state, command_buffer, memory->width - 200, text, glm::vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
-        if (entity->flags & EntityFlags::MOUNT_TO_TERRAIN) {
-          mount_entity_to_terrain(entity);
+        push_debug_vector(&draw_state, app, command_buffer, memory->width - 200, "position", entity->position, default_background_color);
+        push_debug_vector(&draw_state, app, command_buffer, memory->width - 200, "rotation", entity->rotation, default_background_color);
+        push_debug_vector(&draw_state, app, command_buffer, memory->width - 200, "scale", entity->scale, default_background_color);
+
+        float start = draw_state.offset_top;
+        push_debug_vector(&draw_state, app, command_buffer, memory->width - 200, "color", glm::vec3(entity->color), default_background_color);
+        debug_render_rect(command_buffer, memory->width - 150.0f, start + 2.0f, 20.0f, 20.0f, entity->color);
+
+        sprintf(text, "ground mounted: %d\n", (entity->flags & EntityFlags::MOUNT_TO_TERRAIN) != 0);
+        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+          entity->flags = entity->flags ^ EntityFlags::MOUNT_TO_TERRAIN;
+
+          if (entity->flags & EntityFlags::MOUNT_TO_TERRAIN) {
+            mount_entity_to_terrain(entity);
+          }
         }
-      }
 
-      sprintf(text, "casts shadow: %d\n", (entity->flags & EntityFlags::CASTS_SHADOW) != 0);
-      if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-        entity->flags = entity->flags ^ EntityFlags::CASTS_SHADOW;
-      }
+        sprintf(text, "casts shadow: %d\n", (entity->flags & EntityFlags::CASTS_SHADOW) != 0);
+        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+          entity->flags = entity->flags ^ EntityFlags::CASTS_SHADOW;
+        }
 
-      sprintf(text, "save to file: %d\n", (entity->flags & EntityFlags::PERMANENT_FLAG) != 0);
-      if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-        entity->flags = entity->flags ^ EntityFlags::PERMANENT_FLAG;
+        sprintf(text, "save to file: %d\n", (entity->flags & EntityFlags::PERMANENT_FLAG) != 0);
+        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+          entity->flags = entity->flags ^ EntityFlags::PERMANENT_FLAG;
+        }
       }
     }
   }
