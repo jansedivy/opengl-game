@@ -2,6 +2,8 @@
 
 uniform sampler2D uSampler;
 
+uniform vec2 texture_size;
+
 in vec2 pos;
 
 out vec4 color;
@@ -13,7 +15,7 @@ void main() {
   float FXAA_REDUCE_MIN = 1.0/128.0;
   float FXAA_REDUCE_MUL = 1.0/8.0;
 
-  vec2 texCoordOffset = vec2(1./1280.0, 1.0/720.0);
+  vec2 texCoordOffset = 1.0 / texture_size;
 
   vec3 luma = vec3(0.299, 0.587, 0.114);
   float lumaTL = dot(luma, texture(uSampler, uv + (vec2(-1.0, -1.0) * texCoordOffset)).xyz);
