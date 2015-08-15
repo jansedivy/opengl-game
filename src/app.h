@@ -1,6 +1,5 @@
 #pragma once
 
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -308,6 +307,7 @@ struct App {
   Shader fullscreen_color_program;
   Shader fullscreen_fxaa_program;
   Shader fullscreen_bloom_program;
+  Shader fullscreen_SSAO_program;
   Shader fullscreen_depth_program;
   Shader terrain_program;
   Shader skybox_program;
@@ -315,7 +315,6 @@ struct App {
 
   Shader *current_program;
 
-  GLuint font_quad;
   GLuint fullscreen_quad;
 
   GLuint vao;
@@ -336,6 +335,7 @@ struct App {
   Texture color_correction_texture;
   Texture circle_texture;
   Texture editor_texture;
+  CubeMap cubemap;
 
   Font font;
 
@@ -343,7 +343,6 @@ struct App {
   Model sphere_model;
   Model rock_model;
   Model quad_model;
-
   Model trees[2];
 
   Entity entities[10000];
@@ -358,8 +357,6 @@ struct App {
 
   TerrainChunk *chunk_cache;
   u32 chunk_cache_count;
-
-  CubeMap cubemap;
 
   RenderGroup render_group;
 

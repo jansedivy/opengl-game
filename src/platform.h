@@ -17,6 +17,7 @@ extern "C" {
   struct InputOnce {
     bool key_p;
     bool key_r;
+    bool key_o;
   };
 
   struct Input {

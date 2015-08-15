@@ -1072,6 +1072,7 @@ void init(Memory *memory) {
       app->cube_model.has_data = true;
       app->cube_model.is_being_loaded = false;
       app->cube_model.initialized = false;
+      initialize_model(&app->cube_model);
     }
 
     {
@@ -1124,6 +1125,7 @@ void init(Memory *memory) {
   create_shader(&app->fullscreen_color_program, "fullscreen.vert", "fullscreen_color.frag");
   create_shader(&app->fullscreen_fxaa_program, "fullscreen.vert", "fullscreen_fxaa.frag");
   create_shader(&app->fullscreen_bloom_program, "fullscreen.vert", "fullscreen_bloom.frag");
+  create_shader(&app->fullscreen_SSAO_program, "fullscreen.vert", "fullscreen_ssao.frag");
   create_shader(&app->fullscreen_program, "fullscreen.vert", "fullscreen.frag");
   create_shader(&app->fullscreen_depth_program, "fullscreen.vert", "fullscreen_depth.frag");
   create_shader(&app->terrain_program, "terrain.vert", "terrain.frag");
@@ -1173,10 +1175,6 @@ void init(Memory *memory) {
   DebugReadFileResult font_file = platform.debug_read_entire_file("font.ttf");
   app->font = create_font(font_file.contents, 16.0f);
   platform.debug_free_file(font_file);
-
-  glGenBuffers(1, &app->font_quad);
-
-  app->cubemap.model = &app->cube_model;
 
   const char* faces[] = {
     "right.png", "left.png",
@@ -1240,8 +1238,8 @@ void init(Memory *memory) {
       glBindTexture(GL_TEXTURE_2D, frame->texture);
       glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, frame->width, frame->height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
 
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     }
@@ -1280,8 +1278,6 @@ void init(Memory *memory) {
 
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_R_TO_TEXTURE);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
-
-      /* glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_TEXTURE_MODE, GL_INTENSITY); */
 
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -2016,6 +2012,43 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
     if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 40.0f, (char *)"save!", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
       save_level(app);
     }
+
+    draw_state.offset_top += 10.0f;
+
+    const char *types[] = {
+      "tree_001",
+      "tree_002",
+      "rock",
+      "cube",
+      "sphere"
+    };
+
+    for (u32 i=0; i<array_count(types); i++) {
+      if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)types[i], glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+
+        Entity *entity = app->entities + app->entity_count++;
+
+        glm::vec3 forward;
+        forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
+        forward.y = -glm::sin(app->camera.rotation[0]);
+        forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
+
+        entity->id = next_entity_id(app);
+        entity->type = EntityBlock;
+        entity->position = app->camera.position + forward * 10.0f;
+        entity->scale = glm::vec3(1.0f);
+        entity->model = get_model_by_name(app, (char *)types[i]);
+        entity->color = glm::vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
+        entity->flags = EntityFlags::CASTS_SHADOW | EntityFlags::PERMANENT_FLAG;
+
+        if (
+            strcmp(types[i], "cube") == 0 ||
+            strcmp(types[i], "sphere") == 0 ||
+            strcmp(types[i], "rock") == 0) {
+          entity->scale = glm::vec3(100.f);
+        }
+      }
+    }
   }
 
   if (app->editor.inspect_entity) {
@@ -2107,6 +2140,7 @@ void tick(Memory *memory, Input input) {
       create_shader(&app->fullscreen_color_program, "fullscreen.vert", "fullscreen_color.frag");
       create_shader(&app->fullscreen_fxaa_program, "fullscreen.vert", "fullscreen_fxaa.frag");
       create_shader(&app->fullscreen_bloom_program, "fullscreen.vert", "fullscreen_bloom.frag");
+      create_shader(&app->fullscreen_SSAO_program, "fullscreen.vert", "fullscreen_ssao.frag");
       create_shader(&app->fullscreen_program, "fullscreen.vert", "fullscreen.frag");
       create_shader(&app->fullscreen_depth_program, "fullscreen.vert", "fullscreen_depth.frag");
       create_shader(&app->terrain_program, "terrain.vert", "terrain.frag");
@@ -2350,7 +2384,7 @@ void tick(Memory *memory, Input input) {
     if (app->editing_mode) {
 
 #if 0
-      if (input.key_o) {
+      if (input.once.key_o) {
         Entity *entity = app->entities + app->entity_count++;
 
         entity->id = next_entity_id(app);
@@ -2358,9 +2392,9 @@ void tick(Memory *memory, Input input) {
         entity->position = follow_entity->position;
         entity->scale = glm::vec3(100.0f);
         entity->model = get_model_by_name(app, (char *)"rock");
-        entity->color = glm::vec4(1.0f, 1.0f, 1.9f, 1.0f);
+        entity->color = glm::vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
         entity->rotation = glm::vec3(get_random_float_between(0.0, pi * 2.0f), get_random_float_between(0.0, pi * 2.0f), get_random_float_between(0.0, pi * 2.0f));
-        entity->flags = 0; // EntityFlags::PERMANENT_FLAG;
+        entity->flags = EntityFlags::CASTS_SHADOW | EntityFlags::PERMANENT_FLAG;
       }
 #endif
 
@@ -2521,16 +2555,8 @@ void tick(Memory *memory, Input input) {
       glBindTexture(GL_TEXTURE_CUBE_MAP, app->cubemap.id);
       send_shader_uniformi(app->current_program, "uSampler", 0);
 
-      if (!process_model(memory, app->cubemap.model)) {
-        Mesh *mesh = &app->cubemap.model->mesh;
-
-        glBindBuffer(GL_ARRAY_BUFFER, mesh->vertices_id);
-        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 3, GL_FLOAT, GL_FALSE, 0, 0);
-
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->indices_id);
-
-        glDrawElements(GL_TRIANGLES, mesh->data.indices_count, GL_UNSIGNED_INT, 0);
-      }
+      use_model_mesh(app, &app->cube_model.mesh);
+      glDrawElements(GL_TRIANGLES, app->cube_model.mesh.data.indices_count, GL_UNSIGNED_INT, 0);
 
       glDepthMask(GL_TRUE);
       glEnable(GL_DEPTH_TEST);
@@ -2707,6 +2733,27 @@ void tick(Memory *memory, Input input) {
 
       app->write_frame = 1;
       app->read_frame = 0;
+
+#if 0
+      {
+        glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
+        use_program(app, &app->fullscreen_SSAO_program);
+
+        glActiveTexture(GL_TEXTURE0 + 0);
+        glBindTexture(GL_TEXTURE_2D, app->frames[app->read_frame].texture);
+
+        glActiveTexture(GL_TEXTURE0 + 1);
+        glBindTexture(GL_TEXTURE_2D, app->frames[app->read_frame].depth);
+
+        send_shader_uniformi(app->current_program, "uSampler", 0);
+        send_shader_uniformi(app->current_program, "uDepth", 1);
+
+        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        std::swap(app->write_frame, app->read_frame);
+      }
+#endif
 
 #if 1
       {

@@ -7,6 +7,7 @@
 #include "app.h"
 
 #include <fcntl.h>
+#include <ctype.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -345,7 +346,7 @@ int main() {
 
   AppCode code = load_app_code();
 
-  SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_EVENTS);
+  SDL_Init(SDL_INIT_EVERYTHING);
 
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
@@ -398,6 +399,9 @@ int main() {
           }
           if (event.key.keysym.scancode == SDL_SCANCODE_R) {
             input.once.key_r = true;
+          }
+          if (event.key.keysym.scancode == SDL_SCANCODE_O) {
+            input.once.key_o = true;
           }
           break;
         case SDL_MOUSEBUTTONDOWN:
