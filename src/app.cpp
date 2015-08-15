@@ -1847,6 +1847,10 @@ void draw_3d_debug_info(App *app) {
 
       if (entity->flags & EntityFlags::RENDER_HIDDEN) { continue; }
 
+      if (!is_sphere_in_frustum(&app->camera.frustum, entity->position, app->editor.handle_size)) {
+        continue;
+      }
+
       glm::mat4 model_view;
       model_view = glm::translate(model_view, entity->position);
       model_view = glm::scale(model_view, glm::vec3(app->editor.handle_size));
