@@ -19,7 +19,7 @@
   <key>CFBundleSignature</key>
   <string>????</string>
   <key>LSMinimumSystemVersion</key>
-  <string>10.10</string>
+  <string>10.9</string>
   <key>NSHumanReadableCopyright</key>
   <string>Copyright © 2015 Jan Sedivy. All rights reserved.</string>
   <key>NSPrincipalClass</key>
