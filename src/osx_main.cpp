@@ -345,7 +345,7 @@ int main() {
 
   AppCode code = load_app_code();
 
-  SDL_Init(SDL_INIT_EVERYTHING);
+  SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_EVENTS);
 
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
@@ -362,7 +362,7 @@ int main() {
       SDL_WINDOWPOS_UNDEFINED,
       SDL_WINDOWPOS_UNDEFINED,
       memory.width, memory.height,
-      SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN);
+      SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
 
   SDL_GL_CreateContext(window);
 
@@ -377,6 +377,8 @@ int main() {
   code.init(&memory);
 
   while (running) {
+    SDL_GetWindowSize(window, &memory.width, &memory.height);
+
     Input input = {};
 
     if (get_last_write_time(code.path) > code.last_time_write) {

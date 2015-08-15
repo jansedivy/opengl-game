@@ -908,7 +908,7 @@ void init(Memory *memory) {
   app->camera.ortho = false;
   app->camera.near = 0.5f;
   app->camera.far = 50000.0f;
-  app->camera.size = glm::vec2(memory->width, memory->height);
+  app->camera.size = glm::vec2((float)memory->width, (float)memory->height);
 
   app->shadow_camera.ortho = true;
   app->shadow_camera.near = 100.0f;
@@ -1240,8 +1240,8 @@ void init(Memory *memory) {
       glBindTexture(GL_TEXTURE_2D, frame->texture);
       glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, frame->width, frame->height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
 
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     }
@@ -2093,6 +2093,8 @@ void tick(Memory *memory, Input input) {
 
   // NOTE(sedivy): update
   PROFILE(update);
+
+  app->camera.size = glm::vec2((float)memory->width, (float)memory->height);
 
   Entity *follow_entity = get_entity_by_id(app, app->camera_follow);
   {
