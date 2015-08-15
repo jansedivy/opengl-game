@@ -1228,18 +1228,17 @@ void init(Memory *memory) {
   }
 
   // NOTE(sedivy): frame buffer
-  {
-    app->frame_1.width = memory->width;
-    app->frame_1.height = memory->height;
+  for (u32 i=0; i<array_count(app->frames); i++) {
+    FrameBuffer *frame = app->frames + i;
 
-    /* app->frame_1.width = 800; */
-    /* app->frame_1.height = 400; */
+    frame->width = memory->width;
+    frame->height = memory->height;
 
     // NOTE(sedivy): texture
     {
-      glGenTextures(1, &app->frame_1.texture);
-      glBindTexture(GL_TEXTURE_2D, app->frame_1.texture);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, app->frame_1.width, app->frame_1.height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+      glGenTextures(1, &frame->texture);
+      glBindTexture(GL_TEXTURE_2D, frame->texture);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, frame->width, frame->height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
 
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -1249,9 +1248,9 @@ void init(Memory *memory) {
 
     // NOTE(sedivy): depth
     {
-      glGenTextures(1, &app->frame_1.depth);
-      glBindTexture(GL_TEXTURE_2D, app->frame_1.depth);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, app->frame_1.width, app->frame_1.height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL);
+      glGenTextures(1, &frame->depth);
+      glBindTexture(GL_TEXTURE_2D, frame->depth);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, frame->width, frame->height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL);
 
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -1262,51 +1261,10 @@ void init(Memory *memory) {
 
     // NOTE(sedivy): Framebuffer
     {
-      glGenFramebuffers(1, &app->frame_1.id);
-      glBindFramebuffer(GL_FRAMEBUFFER, app->frame_1.id);
-      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, app->frame_1.texture, 0);
-      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, app->frame_1.depth, 0);
-    }
-  }
-
-  {
-    app->frame_2.width = memory->width;
-    app->frame_2.height = memory->height;
-
-    /* app->frame_2.width = 800; */
-    /* app->frame_2.height = 400; */
-
-    // NOTE(sedivy): texture
-    {
-      glGenTextures(1, &app->frame_2.texture);
-      glBindTexture(GL_TEXTURE_2D, app->frame_2.texture);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, app->frame_2.width, app->frame_2.height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    }
-
-    // NOTE(sedivy): depth
-    {
-      glGenTextures(1, &app->frame_2.depth);
-      glBindTexture(GL_TEXTURE_2D, app->frame_2.depth);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, app->frame_2.width, app->frame_2.height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL);
-
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    }
-
-    // NOTE(sedivy): Framebuffer
-    {
-      glGenFramebuffers(1, &app->frame_2.id);
-      glBindFramebuffer(GL_FRAMEBUFFER, app->frame_2.id);
-      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, app->frame_2.texture, 0);
-      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, app->frame_2.depth, 0);
+      glGenFramebuffers(1, &frame->id);
+      glBindFramebuffer(GL_FRAMEBUFFER, frame->id);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, frame->texture, 0);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, frame->depth, 0);
     }
   }
 
@@ -2531,8 +2489,8 @@ void tick(Memory *memory, Input input) {
       PROFILE_END(render_shadows);
     }
 
-    glBindFramebuffer(GL_FRAMEBUFFER, app->frame_1.id);
-    glViewport(0, 0, app->frame_1.width, app->frame_1.height);
+    glBindFramebuffer(GL_FRAMEBUFFER, app->frames[0].id);
+    glViewport(0, 0, app->frames[0].width, app->frames[0].height);
     glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -2737,42 +2695,20 @@ void tick(Memory *memory, Input input) {
 
     {
       PROFILE(render_final);
-      glViewport(0, 0, memory->width, memory->height);
+      glViewport(0, 0, app->frames[0].width, app->frames[1].height);
       glDisable(GL_DEPTH_TEST);
       glDisable(GL_CULL_FACE);
 
-#if 0
+      app->write_frame = 1;
+      app->read_frame = 0;
+
+#if 1
       {
-        use_program(app, &app->fullscreen_fog_program);
-
-        glActiveTexture(GL_TEXTURE0 + 0);
-        glBindTexture(GL_TEXTURE_2D, app->frame_1.texture);
-
-        glActiveTexture(GL_TEXTURE0 + 1);
-        glBindTexture(GL_TEXTURE_2D, app->frame_1.depth);
-
-        glActiveTexture(GL_TEXTURE0 + 2);
-        glBindTexture(GL_TEXTURE_2D, app->gradient_texture.id);
-
-        send_shader_uniformi(app->current_program, "uSampler", 0);
-        send_shader_uniformi(app->current_program, "uDepth", 1);
-        send_shader_uniformi(app->current_program, "uGradient", 2);
-
-        send_shader_uniformf(app->current_program, "znear", app->camera.near);
-        send_shader_uniformf(app->current_program, "zfar", app->camera.far);
-
-        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
-        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-      }
-#endif
-
-      {
-        glBindFramebuffer(GL_FRAMEBUFFER, app->frame_2.id);
+        glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
         use_program(app, &app->fullscreen_color_program);
 
         glActiveTexture(GL_TEXTURE0 + 0);
-        glBindTexture(GL_TEXTURE_2D, app->frame_1.texture);
+        glBindTexture(GL_TEXTURE_2D, app->frames[app->read_frame].texture);
 
         glActiveTexture(GL_TEXTURE0 + 1);
         glBindTexture(GL_TEXTURE_2D, app->color_correction_texture.id);
@@ -2784,46 +2720,59 @@ void tick(Memory *memory, Input input) {
         glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
         glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
         glDrawArrays(GL_TRIANGLES, 0, 6);
+
+        std::swap(app->write_frame, app->read_frame);
       }
+#endif
 
       if (app->editing_mode) {
         draw_3d_debug_info(app);
       }
 
+#if 1
       {
-        glBindFramebuffer(GL_FRAMEBUFFER, app->frame_1.id);
+        glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
         use_program(app, &app->fullscreen_fxaa_program);
 
         glActiveTexture(GL_TEXTURE0 + 0);
-        glBindTexture(GL_TEXTURE_2D, app->frame_2.texture);
+        glBindTexture(GL_TEXTURE_2D, app->frames[app->read_frame].texture);
 
         send_shader_uniformi(app->current_program, "uSampler", 0);
+        send_shader_uniform(app->current_program, "texture_size", glm::vec2(app->frames[0].width, app->frames[0].height));
 
         glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
         glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
         glDrawArrays(GL_TRIANGLES, 0, 6);
-      }
 
+        std::swap(app->write_frame, app->read_frame);
+      }
+#endif
+
+#if 0
       {
-        glBindFramebuffer(GL_FRAMEBUFFER, app->frame_2.id);
+        glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
         use_program(app, &app->fullscreen_bloom_program);
 
         glActiveTexture(GL_TEXTURE0 + 0);
-        glBindTexture(GL_TEXTURE_2D, app->frame_1.texture);
+        glBindTexture(GL_TEXTURE_2D, app->frames[app->read_frame].texture);
 
         send_shader_uniformi(app->current_program, "uSampler", 0);
 
         glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
         glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
         glDrawArrays(GL_TRIANGLES, 0, 6);
+        std::swap(app->write_frame, app->read_frame);
       }
+#endif
 
       {
+        glViewport(0, 0, memory->width, memory->height);
+
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         use_program(app, &app->fullscreen_program);
 
         glActiveTexture(GL_TEXTURE0 + 0);
-        glBindTexture(GL_TEXTURE_2D, app->frame_2.texture);
+        glBindTexture(GL_TEXTURE_2D, app->frames[app->read_frame].texture);
 
         send_shader_uniformi(app->current_program, "uSampler", 0);
 

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <algorithm>
 
 #define array_count(arr) (sizeof(arr) / sizeof(arr[0]))
 
@@ -322,8 +323,9 @@ struct App {
   GLuint debug_buffer;
   std::vector<glm::vec3> debug_lines;
 
-  FrameBuffer frame_1;
-  FrameBuffer frame_2;
+  u32 read_frame;
+  u32 write_frame;
+  FrameBuffer frames[2];
 
   GLuint shadow_buffer;
   GLuint shadow_depth_texture;
