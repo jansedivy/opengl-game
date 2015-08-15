@@ -1,5 +1,9 @@
 #include "app.h"
 
+float clamp(float value, float min, float max) {
+  return std::max(min, std::min(max, value));
+}
+
 void normalize_plane(Plane *plane) {
   float mag = glm::sqrt(plane->normal.x * plane->normal.x + plane->normal.y * plane->normal.y + plane->normal.z * plane->normal.z);
   plane->normal = plane->normal / mag;
@@ -265,10 +269,10 @@ bool ray_match_entity(Ray ray, Entity *entity) {
 
   glm::mat4 model_view;
   model_view = glm::translate(model_view, entity->position);
-  model_view = glm::scale(model_view, entity->scale);
   /* model_view = glm::rotate(model_view, entity->rotation.x, glm::vec3(1.0, 0.0, 0.0)); */
   /* model_view = glm::rotate(model_view, entity->rotation.y, glm::vec3(0.0, 1.0, 0.0)); */
   /* model_view = glm::rotate(model_view, entity->rotation.z, glm::vec3(0.0, 0.0, 1.0)); */
+  model_view = glm::scale(model_view, entity->scale);
 
 
   glm::mat4 res = glm::inverse(model_view);
@@ -1794,6 +1798,74 @@ glm::mat4 make_billboard_matrix(glm::vec3 position, glm::vec3 camera_position, g
 
 #include "render_group.cpp"
 
+void debug_render_range(Input &input, UICommandBuffer *command_buffer, float x, float y, float width, float height, glm::vec4 background_color, float *value, float min, float max) {
+  debug_render_rect(command_buffer, x, y, width, height, background_color);
+
+  float scale = *value / (max - min);
+
+  debug_render_rect(command_buffer, x, y, width * scale, height, glm::vec4(0.5f, 1.0f, 0.2f, 1.0f));
+
+  float min_x = x;
+  float min_y = y;
+  float max_x = min_x + width;
+  float max_y = min_y + height;
+
+  if (input.left_mouse_down && input.original_mouse_down_x > min_x && input.original_mouse_down_y > min_y && input.original_mouse_down_x < max_x && input.original_mouse_down_y < max_y) {
+    *value = clamp((input.mouse_x - min_x) / width * (max - min), min, max);
+    input.mouse_click = false;
+  }
+}
+
+void push_debug_editable_vector(Input &input, DebugDrawState *state, Font *font, UICommandBuffer *command_buffer, float x, const char *name, glm::vec3 *vector, glm::vec4 background_color, float min, float max) {
+  char text[256];
+
+  debug_render_rect(command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color);
+
+  sprintf(text, "%s", name);
+  draw_string(command_buffer, font, x + 5.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  state->offset_top += 25.0f;
+
+  sprintf(text, "%f", vector->x);
+  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->x, min, max);
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  state->offset_top += 25.0f;
+
+  sprintf(text, "%f", vector->y);
+  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->y, min, max);
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  state->offset_top += 25.0f;
+
+  sprintf(text, "%f", vector->z);
+  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->z, min, max);
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  state->offset_top += 25.0f;
+}
+
+void push_debug_editable_vector(Input &input, DebugDrawState *state, Font *font, UICommandBuffer *command_buffer, float x, const char *name, glm::vec4 *vector, glm::vec4 background_color, float min, float max) {
+  char text[256];
+
+  debug_render_rect(command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color);
+
+  sprintf(text, "%s", name);
+  draw_string(command_buffer, font, x + 5.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  state->offset_top += 25.0f;
+
+  sprintf(text, "%f", vector->x);
+  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->x, min, max);
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  state->offset_top += 25.0f;
+
+  sprintf(text, "%f", vector->y);
+  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->y, min, max);
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  state->offset_top += 25.0f;
+
+  sprintf(text, "%f", vector->z);
+  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->z, min, max);
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  state->offset_top += 25.0f;
+}
+
 void push_debug_vector(DebugDrawState *state, Font *font, UICommandBuffer *command_buffer, float x, const char *name, glm::vec3 vector, glm::vec4 background_color) {
   char text[256];
 
@@ -2035,7 +2107,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
         entity->id = next_entity_id(app);
         entity->type = EntityBlock;
-        entity->position = app->camera.position + forward * 10.0f;
+        entity->position = app->camera.position + forward * 400.0f;
         entity->scale = glm::vec3(1.0f);
         entity->model = get_model_by_name(app, (char *)types[i]);
         entity->color = glm::vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
@@ -2067,11 +2139,11 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
         push_debug_text(app, &draw_state, command_buffer, memory->width - 200, text, glm::vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
         push_debug_vector(&draw_state, &app->font, command_buffer, memory->width - 200, "position", entity->position, default_background_color);
-        push_debug_vector(&draw_state, &app->font, command_buffer, memory->width - 200, "rotation", entity->rotation, default_background_color);
-        push_debug_vector(&draw_state, &app->font, command_buffer, memory->width - 200, "scale", entity->scale, default_background_color);
+        push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - 200, "rotation", &entity->rotation, default_background_color, 0.0f, pi * 2);
+        push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - 200, "scale", &entity->scale, default_background_color, 0.0f, 200.0f);
 
         float start = draw_state.offset_top;
-        push_debug_vector(&draw_state, &app->font, command_buffer, memory->width - 200, "color", glm::vec3(entity->color), default_background_color);
+        push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - 200, "color", &entity->color, default_background_color, 0.0f, 1.0f);
         debug_render_rect(command_buffer, memory->width - 151.0f, start + 1.0f, 22.0f, 22.0f, glm::vec4(0.0f, 0.0f, 0.0f, 0.5f));
         debug_render_rect(command_buffer, memory->width - 150.0f, start + 2.0f, 20.0f, 20.0f, entity->color);
 
@@ -2508,10 +2580,10 @@ void tick(Memory *memory, Input input) {
 
         glm::mat4 model_view;
         model_view = glm::translate(model_view, entity->position);
-        model_view = glm::scale(model_view, entity->scale);
         model_view = glm::rotate(model_view, entity->rotation.x, glm::vec3(1.0, 0.0, 0.0));
         model_view = glm::rotate(model_view, entity->rotation.y, glm::vec3(0.0, 1.0, 0.0));
         model_view = glm::rotate(model_view, entity->rotation.z, glm::vec3(0.0, 0.0, 1.0));
+        model_view = glm::scale(model_view, entity->scale);
 
         RenderCommand command;
         command.shader = &app->solid_program;
@@ -2666,11 +2738,11 @@ void tick(Memory *memory, Input input) {
 
           model_view = glm::translate(model_view, entity->position);
 
-          model_view = glm::scale(model_view, entity->scale);
-
           model_view = glm::rotate(model_view, entity->rotation.x, glm::vec3(1.0, 0.0, 0.0));
           model_view = glm::rotate(model_view, entity->rotation.y, glm::vec3(0.0, 1.0, 0.0));
           model_view = glm::rotate(model_view, entity->rotation.z, glm::vec3(0.0, 0.0, 1.0));
+
+          model_view = glm::scale(model_view, entity->scale);
 
           glm::mat3 normal = glm::inverseTranspose(glm::mat3(model_view));
 

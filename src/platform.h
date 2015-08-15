@@ -27,6 +27,9 @@ extern "C" {
     int mouse_x;
     int mouse_y;
 
+    int original_mouse_down_x;
+    int original_mouse_down_y;
+
     bool up;
     bool left;
     bool right;

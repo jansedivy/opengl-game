@@ -377,6 +377,9 @@ int main() {
 
   code.init(&memory);
 
+  int original_mouse_down_x = 0;
+  int original_mouse_down_y = 0;
+
   while (running) {
     SDL_GetWindowSize(window, &memory.width, &memory.height);
 
@@ -387,6 +390,8 @@ int main() {
       UnloadAppCode(&code);
       code = load_app_code();
     }
+
+    SDL_GetMouseState(&input.mouse_x, &input.mouse_y);
 
     while (SDL_PollEvent(&event)) {
       switch (event.type) {
@@ -407,6 +412,8 @@ int main() {
         case SDL_MOUSEBUTTONDOWN:
           if (event.button.button == SDL_BUTTON_LEFT) {
             input.mouse_click = true;
+            original_mouse_down_x = input.mouse_x;
+            original_mouse_down_y = input.mouse_y;
           }
           break;
         case SDL_WINDOWEVENT:
@@ -431,8 +438,10 @@ int main() {
     input.escape = state[SDL_SCANCODE_ESCAPE];
     input.is_mouse_locked = SDL_GetRelativeMouseMode();
 
+    input.original_mouse_down_x = original_mouse_down_x;
+    input.original_mouse_down_y = original_mouse_down_y;
+
     u32 mouse_state = SDL_GetRelativeMouseState(&input.rel_mouse_x, &input.rel_mouse_y);
-    SDL_GetMouseState(&input.mouse_x, &input.mouse_y);
 
     input.right_mouse_down = mouse_state & SDL_BUTTON(SDL_BUTTON_RIGHT);
     input.left_mouse_down = mouse_state & SDL_BUTTON(SDL_BUTTON_LEFT);

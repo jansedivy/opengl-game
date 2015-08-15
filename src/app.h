@@ -124,10 +124,8 @@ struct TerrainChunk {
 };
 
 enum EntityType {
-  EntityPlayer,
-  EntityBlock,
-
-  EntityCount
+  EntityPlayer = 0,
+  EntityBlock = 1
 };
 
 struct Texture {
