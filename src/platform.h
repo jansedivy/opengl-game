@@ -104,18 +104,19 @@ extern "C" {
   typedef void create_directory_type(char *path);
 
   enum {
-    DebugCycleCounter_update,
-    DebugCycleCounter_render,
-    DebugCycleCounter_render_shadows,
-    DebugCycleCounter_render_skybox,
-    DebugCycleCounter_render_debug,
-    DebugCycleCounter_render_final,
-    DebugCycleCounter_render_main,
-    DebugCycleCounter_render_entities,
-    DebugCycleCounter_render_chunks,
-    DebugCycleCounter_render_ui,
-    DebugCycleCounter_render_ui_flush,
-    DebugCycleCounter_count
+    /* 0  */DebugCycleCounter_update,
+    /* 1  */DebugCycleCounter_render,
+    /* 2  */DebugCycleCounter_render_shadows,
+    /* 3  */DebugCycleCounter_render_skybox,
+    /* 4  */DebugCycleCounter_render_debug,
+    /* 5  */DebugCycleCounter_render_final,
+    /* 6  */DebugCycleCounter_render_main,
+    /* 7  */DebugCycleCounter_render_entities,
+    /* 8  */DebugCycleCounter_render_chunks,
+    /* 9  */DebugCycleCounter_render_ui,
+    /* 10 */DebugCycleCounter_render_ui_flush,
+    /* 12 */DebugCycleCounter_frame,
+    /* 11 */DebugCycleCounter_count
   };
 
   struct DebugCounter {

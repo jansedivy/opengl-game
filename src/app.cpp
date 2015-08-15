@@ -2069,6 +2069,8 @@ void tick(Memory *memory, Input input) {
   debug_global_memory = memory;
   platform = memory->platform;
 
+  PROFILE(frame);
+
   App *app = static_cast<App*>(memory->permanent_storage);
 
   if (memory->should_reload) {
@@ -2090,10 +2092,10 @@ void tick(Memory *memory, Input input) {
   PROFILE_END(render_ui);
 
   // NOTE(sedivy): update
+  PROFILE(update);
+
   Entity *follow_entity = get_entity_by_id(app, app->camera_follow);
   {
-    PROFILE(update);
-
     if (input.once.key_r) {
       create_shader(&app->another_program, "another_vert.glsl", "another_frag.glsl");
       create_shader(&app->debug_program, "debug_vert.glsl", "debug_frag.glsl");
@@ -2393,10 +2395,8 @@ void tick(Memory *memory, Input input) {
         platform.unlock_mouse();
       }
     }
-
-
-    PROFILE_END(update);
   }
+  PROFILE_END(update);
 
   // NOTE(sedivy): render
   {
@@ -2815,5 +2815,7 @@ void tick(Memory *memory, Input input) {
   } else {
     app->framecount += 1;
   }
+
+  PROFILE_END(frame);
 }
 
