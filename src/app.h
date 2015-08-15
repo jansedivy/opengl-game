@@ -235,6 +235,7 @@ namespace UICommandType {
 
 struct UICommand {
   glm::vec4 color;
+  glm::vec4 image_color;
   u32 vertices_count;
   UICommandType::UICommandType type;
 };
@@ -242,8 +243,6 @@ struct UICommand {
 struct UICommandBuffer {
   std::vector<GLfloat> vertices;
   std::vector<UICommand> commands;
-
-  std::vector<GLfloat> text_vertices;
 };
 
 struct Editor {
@@ -334,6 +333,7 @@ struct App {
   Texture gradient_texture;
   Texture color_correction_texture;
   Texture circle_texture;
+  Texture editor_texture;
 
   Font font;
 

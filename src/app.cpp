@@ -1145,12 +1145,20 @@ void init(Memory *memory) {
   app->color_correction_texture.path = allocate_string("color_correction.png");
   app->gradient_texture.path = allocate_string("gradient.png");
   app->circle_texture.path = allocate_string("circle.png");
+  app->editor_texture.path = allocate_string("editor_images.png");
 
   {
     load_texture(&app->gradient_texture, STBI_rgb_alpha);
     initialize_texture(&app->gradient_texture, GL_RGBA, false);
     stbi_image_free(app->gradient_texture.data);
     app->gradient_texture.data = NULL;
+  }
+
+  {
+    load_texture(&app->editor_texture, STBI_rgb_alpha);
+    initialize_texture(&app->editor_texture, GL_RGBA, false);
+    stbi_image_free(app->editor_texture.data);
+    app->editor_texture.data = NULL;
   }
 
   load_color_grading_texture(&app->color_correction_texture);
@@ -1655,28 +1663,49 @@ bool render_terrain_chunk(App *app, TerrainChunk *chunk, Model *model) {
   return true;
 }
 
-void debug_render_rect(UICommandBuffer *command_buffer, float x, float y, float width, float height, glm::vec4 color) {
+void debug_render_rect(UICommandBuffer *command_buffer, float x, float y, float width, float height, glm::vec4 color, glm::vec4 image_color=glm::vec4(0.0f), u32 x_index=0, u32 y_index=0) {
+  float scale = 1.0f / 4.0f;
+
   command_buffer->vertices.push_back(x);
   command_buffer->vertices.push_back(y);
+
+  command_buffer->vertices.push_back(scale * x_index + 0.0f * scale);
+  command_buffer->vertices.push_back(scale * y_index + 0.0f * scale);
 
   command_buffer->vertices.push_back(x + width);
   command_buffer->vertices.push_back(y);
 
+  command_buffer->vertices.push_back(scale * x_index + 1.0f * scale);
+  command_buffer->vertices.push_back(scale * y_index + 0.0f * scale);
+
   command_buffer->vertices.push_back(x);
   command_buffer->vertices.push_back(y + height);
+
+  command_buffer->vertices.push_back(scale * x_index + 0.0f * scale);
+  command_buffer->vertices.push_back(scale * y_index + 1.0f * scale);
 
   command_buffer->vertices.push_back(x + width);
   command_buffer->vertices.push_back(y);
 
+  command_buffer->vertices.push_back(scale * x_index + 1.0f * scale);
+  command_buffer->vertices.push_back(scale * y_index + 0.0f * scale);
+
   command_buffer->vertices.push_back(x + width);
   command_buffer->vertices.push_back(y + height);
 
+  command_buffer->vertices.push_back(scale * x_index + 1.0f * scale);
+  command_buffer->vertices.push_back(scale * y_index + 1.0f * scale);
+
   command_buffer->vertices.push_back(x);
   command_buffer->vertices.push_back(y + height);
+
+  command_buffer->vertices.push_back(scale * x_index + 0.0f * scale);
+  command_buffer->vertices.push_back(scale * y_index + 1.0f * scale);
 
   UICommand command;
   command.vertices_count = 6;
   command.color = color;
+  command.image_color = image_color;
   command.type = UICommandType::RECT;
 
   command_buffer->commands.push_back(command);
@@ -1715,7 +1744,7 @@ void draw_string(UICommandBuffer *command_buffer, Font *font, float x, float y, 
     };
 
     for (u32 i=0; i<array_count(vertices_data); i++) {
-      command_buffer->text_vertices.push_back(vertices_data[i]);
+      command_buffer->vertices.push_back(vertices_data[i]);
     }
     command.vertices_count += 6;
   }
@@ -1723,27 +1752,36 @@ void draw_string(UICommandBuffer *command_buffer, Font *font, float x, float y, 
   command_buffer->commands.push_back(command);
 }
 
-bool push_debug_button(Input &input, App *app, DebugDrawState *state, UICommandBuffer *command_buffer, float x, char *text, glm::vec3 color, glm::vec4 background_color) {
+bool push_debug_button(Input &input,
+                       App *app,
+                       DebugDrawState *state,
+                       UICommandBuffer *command_buffer,
+                       float x, float height,
+                       char *text,
+                       glm::vec3 color,
+                       glm::vec4 background_color,
+                       glm::vec4 hover_color=glm::vec4(0.5f, 0.6f, 1.0f, 1.0f),
+                       glm::vec4 active_color=glm::vec4(0.2f, 0.3f, 0.7f, 1.0f)) {
   float min_x = x;
   float min_y = state->offset_top;;
   float max_x = min_x + 175.0f;
-  float max_y = min_y + 25.0f;
+  float max_y = min_y + height;
 
   bool clicked = false;
 
   if (input.mouse_x > min_x && input.mouse_y > min_y && input.mouse_x < max_x && input.mouse_y < max_y) {
     if (input.mouse_click) {
-      background_color = glm::vec4(0.2f, 0.3f, 0.7f, 1.0f);
+      background_color = active_color;
       clicked = true;
       input.mouse_click = false;
     } else {
-      background_color = glm::vec4(0.5f, 0.6f, 1.0f, 1.0f);
+      background_color = hover_color;
     }
   }
 
-  debug_render_rect(command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color);
-  draw_string(command_buffer, &app->font, x + 5, state->offset_top, text, color);
-  state->offset_top += 25.0f;
+  debug_render_rect(command_buffer, x, state->offset_top, 175.0f, height, background_color);
+  draw_string(command_buffer, &app->font, x + 5, state->offset_top + (height - 23.0f) / 2.0f, text, color);
+  state->offset_top += height;
 
   return clicked;
 }
@@ -1802,25 +1840,25 @@ glm::mat4 make_billboard_matrix(glm::vec3 position, glm::vec3 camera_position, g
 
 #include "render_group.cpp"
 
-void push_debug_vector(DebugDrawState *state, App *app, UICommandBuffer *command_buffer, float x, const char *name, glm::vec3 vector, glm::vec4 background_color) {
+void push_debug_vector(DebugDrawState *state, Font *font, UICommandBuffer *command_buffer, float x, const char *name, glm::vec3 vector, glm::vec4 background_color) {
   char text[256];
 
   debug_render_rect(command_buffer, x, state->offset_top, 175.0f, 25.0f * 4.0f, background_color);
 
   sprintf(text, "%s", name);
-  draw_string(command_buffer, &app->font, x + 5.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 5.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector.x);
-  draw_string(command_buffer, &app->font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector.y);
-  draw_string(command_buffer, &app->font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector.z);
-  draw_string(command_buffer, &app->font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 }
 
@@ -1885,59 +1923,42 @@ void flush_2d_render(App *app, Memory *memory) {
   glEnable(GL_BLEND);
 
   use_program(app, &app->program);
+
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, app->font.texture);
-  send_shader_uniformi(app->current_program, "textureImage", 0);
-  send_shader_uniform(app->current_program, "uPMatrix", projection);
 
-  use_program(app, &app->ui_program);
+  glActiveTexture(GL_TEXTURE0 + 1);
+  glBindTexture(GL_TEXTURE_2D, app->editor_texture.id);
+
   send_shader_uniform(app->current_program, "uPMatrix", projection);
 
   u32 vertices_index = 0;
-  u32 text_vertices_index = 0;
 
   glBindBuffer(GL_ARRAY_BUFFER, app->debug_buffer);
   glBufferData(GL_ARRAY_BUFFER, command_buffer->vertices.size() * sizeof(GLfloat), NULL, GL_DYNAMIC_DRAW);
   glBufferSubData(GL_ARRAY_BUFFER, 0, command_buffer->vertices.size() * sizeof(GLfloat), &command_buffer->vertices[0]);
 
-  glBindBuffer(GL_ARRAY_BUFFER, app->font_quad);
-  glBufferData(GL_ARRAY_BUFFER, command_buffer->text_vertices.size() * sizeof(GLfloat), NULL, GL_DYNAMIC_DRAW);
-  glBufferSubData(GL_ARRAY_BUFFER, 0, command_buffer->text_vertices.size() * sizeof(GLfloat), &command_buffer->text_vertices[0]);
-
-  UICommandType::UICommandType last_type = UICommandType::NONE;
+  glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), 0);
+  glVertexAttribPointer(shader_get_attribute_location(app->current_program, "uv"), 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void *)(2 * sizeof(GLfloat)));
 
   for (auto it = command_buffer->commands.begin(); it != command_buffer->commands.end(); it++) {
     switch (it->type) {
       case UICommandType::NONE:
         break;
       case UICommandType::RECT:
-        if (last_type != it->type) {
-          glBindBuffer(GL_ARRAY_BUFFER, app->debug_buffer);
-          use_program(app, &app->ui_program);
-          glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
-        }
-
-        send_shader_uniform(app->current_program, "uColor", it->color);
-
-        glDrawArrays(GL_TRIANGLES, vertices_index, it->vertices_count);
-        vertices_index += it->vertices_count;
+        send_shader_uniformi(app->current_program, "textureImage", 1);
+          send_shader_uniform(app->current_program, "background_color", it->color);
+          send_shader_uniform(app->current_program, "image_color", it->image_color);
         break;
       case UICommandType::TEXT:
-        if (last_type != it->type) {
-          glBindBuffer(GL_ARRAY_BUFFER, app->font_quad);
-          use_program(app, &app->program);
-          glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), 0);
-          glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void *)(2 * sizeof(GLfloat)));
-        }
-
-        send_shader_uniform(app->current_program, "font_color", glm::vec3(it->color));
-
-        glDrawArrays(GL_TRIANGLES, text_vertices_index, it->vertices_count);
-        text_vertices_index += it->vertices_count;
+        send_shader_uniformi(app->current_program, "textureImage", 0);
+        send_shader_uniform(app->current_program, "background_color", glm::vec4(0.0f));
+          send_shader_uniform(app->current_program, "image_color", it->color);
         break;
     }
 
-    last_type = it->type;
+    glDrawArrays(GL_TRIANGLES, vertices_index, it->vertices_count);
+    vertices_index += it->vertices_count;
   }
 
   glEnable(GL_CULL_FACE);
@@ -1945,10 +1966,34 @@ void flush_2d_render(App *app, Memory *memory) {
   glEnable(GL_DEPTH_TEST);
 }
 
+void push_toggle_button(App *app, Input &input, DebugDrawState *draw_state, UICommandBuffer *command_buffer, float x, bool *value,
+                        glm::vec4 background_color,
+                        glm::vec4 hover_color=glm::vec4(0.5f, 0.6f, 1.0f, 1.0f),
+                        glm::vec4 active_color=glm::vec4(0.2f, 0.3f, 0.7f, 1.0f)) {
+
+  u32 toggl_button_x_index;
+  u32 toggl_button_y_index;
+
+  if (*value) {
+    toggl_button_x_index = 0;
+    toggl_button_y_index = 0;
+  } else {
+    toggl_button_x_index = 1;
+    toggl_button_y_index = 0;
+  }
+
+  float image_height = 40.0f;
+  if (push_debug_button(input, app, draw_state, command_buffer, x, image_height, (char *)"", glm::vec3(0.0f), background_color, hover_color, active_color)) {
+    *value = !(*value);
+  }
+
+  debug_render_rect(command_buffer, x, draw_state->offset_top - image_height, image_height, image_height, glm::vec4(0.0f, 0.0f, 0.0f, 0.0f), glm::vec4(0.4f, 0.0f, 0.0f, 1.0f), toggl_button_x_index, toggl_button_y_index);
+}
+
+
 void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
   UICommandBuffer *command_buffer = &app->editor.command_buffer;
   command_buffer->vertices.clear();
-  command_buffer->text_vertices.clear();
   command_buffer->commands.clear();
 
   DebugDrawState draw_state;
@@ -1959,19 +2004,11 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
   char text[256];
 
-  if (app->editor.show_left) {
-    sprintf(text, "hide");
-  } else {
-    sprintf(text, "show");
-  }
-
-  if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-    app->editor.show_left = !app->editor.show_left;
-  }
+  push_toggle_button(app, input, &draw_state, command_buffer, 10.0f, &app->editor.show_left, glm::vec4(1.0f, 0.16f, 0.15f, 0.9f), glm::vec4(0.8f, 0.1f, 0.1f, 0.9f), glm::vec4(0.7f, 0.1f, 0.1f, 0.9f));
 
   if (app->editor.show_left) {
     sprintf(text, "performance: %d\n", app->editor.show_performance);
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
       app->editor.show_performance = !app->editor.show_performance;
     }
 
@@ -1994,7 +2031,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
     }
 
     sprintf(text, "state changes: %d\n", app->editor.show_state_changes);
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
       app->editor.show_state_changes = !app->editor.show_state_changes;
     }
 
@@ -2012,7 +2049,9 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
     sprintf(text, "fps: %d\n", (u32)app->fps);
     push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, (char *)"save!", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+    draw_state.offset_top += 10.0f;
+
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 40.0f, (char *)"save!", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
       save_level(app);
     }
   }
@@ -2020,15 +2059,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
   if (app->editor.inspect_entity) {
     draw_state.offset_top = 25.0f;
 
-    if (app->editor.show_right) {
-      sprintf(text, "hide");
-    } else {
-      sprintf(text, "show");
-    }
-
-    if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-      app->editor.show_right = !app->editor.show_right;
-    }
+    push_toggle_button(app, input, &draw_state, command_buffer, memory->width - 200.0f, &app->editor.show_right, glm::vec4(1.0f, 0.16f, 0.15f, 0.9f), glm::vec4(0.8f, 0.1f, 0.1f, 0.9f), glm::vec4(0.7f, 0.1f, 0.1f, 0.9f));
 
     if (app->editor.show_right) {
       Entity *entity = get_entity_by_id(app, app->editor.entity_id);
@@ -2040,16 +2071,17 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
         sprintf(text, "model: %s\n", entity->model->id_name);
         push_debug_text(app, &draw_state, command_buffer, memory->width - 200, text, glm::vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
-        push_debug_vector(&draw_state, app, command_buffer, memory->width - 200, "position", entity->position, default_background_color);
-        push_debug_vector(&draw_state, app, command_buffer, memory->width - 200, "rotation", entity->rotation, default_background_color);
-        push_debug_vector(&draw_state, app, command_buffer, memory->width - 200, "scale", entity->scale, default_background_color);
+        push_debug_vector(&draw_state, &app->font, command_buffer, memory->width - 200, "position", entity->position, default_background_color);
+        push_debug_vector(&draw_state, &app->font, command_buffer, memory->width - 200, "rotation", entity->rotation, default_background_color);
+        push_debug_vector(&draw_state, &app->font, command_buffer, memory->width - 200, "scale", entity->scale, default_background_color);
 
         float start = draw_state.offset_top;
-        push_debug_vector(&draw_state, app, command_buffer, memory->width - 200, "color", glm::vec3(entity->color), default_background_color);
+        push_debug_vector(&draw_state, &app->font, command_buffer, memory->width - 200, "color", glm::vec3(entity->color), default_background_color);
+        debug_render_rect(command_buffer, memory->width - 151.0f, start + 1.0f, 22.0f, 22.0f, glm::vec4(0.0f, 0.0f, 0.0f, 0.5f));
         debug_render_rect(command_buffer, memory->width - 150.0f, start + 2.0f, 20.0f, 20.0f, entity->color);
 
         sprintf(text, "ground mounted: %d\n", (entity->flags & EntityFlags::MOUNT_TO_TERRAIN) != 0);
-        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
           entity->flags = entity->flags ^ EntityFlags::MOUNT_TO_TERRAIN;
 
           if (entity->flags & EntityFlags::MOUNT_TO_TERRAIN) {
@@ -2058,12 +2090,12 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
         }
 
         sprintf(text, "casts shadow: %d\n", (entity->flags & EntityFlags::CASTS_SHADOW) != 0);
-        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
           entity->flags = entity->flags ^ EntityFlags::CASTS_SHADOW;
         }
 
         sprintf(text, "save to file: %d\n", (entity->flags & EntityFlags::PERMANENT_FLAG) != 0);
-        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
           entity->flags = entity->flags ^ EntityFlags::PERMANENT_FLAG;
         }
       }
