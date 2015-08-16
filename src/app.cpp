@@ -1753,6 +1753,10 @@ void draw_string(UICommandBuffer *command_buffer, Font *font, float x, float y, 
   command_buffer->commands.push_back(command);
 }
 
+glm::vec4 shade_color(glm::vec4 color, float percent) {
+  return glm::vec4(glm::vec3(color) * (1 + percent), color.a);
+}
+
 bool push_debug_button(Input &input,
                        App *app,
                        DebugDrawState *state,
@@ -1760,9 +1764,7 @@ bool push_debug_button(Input &input,
                        float x, float height,
                        char *text,
                        glm::vec3 color,
-                       glm::vec4 background_color,
-                       glm::vec4 hover_color=glm::vec4(0.5f, 0.6f, 1.0f, 1.0f),
-                       glm::vec4 active_color=glm::vec4(0.2f, 0.3f, 0.7f, 1.0f)) {
+                       glm::vec4 background_color) {
   float min_x = x;
   float min_y = state->offset_top;;
   float max_x = min_x + 175.0f;
@@ -1770,13 +1772,21 @@ bool push_debug_button(Input &input,
 
   bool clicked = false;
 
-  if (input.mouse_x > min_x && input.mouse_y > min_y && input.mouse_x < max_x && input.mouse_y < max_y) {
-    if (input.mouse_click) {
-      background_color = active_color;
+  if (input.original_mouse_down_x > min_x && input.original_mouse_down_y > min_y && input.original_mouse_down_x < max_x && input.original_mouse_down_y < max_y &&
+      input.mouse_x > min_x && input.mouse_y > min_y && input.mouse_x < max_x && input.mouse_y < max_y) {
+    if (input.left_mouse_down) {
+      background_color = shade_color(background_color, -0.3f);
+      input.mouse_click = false;
+    }
+
+    if (input.mouse_up) {
       clicked = true;
       input.mouse_click = false;
-    } else {
-      background_color = hover_color;
+      input.mouse_up = false;
+    }
+  } else {
+    if (input.mouse_x > min_x && input.mouse_y > min_y && input.mouse_x < max_x && input.mouse_y < max_y) {
+      background_color = shade_color(background_color, 0.3f);
     }
   }
 
@@ -1842,16 +1852,22 @@ glm::mat4 make_billboard_matrix(glm::vec3 position, glm::vec3 camera_position, g
 #include "render_group.cpp"
 
 void debug_render_range(Input &input, UICommandBuffer *command_buffer, float x, float y, float width, float height, glm::vec4 background_color, float *value, float min, float max) {
-  debug_render_rect(command_buffer, x, y, width, height, background_color);
-
   float scale = *value / (max - min);
 
-  debug_render_rect(command_buffer, x, y, width * scale, height, glm::vec4(0.5f, 1.0f, 0.2f, 1.0f));
+  glm::vec4 bg_color = glm::vec4(0.5f, 1.0f, 0.2f, 1.0f);
 
   float min_x = x;
   float min_y = y;
   float max_x = min_x + width;
   float max_y = min_y + height;
+
+  if (input.mouse_x > min_x && input.mouse_y > min_y && input.mouse_x < max_x && input.mouse_y < max_y) {
+    bg_color = shade_color(bg_color, -0.2f);
+    background_color = shade_color(background_color, -0.4f);
+  }
+
+  debug_render_rect(command_buffer, x, y, width, height, background_color);
+  debug_render_rect(command_buffer, x, y, width * scale, height, bg_color);
 
   if (input.left_mouse_down && input.original_mouse_down_x > min_x && input.original_mouse_down_y > min_y && input.original_mouse_down_x < max_x && input.original_mouse_down_y < max_y) {
     *value = clamp((input.mouse_x - min_x) / width * (max - min), min, max);
@@ -2048,10 +2064,7 @@ void flush_2d_render(App *app, Memory *memory) {
   glEnable(GL_DEPTH_TEST);
 }
 
-void push_toggle_button(App *app, Input &input, DebugDrawState *draw_state, UICommandBuffer *command_buffer, float x, bool *value,
-                        glm::vec4 background_color,
-                        glm::vec4 hover_color=glm::vec4(0.5f, 0.6f, 1.0f, 1.0f),
-                        glm::vec4 active_color=glm::vec4(0.2f, 0.3f, 0.7f, 1.0f)) {
+void push_toggle_button(App *app, Input &input, DebugDrawState *draw_state, UICommandBuffer *command_buffer, float x, bool *value, glm::vec4 background_color) {
 
   u32 toggl_button_x_index;
   u32 toggl_button_y_index;
@@ -2065,7 +2078,7 @@ void push_toggle_button(App *app, Input &input, DebugDrawState *draw_state, UICo
   }
 
   float image_height = 40.0f;
-  if (push_debug_button(input, app, draw_state, command_buffer, x, image_height, (char *)"", glm::vec3(0.0f), background_color, hover_color, active_color)) {
+  if (push_debug_button(input, app, draw_state, command_buffer, x, image_height, (char *)"", glm::vec3(0.0f), background_color)) {
     *value = !(*value);
   }
 
@@ -2092,7 +2105,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
   char text[256];
 
-  push_toggle_button(app, input, &draw_state, command_buffer, 10.0f, &app->editor.show_left, glm::vec4(1.0f, 0.16f, 0.15f, 0.9f), glm::vec4(0.8f, 0.1f, 0.1f, 0.9f), glm::vec4(0.7f, 0.1f, 0.1f, 0.9f));
+  push_toggle_button(app, input, &draw_state, command_buffer, 10.0f, &app->editor.show_left, glm::vec4(1.0f, 0.16f, 0.15f, 0.9f));
 
   if (app->editor.show_left) {
     sprintf(text, "performance: %d\n", app->editor.show_performance);
@@ -2249,7 +2262,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
   if (app->editor.inspect_entity) {
     draw_state.offset_top = 25.0f;
 
-    push_toggle_button(app, input, &draw_state, command_buffer, memory->width - 200.0f, &app->editor.show_right, glm::vec4(1.0f, 0.16f, 0.15f, 0.9f), glm::vec4(0.8f, 0.1f, 0.1f, 0.9f), glm::vec4(0.7f, 0.1f, 0.1f, 0.9f));
+    push_toggle_button(app, input, &draw_state, command_buffer, memory->width - 200.0f, &app->editor.show_right, glm::vec4(1.0f, 0.16f, 0.15f, 0.9f));
 
     if (app->editor.show_right) {
       Entity *entity = get_entity_by_id(app, app->editor.entity_id);

@@ -416,6 +416,11 @@ int main() {
             original_mouse_down_y = input.mouse_y;
           }
           break;
+        case SDL_MOUSEBUTTONUP:
+          if (event.button.button == SDL_BUTTON_LEFT) {
+            input.mouse_up = true;
+          }
+          break;
         case SDL_WINDOWEVENT:
           if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
             unlock_mouse();

@@ -45,6 +45,7 @@ extern "C" {
 
     bool space;
     bool mouse_click;
+    bool mouse_up;
     bool right_mouse_down;
     bool left_mouse_down;
 
