@@ -2508,21 +2508,6 @@ void tick(Memory *memory, Input input) {
 
     if (app->editing_mode) {
 
-#if 0
-      if (input.once.key_o) {
-        Entity *entity = app->entities + app->entity_count++;
-
-        entity->id = next_entity_id(app);
-        entity->type = EntityBlock;
-        entity->position = follow_entity->position;
-        entity->scale = glm::vec3(100.0f);
-        entity->model = get_model_by_name(app, (char *)"rock");
-        entity->color = glm::vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
-        entity->rotation = glm::vec3(get_random_float_between(0.0, pi * 2.0f), get_random_float_between(0.0, pi * 2.0f), get_random_float_between(0.0, pi * 2.0f));
-        entity->flags = EntityFlags::CASTS_SHADOW | EntityFlags::PERMANENT_FLAG;
-      }
-#endif
-
       if (input.right_mouse_down) {
         if (!input.is_mouse_locked) {
           platform.lock_mouse();
