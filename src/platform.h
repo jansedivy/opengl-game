@@ -119,8 +119,9 @@ extern "C" {
     /* 8  */DebugCycleCounter_render_chunks,
     /* 9  */DebugCycleCounter_render_ui,
     /* 10 */DebugCycleCounter_render_ui_flush,
+    /* 11 */DebugCycleCounter_render_particles,
     /* 12 */DebugCycleCounter_frame,
-    /* 11 */DebugCycleCounter_count
+    /* 13 */DebugCycleCounter_count
   };
 
   struct DebugCounter {

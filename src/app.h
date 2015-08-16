@@ -20,6 +20,7 @@
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtx/string_cast.hpp>
 #include <glm/gtx/intersect.hpp>
+#include <glm/gtx/norm.hpp>
 
 #include <cstdio>
 
@@ -125,7 +126,8 @@ struct TerrainChunk {
 
 enum EntityType {
   EntityPlayer = 0,
-  EntityBlock = 1
+  EntityBlock = 1,
+  EntityParticleEmitter = 2
 };
 
 struct Texture {
@@ -149,7 +151,8 @@ namespace EntityFlags {
 
     RENDER_HIDDEN = (1 << 3),
     RENDER_WIREFRAME = (1 << 4),
-    RENDER_IGNORE_DEPTH = (1 << 5)
+    RENDER_IGNORE_DEPTH = (1 << 5),
+    HIDE_IN_EDITOR = (1 << 6)
   };
 };
 
@@ -289,6 +292,7 @@ struct LoadedLevelHeader {
 
 struct EntitySave {
   u32 id;
+  EntityType type;
   glm::vec3 position;
   glm::vec3 scale;
   glm::vec3 rotation;
@@ -300,6 +304,17 @@ struct EntitySave {
 
 struct LoadedLevel {
   std::vector<EntitySave> entities;
+};
+
+struct Particle {
+  glm::vec3 position;
+  glm::vec4 color;
+  glm::vec3 velocity;
+
+  float size;
+  float gravity;
+
+  float distance_from_camera;
 };
 
 struct App {
@@ -318,6 +333,7 @@ struct App {
   Shader fullscreen_SSAO_program;
   Shader fullscreen_depth_program;
   Shader terrain_program;
+  Shader particle_program;
   Shader skybox_program;
   Shader textured_program;
 
@@ -379,6 +395,17 @@ struct App {
   bool antialiasing;
   bool color_correction;
   bool bloom;
+
+  Particle particles[4096];
+  u32 next_particle;
+
+  GLfloat particle_positions[4096 * 4];
+  GLfloat particle_colors[4096 * 4];
+
+  GLuint particle_buffer;
+  GLuint particle_color_buffer;
+
+  GLuint particle_model;
 };
 
 Memory *debug_global_memory;
