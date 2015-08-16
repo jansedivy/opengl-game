@@ -894,6 +894,10 @@ void init(Memory *memory) {
 
   App *app = static_cast<App*>(memory->permanent_storage);
 
+  app->antialiasing = true;
+  app->color_correction = true;
+  app->bloom = false;
+
   app->current_program = NULL;
 
   app->editor.handle_size = 40.0f;
@@ -901,6 +905,7 @@ void init(Memory *memory) {
   app->editor.inspect_entity = false;
   app->editor.show_left = true;
   app->editor.show_right = true;
+  app->editor.left_state = EditorLeftState::MODELING;
 
   debug_global_memory = memory;
 
@@ -2020,6 +2025,12 @@ void push_toggle_button(App *app, Input &input, DebugDrawState *draw_state, UICo
   debug_render_rect(command_buffer, x, draw_state->offset_top - image_height, image_height, image_height, glm::vec4(0.0f, 0.0f, 0.0f, 0.0f), glm::vec4(0.4f, 0.0f, 0.0f, 1.0f), toggl_button_x_index, toggl_button_y_index);
 }
 
+void rebuild_chunks(App *app) {
+  for (u32 i=0; i<app->chunk_cache_count; i++) {
+    TerrainChunk *chunk = app->chunk_cache + i;
+    unload_chunk(chunk);
+  }
+}
 
 void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
   UICommandBuffer *command_buffer = &app->editor.command_buffer;
@@ -2087,38 +2098,85 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
     draw_state.offset_top += 10.0f;
 
-    const char *types[] = {
-      "tree_001",
-      "tree_002",
-      "rock",
-      "cube",
-      "sphere"
-    };
+    glm::vec4 selected_button_background_color = glm::vec4(0.5f, 0.8f, 1.0f, 0.9f);
 
-    for (u32 i=0; i<array_count(types); i++) {
-      if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)types[i], glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Modeling", glm::vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::MODELING ? selected_button_background_color : button_background_color)) {
+      app->editor.left_state = EditorLeftState::MODELING;
+    }
 
-        Entity *entity = app->entities + app->entity_count++;
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Terrain", glm::vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::TERRAIN ? selected_button_background_color : button_background_color)) {
+      app->editor.left_state = EditorLeftState::TERRAIN;
+    }
 
-        glm::vec3 forward;
-        forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
-        forward.y = -glm::sin(app->camera.rotation[0]);
-        forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Post Processing", glm::vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::POST_PROCESSING ? selected_button_background_color : button_background_color)) {
+      app->editor.left_state = EditorLeftState::POST_PROCESSING;
+    }
 
-        entity->id = next_entity_id(app);
-        entity->type = EntityBlock;
-        entity->position = app->camera.position + forward * 400.0f;
-        entity->scale = glm::vec3(1.0f);
-        entity->model = get_model_by_name(app, (char *)types[i]);
-        entity->color = glm::vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
-        entity->flags = EntityFlags::CASTS_SHADOW | EntityFlags::PERMANENT_FLAG;
+    draw_state.offset_top += 10.0f;
 
-        if (
-            strcmp(types[i], "cube") == 0 ||
-            strcmp(types[i], "sphere") == 0 ||
-            strcmp(types[i], "rock") == 0) {
-          entity->scale = glm::vec3(100.f);
-        }
+    switch (app->editor.left_state) {
+      {
+        case EditorLeftState::MODELING:
+          const char *types[] = {
+            "tree_001",
+            "tree_002",
+            "rock",
+            "cube",
+            "sphere"
+          };
+
+          for (u32 i=0; i<array_count(types); i++) {
+            if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)types[i], glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+
+              Entity *entity = app->entities + app->entity_count++;
+
+              glm::vec3 forward;
+              forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
+              forward.y = -glm::sin(app->camera.rotation[0]);
+              forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
+
+              entity->id = next_entity_id(app);
+              entity->type = EntityBlock;
+              entity->position = app->camera.position + forward * 400.0f;
+              entity->scale = glm::vec3(1.0f);
+              entity->model = get_model_by_name(app, (char *)types[i]);
+              entity->color = glm::vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
+              entity->flags = EntityFlags::CASTS_SHADOW | EntityFlags::PERMANENT_FLAG;
+
+              if (
+                  strcmp(types[i], "cube") == 0 ||
+                  strcmp(types[i], "sphere") == 0 ||
+                  strcmp(types[i], "rock") == 0) {
+                entity->scale = glm::vec3(100.f);
+              }
+            }
+          }
+          break;
+      }
+      {
+        case EditorLeftState::TERRAIN:
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"rebuild chunks", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+            rebuild_chunks(app);
+          }
+          break;
+      }
+      {
+        case EditorLeftState::POST_PROCESSING:
+          sprintf(text, "AA: %d\n", app->antialiasing);
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+            app->antialiasing = !app->antialiasing;
+          }
+
+          sprintf(text, "Color correction: %d\n", app->color_correction);
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+            app->color_correction = !app->color_correction;
+          }
+
+          sprintf(text, "Bloom (not working): %d\n", app->bloom);
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+            app->bloom = !app->bloom;
+          }
+          break;
       }
     }
   }
@@ -2183,18 +2241,13 @@ void tick(Memory *memory, Input input) {
 
     glewExperimental = GL_TRUE;
     glewInit();
-
-#if 0
-    for (u32 i=0; i<app->chunk_cache_count; i++) {
-      TerrainChunk *chunk = app->chunk_cache + i;
-      unload_chunk(chunk);
-    }
-#endif
   }
 
-  PROFILE(render_ui);
-  draw_2d_debug_info(app, memory, input);
-  PROFILE_END(render_ui);
+  if (app->editing_mode) {
+    PROFILE(render_ui);
+    draw_2d_debug_info(app, memory, input);
+    PROFILE_END(render_ui);
+  }
 
   // NOTE(sedivy): update
   PROFILE(update);
@@ -2827,8 +2880,7 @@ void tick(Memory *memory, Input input) {
       }
 #endif
 
-#if 1
-      {
+      if (app->color_correction) {
         glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
         use_program(app, &app->fullscreen_color_program);
 
@@ -2848,14 +2900,12 @@ void tick(Memory *memory, Input input) {
 
         std::swap(app->write_frame, app->read_frame);
       }
-#endif
 
       if (app->editing_mode) {
         draw_3d_debug_info(app);
       }
 
-#if 1
-      {
+      if (app->antialiasing) {
         glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
         use_program(app, &app->fullscreen_fxaa_program);
 
@@ -2871,10 +2921,8 @@ void tick(Memory *memory, Input input) {
 
         std::swap(app->write_frame, app->read_frame);
       }
-#endif
 
-#if 0
-      {
+      if (app->bloom) {
         glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
         use_program(app, &app->fullscreen_bloom_program);
 
@@ -2888,7 +2936,6 @@ void tick(Memory *memory, Input input) {
         glDrawArrays(GL_TRIANGLES, 0, 6);
         std::swap(app->write_frame, app->read_frame);
       }
-#endif
 
       {
         glViewport(0, 0, memory->width, memory->height);
@@ -2929,7 +2976,7 @@ void tick(Memory *memory, Input input) {
   }
 
   u64 diff = platform.get_time();
-  if (diff > app->frametimelast + 1000) {
+  if (diff >= app->frametimelast + 1000) {
     app->fps = app->framecount;
     app->framecount = 0;
     app->frametimelast = diff;

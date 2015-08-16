@@ -243,6 +243,14 @@ struct UICommandBuffer {
   std::vector<UICommand> commands;
 };
 
+namespace EditorLeftState {
+  enum EditorLeftState {
+    MODELING,
+    TERRAIN,
+    POST_PROCESSING
+  };
+}
+
 struct Editor {
   bool holding_entity;
   bool inspect_entity;
@@ -256,6 +264,8 @@ struct Editor {
 
   bool show_performance = false;
   bool show_state_changes = false;
+
+  EditorLeftState::EditorLeftState left_state;
 
   UICommandBuffer command_buffer;
 };
@@ -365,6 +375,10 @@ struct App {
   u32 fps;
   u32 framecount;
   u32 frametimelast;
+
+  bool antialiasing;
+  bool color_correction;
+  bool bloom;
 };
 
 Memory *debug_global_memory;
