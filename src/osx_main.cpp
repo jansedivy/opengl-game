@@ -315,30 +315,32 @@ int main() {
   memory.width = 1280;
   memory.height = 720;
   memory.should_reload = false;
-  memory.permanent_storage = malloc(sizeof(App));
+  memory.app = new App();
 
-  memory.platform.debug_read_entire_file = debug_read_entire_file;
-  memory.platform.debug_free_file = debug_free_file;
-  memory.platform.get_time = get_time;
-  memory.platform.get_performance_counter = get_performance_counter;
-  memory.platform.get_performance_frequency = get_performance_frequency;
-  memory.platform.delay = delay;
-  memory.platform.lock_mouse = lock_mouse;
-  memory.platform.unlock_mouse = unlock_mouse;
-  memory.platform.add_work = add_work;
-  memory.platform.complete_all_work = complete_all_work;
-  memory.platform.queue_has_free_spot = queue_has_free_spot;
+  PlatformAPI platform;
+  platform.debug_read_entire_file = debug_read_entire_file;
+  platform.debug_free_file = debug_free_file;
+  platform.get_time = get_time;
+  platform.get_performance_counter = get_performance_counter;
+  platform.get_performance_frequency = get_performance_frequency;
+  platform.delay = delay;
+  platform.lock_mouse = lock_mouse;
+  platform.unlock_mouse = unlock_mouse;
+  platform.add_work = add_work;
+  platform.complete_all_work = complete_all_work;
+  platform.queue_has_free_spot = queue_has_free_spot;
 
-  memory.platform.open_directory = open_directory;
-  memory.platform.read_next_directory_entry = read_next_directory_entry;
-  memory.platform.is_directory_entry_file = is_directory_entry_file;
-  memory.platform.open_file = open_file;
-  memory.platform.close_file = close_file;
-  memory.platform.read_file_line = read_file_line;
-  memory.platform.close_directory = close_directory;
-  memory.platform.write_to_file = write_to_file;
-  memory.platform.create_directory = create_directory;
+  platform.open_directory = open_directory;
+  platform.read_next_directory_entry = read_next_directory_entry;
+  platform.is_directory_entry_file = is_directory_entry_file;
+  platform.open_file = open_file;
+  platform.close_file = close_file;
+  platform.read_file_line = read_file_line;
+  platform.close_directory = close_directory;
+  platform.write_to_file = write_to_file;
+  platform.create_directory = create_directory;
 
+  memory.platform = platform;
   memory.low_queue = &low_queue;
   memory.main_queue = &main_queue;
 
@@ -367,7 +369,8 @@ int main() {
 
   SDL_GL_CreateContext(window);
 
-  SDL_GL_SetSwapInterval(-1);
+  /* SDL_GL_SetSwapInterval(-1); */
+  SDL_GL_SetSwapInterval(0);
 
   glClear(GL_COLOR_BUFFER_BIT);
 
@@ -377,10 +380,13 @@ int main() {
 
   code.init(&memory);
 
+  debug_global_memory = &memory;
+
   int original_mouse_down_x = 0;
   int original_mouse_down_y = 0;
 
   while (running) {
+    PROFILE(tick);
     SDL_GetWindowSize(window, &memory.width, &memory.height);
 
     Input input = {};
@@ -454,6 +460,7 @@ int main() {
     code.tick(&memory, input);
 
     SDL_GL_SwapWindow(window);
+    PROFILE_END(tick);
   }
 
   code.quit(&memory);

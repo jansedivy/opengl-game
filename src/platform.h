@@ -122,7 +122,8 @@ extern "C" {
     /* 10 */DebugCycleCounter_render_ui_flush,
     /* 11 */DebugCycleCounter_render_particles,
     /* 12 */DebugCycleCounter_frame,
-    /* 13 */DebugCycleCounter_count
+    /* 13 */DebugCycleCounter_tick,
+    /* 14 */DebugCycleCounter_count
   };
 
   struct DebugCounter {
@@ -160,7 +161,7 @@ extern "C" {
     int width;
     int height;
 
-    void *permanent_storage;
+    struct App *app;
 
     Queue *main_queue;
     Queue *low_queue;

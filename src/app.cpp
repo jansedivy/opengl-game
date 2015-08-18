@@ -59,21 +59,7 @@ glm::vec4 read_vector4(char *start) {
 }
 
 Model *get_model_by_name(App *app, char *name) {
-  if (strcmp(name, "cube") == 0) {
-    return &app->cube_model;
-  } else if (strcmp(name, "sphere") == 0) {
-    return &app->sphere_model;
-  } else if (strcmp(name, "rock") == 0) {
-    return &app->rock_model;
-  } else if (strcmp(name, "quad") == 0) {
-    return &app->quad_model;
-  } else if (strcmp(name, "tree_001") == 0) {
-    return app->trees + 0;
-  } else if (strcmp(name, "tree_002") == 0) {
-    return app->trees + 1;
-  }
-
-  return NULL;
+  return app->models[name];
 }
 
 float get_terrain_height_at(float x, float y) {
@@ -103,14 +89,15 @@ void save_binary_level_file(LoadedLevel loaded_level) {
   platform.close_file(file);
 }
 
-void save_text_level_file(LoadedLevel level) {
-  const char *base_path = "../../../level";
 
-  platform.create_directory((char *)base_path);
+char *debug_level_path = (char *)"../../../level";
+
+void save_text_level_file(Memory *memory, LoadedLevel level) {
+  platform.create_directory((char *)debug_level_path);
 
   for (auto it = level.entities.begin(); it != level.entities.end(); it++) {
     char full_path[256];
-    sprintf(full_path, "%s/%d.entity", base_path, it->id);
+    sprintf(full_path, "%s/%d.entity", debug_level_path, it->id);
 
     PlatformFile file = platform.open_file(full_path, "w");
 
@@ -162,9 +149,7 @@ void deserialize_entity(App *app, EntitySave *src, Entity *dest) {
 }
 
 void load_debug_level(App *app) {
-  const char *base_path = "../../../level";
-
-  PlatformDirectory directory = platform.open_directory(base_path);
+  PlatformDirectory directory = platform.open_directory(debug_level_path);
   if (directory.platform != NULL) {
     LoadedLevel loaded_level;
 
@@ -173,8 +158,8 @@ void load_debug_level(App *app) {
       if (entry.empty) { break; }
 
       if (platform.is_directory_entry_file(entry)) {
-        char *full_path = (char *)alloca(sizeof(base_path) + sizeof(entry.name));
-        sprintf(full_path, "%s/%s", base_path, entry.name);
+        char *full_path = (char *)alloca(sizeof(debug_level_path) + sizeof(entry.name));
+        sprintf(full_path, "%s/%s", debug_level_path, entry.name);
 
         if (strcmp(get_filename_ext(full_path), "entity") == 0) {
           PlatformFile file = platform.open_file(full_path, "r");
@@ -695,9 +680,6 @@ void delete_shader(Shader *shader) {
 }
 
 Shader *create_shader(Shader *shader, const char *vert_filename, const char *frag_filename) {
-  shader->uniforms = std::unordered_map<std::string, u32>();
-  shader->attributes = std::unordered_map<std::string, GLuint>();
-
   if (shader->initialized) {
     delete_shader(shader);
   }
@@ -848,14 +830,14 @@ void generate_trees(App *app) {
     entity->position.z = noise_records[i].y;
     mount_entity_to_terrain(entity);
     entity->scale = glm::vec3(1.0f);
-    entity->model = app->trees + (i % array_count(app->trees));
+    entity->model = get_model_by_name(app, (char *)"tree_001");
     entity->color = glm::vec4(0.7f, 0.3f, 0.2f, 1.0f);
     entity->rotation = glm::vec3(0.0f, get_next_float(&random) * glm::pi<float>(), 0.0f);
     entity->flags = EntityFlags::PERMANENT_FLAG | EntityFlags::MOUNT_TO_TERRAIN;
   }
 }
 
-void save_level(App *app) {
+void save_level(Memory *memory, App *app) {
   LoadedLevel level;
 
   for (u32 i=0; i<app->entity_count; i++) {
@@ -876,7 +858,7 @@ void save_level(App *app) {
   }
 
   save_binary_level_file(level);
-  save_text_level_file(level);
+  save_text_level_file(memory, level);
 }
 
 void quit(Memory *memory) {
@@ -900,15 +882,39 @@ void load_color_grading_texture(Texture *texture) {
   texture->data = NULL;
 }
 
+void setup_all_shaders(App *app) {
+  create_shader(&app->main_object_program, "shaders/object.vert", "shaders/object.frag");
+  create_shader(&app->solid_program, "shaders/solid.vert", "shaders/solid.frag");
+  create_shader(&app->terrain_program, "shaders/terrain.vert", "shaders/terrain.frag");
+  create_shader(&app->textured_program, "shaders/textured.vert", "shaders/textured.frag");
+
+  create_shader(&app->debug_program, "shaders/debug.vert", "shaders/debug.frag");
+  create_shader(&app->particle_program, "shaders/particle.vert", "shaders/particle.frag");
+
+  create_shader(&app->skybox_program, "shaders/skybox.vert", "shaders/skybox.frag");
+
+  create_shader(&app->ui_program, "shaders/ui.vert", "shaders/ui.frag");
+
+  create_shader(&app->fullscreen_program, "shaders/fullscreen.vert", "shaders/fullscreen.frag");
+  create_shader(&app->fullscreen_fog_program, "shaders/fullscreen.vert", "shaders/fullscreen_fog.frag");
+  create_shader(&app->fullscreen_color_program, "shaders/fullscreen.vert", "shaders/fullscreen_color.frag");
+  create_shader(&app->fullscreen_fxaa_program, "shaders/fullscreen.vert", "shaders/fullscreen_fxaa.frag");
+  create_shader(&app->fullscreen_bloom_program, "shaders/fullscreen.vert", "shaders/fullscreen_bloom.frag");
+  create_shader(&app->fullscreen_hdr_program, "shaders/fullscreen.vert", "shaders/fullscreen_hdr.frag");
+  create_shader(&app->fullscreen_SSAO_program, "shaders/fullscreen.vert", "shaders/fullscreen_ssao.frag");
+  create_shader(&app->fullscreen_depth_program, "shaders/fullscreen.vert", "shaders/fullscreen_depth.frag");
+}
+
 void init(Memory *memory) {
   glewExperimental = GL_TRUE;
   glewInit();
 
-  App *app = static_cast<App*>(memory->permanent_storage);
+  App *app = memory->app;
 
   app->antialiasing = true;
   app->color_correction = true;
   app->bloom = false;
+  app->hdr = false;
 
   app->current_program = NULL;
 
@@ -1014,6 +1020,7 @@ void init(Memory *memory) {
       app->sphere_model.has_data = true;
       app->sphere_model.initialized = false;
       app->sphere_model.is_being_loaded = false;
+      app->models[app->sphere_model.id_name] = &app->sphere_model;
     }
 
     {
@@ -1094,6 +1101,7 @@ void init(Memory *memory) {
       app->cube_model.is_being_loaded = false;
       app->cube_model.initialized = false;
       initialize_model(&app->cube_model);
+      app->models[app->cube_model.id_name] = &app->cube_model;
     }
 
     {
@@ -1128,32 +1136,31 @@ void init(Memory *memory) {
       app->quad_model.is_being_loaded = false;
       app->quad_model.initialized = false;
       initialize_model(&app->quad_model);
+      app->models[app->quad_model.id_name] = &app->quad_model;
     }
 
-    app->rock_model.path = allocate_string("rock.obj");
-    app->rock_model.id_name = allocate_string("rock");
-    app->trees[0].path = allocate_string("trees/tree_01.obj");
-    app->trees[0].id_name = allocate_string("tree_001");
-    app->trees[1].path = allocate_string("trees/tree_02.obj");
-    app->trees[1].id_name = allocate_string("tree_002");
+    Model *model = static_cast<Model *>(malloc(sizeof(Model)));
+    model->path = allocate_string("models/rock.obj");
+    model->id_name = allocate_string("rock");
+    app->models[model->id_name] = model;
+
+    model = static_cast<Model *>(malloc(sizeof(Model)));
+    model->path = allocate_string("models/trees/tree_01.obj");
+    model->id_name = allocate_string("tree_001");
+    app->models[model->id_name] = model;
+
+    model = static_cast<Model *>(malloc(sizeof(Model)));
+    model->path = allocate_string("models/trees/tree_02.obj");
+    model->id_name = allocate_string("tree_002");
+    app->models[model->id_name] = model;
+
+    model = static_cast<Model *>(malloc(sizeof(Model)));
+    model->path = allocate_string("models/trees/tree_03.obj");
+    model->id_name = allocate_string("tree_003");
+    app->models[model->id_name] = model;
   }
 
-  create_shader(&app->solid_program, "solid_vert.glsl", "solid_frag.glsl");
-  create_shader(&app->another_program, "another_vert.glsl", "another_frag.glsl");
-  create_shader(&app->debug_program, "debug_vert.glsl", "debug_frag.glsl");
-  create_shader(&app->ui_program, "ui_vert.glsl", "ui_frag.glsl");
-  create_shader(&app->fullscreen_fog_program, "fullscreen.vert", "fullscreen_fog.frag");
-  create_shader(&app->fullscreen_color_program, "fullscreen.vert", "fullscreen_color.frag");
-  create_shader(&app->fullscreen_fxaa_program, "fullscreen.vert", "fullscreen_fxaa.frag");
-  create_shader(&app->fullscreen_bloom_program, "fullscreen.vert", "fullscreen_bloom.frag");
-  create_shader(&app->fullscreen_SSAO_program, "fullscreen.vert", "fullscreen_ssao.frag");
-  create_shader(&app->fullscreen_program, "fullscreen.vert", "fullscreen.frag");
-  create_shader(&app->fullscreen_depth_program, "fullscreen.vert", "fullscreen_depth.frag");
-  create_shader(&app->terrain_program, "terrain.vert", "terrain.frag");
-  create_shader(&app->particle_program, "particle.vert", "particle.frag");
-  create_shader(&app->skybox_program, "skybox.vert", "skybox.frag");
-  create_shader(&app->program, "vert.glsl", "frag.glsl");
-  create_shader(&app->textured_program, "textured.vert", "textured.frag");
+  setup_all_shaders(app);
 
   app->chunk_cache_count = 4096;
   app->chunk_cache = static_cast<TerrainChunk *>(malloc(sizeof(TerrainChunk) * app->chunk_cache_count));
@@ -1166,10 +1173,10 @@ void init(Memory *memory) {
     chunk->initialized = false;
   }
 
-  app->color_correction_texture.path = allocate_string("color_correction.png");
-  app->gradient_texture.path = allocate_string("gradient.png");
-  app->circle_texture.path = allocate_string("circle.png");
-  app->editor_texture.path = allocate_string("editor_images.png");
+  app->color_correction_texture.path = allocate_string("textures/color_correction.png");
+  app->gradient_texture.path = allocate_string("textures/gradient.png");
+  app->circle_texture.path = allocate_string("textures/circle.png");
+  app->editor_texture.path = allocate_string("textures/editor_images.png");
 
   {
     load_texture(&app->gradient_texture, STBI_rgb_alpha);
@@ -1199,9 +1206,9 @@ void init(Memory *memory) {
   platform.debug_free_file(font_file);
 
   const char* faces[] = {
-    "right.png", "left.png",
-    "top.png", "bottom.png",
-    "back.png", "front.png"
+    "textures/skybox/right.png", "textures/skybox/left.png",
+    "textures/skybox/top.png", "textures/skybox/bottom.png",
+    "textures/skybox/back.png", "textures/skybox/front.png"
   };
 
   GLenum types[] = {
@@ -1251,8 +1258,13 @@ void init(Memory *memory) {
   for (u32 i=0; i<array_count(app->frames); i++) {
     FrameBuffer *frame = app->frames + i;
 
+#if 1
     frame->width = memory->width;
     frame->height = memory->height;
+#else
+    frame->width = memory->width / 4;
+    frame->height = memory->height / 4;
+#endif
 
     // NOTE(sedivy): texture
     {
@@ -1296,7 +1308,7 @@ void init(Memory *memory) {
     {
       glGenTextures(1, &app->shadow_depth_texture);
       glBindTexture(GL_TEXTURE_2D, app->shadow_depth_texture);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, app->shadow_width, app->shadow_height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, app->shadow_width, app->shadow_height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
 
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_R_TO_TEXTURE);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
@@ -2020,7 +2032,7 @@ void flush_2d_render(App *app, Memory *memory) {
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glEnable(GL_BLEND);
 
-  use_program(app, &app->program);
+  use_program(app, &app->ui_program);
 
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, app->font.texture);
@@ -2153,7 +2165,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
     draw_state.offset_top += 10.0f;
 
     if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 40.0f, (char *)"save!", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-      save_level(app);
+      save_level(memory, app);
     }
 
     draw_state.offset_top += 10.0f;
@@ -2180,6 +2192,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           const char *types[] = {
             "tree_001",
             "tree_002",
+            "tree_003",
             "rock",
             "cube",
             "sphere"
@@ -2250,6 +2263,11 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             app->color_correction = !app->color_correction;
           }
 
+          sprintf(text, "HDR: %d\n", app->hdr);
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+            app->hdr = !app->hdr;
+          }
+
           sprintf(text, "Bloom (not working): %d\n", app->bloom);
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             app->bloom = !app->bloom;
@@ -2312,7 +2330,7 @@ void tick(Memory *memory, Input input) {
 
   PROFILE(frame);
 
-  App *app = static_cast<App*>(memory->permanent_storage);
+  App *app = memory->app;
 
   if (memory->should_reload) {
     memory->should_reload = false;
@@ -2335,22 +2353,7 @@ void tick(Memory *memory, Input input) {
   Entity *follow_entity = get_entity_by_id(app, app->camera_follow);
   {
     if (input.once.key_r) {
-      create_shader(&app->another_program, "another_vert.glsl", "another_frag.glsl");
-      create_shader(&app->debug_program, "debug_vert.glsl", "debug_frag.glsl");
-      create_shader(&app->ui_program, "ui_vert.glsl", "ui_frag.glsl");
-      create_shader(&app->solid_program, "solid_vert.glsl", "solid_frag.glsl");
-      create_shader(&app->fullscreen_fog_program, "fullscreen.vert", "fullscreen_fog.frag");
-      create_shader(&app->fullscreen_color_program, "fullscreen.vert", "fullscreen_color.frag");
-      create_shader(&app->fullscreen_fxaa_program, "fullscreen.vert", "fullscreen_fxaa.frag");
-      create_shader(&app->fullscreen_bloom_program, "fullscreen.vert", "fullscreen_bloom.frag");
-      create_shader(&app->fullscreen_SSAO_program, "fullscreen.vert", "fullscreen_ssao.frag");
-      create_shader(&app->fullscreen_program, "fullscreen.vert", "fullscreen.frag");
-      create_shader(&app->fullscreen_depth_program, "fullscreen.vert", "fullscreen_depth.frag");
-      create_shader(&app->terrain_program, "terrain.vert", "terrain.frag");
-      create_shader(&app->particle_program, "particle.vert", "particle.frag");
-      create_shader(&app->skybox_program, "skybox.vert", "skybox.frag");
-      create_shader(&app->program, "vert.glsl", "frag.glsl");
-      create_shader(&app->textured_program, "textured.vert", "textured.frag");
+      setup_all_shaders(app);
 
       unload_texture(&app->gradient_texture);
       load_texture(&app->gradient_texture, STBI_rgb_alpha);
@@ -2364,12 +2367,6 @@ void tick(Memory *memory, Input input) {
       unload_texture(&app->circle_texture);
       load_texture(&app->circle_texture, STBI_rgb_alpha);
       initialize_texture(&app->circle_texture, GL_RGBA, true);
-
-      unload_model(&app->rock_model);
-
-      for (u32 i=0; i<array_count(app->trees); i++) {
-        unload_model(app->trees + i);
-      }
     }
 
     if (input.once.key_p) {
@@ -2470,6 +2467,8 @@ void tick(Memory *memory, Input input) {
       particle->velocity.y += particle->gravity;
       particle->position += particle->velocity;
       particle->size = std::max(particle->size - 10.0f, 0.0f);
+      particle->velocity *= 0.9;
+      particle->color.a *= 0.9;
 
       particle->distance_from_camera = glm::distance2(app->camera.position, particle->position);
     }
@@ -2662,6 +2661,7 @@ void tick(Memory *memory, Input input) {
       glBindFramebuffer(GL_FRAMEBUFFER, app->shadow_buffer);
       glViewport(0, 0, app->shadow_width, app->shadow_height);
       glClear(GL_DEPTH_BUFFER_BIT);
+#if 1
 
       use_program(app, &app->solid_program);
 
@@ -2676,8 +2676,8 @@ void tick(Memory *memory, Input input) {
         int x_coord = static_cast<int>(app->shadow_camera.position.x / CHUNK_SIZE_X);
         int y_coord = static_cast<int>(app->shadow_camera.position.z / CHUNK_SIZE_Y);
 
-        for (int y=-4 + y_coord; y<=4 + y_coord; y++) {
-          for (int x=-4 + x_coord; x<=4 + x_coord; x++) {
+        for (int y=-1 + y_coord; y<=1 + y_coord; y++) {
+          for (int x=-1 + x_coord; x<=1 + x_coord; x++) {
             if (x < 0 || y < 0 ) { continue; }
 
             TerrainChunk *chunk = get_chunk_at(app->chunk_cache, app->chunk_cache_count, x, y);
@@ -2746,6 +2746,7 @@ void tick(Memory *memory, Input input) {
       end_render_group(app, &app->render_group);
       glBindFramebuffer(GL_FRAMEBUFFER, 0);
       PROFILE_END(render_shadows);
+#endif
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, app->frames[0].id);
@@ -2812,8 +2813,8 @@ void tick(Memory *memory, Input input) {
         start_render_group(&app->render_group);
 
         PROFILE(render_chunks);
-        for (int y=-4 + y_coord; y<=4 + y_coord; y++) {
-          for (int x=-4 + x_coord; x<=4 + x_coord; x++) {
+        for (int y=-1 + y_coord; y<=1 + y_coord; y++) {
+          for (int x=-1 + x_coord; x<=1 + x_coord; x++) {
             if (x < 0 || y < 0 ) { continue; }
 
             TerrainChunk *chunk = get_chunk_at(app->chunk_cache, app->chunk_cache_count, x, y);
@@ -2850,7 +2851,7 @@ void tick(Memory *memory, Input input) {
       {
         start_render_group(&app->render_group);
 
-        use_program(app, &app->another_program);
+        use_program(app, &app->main_object_program);
 
         send_shader_uniform(app->current_program, "eye_position", app->camera.position);
         send_shader_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
@@ -2894,7 +2895,7 @@ void tick(Memory *memory, Input input) {
           glm::mat3 normal = glm::inverseTranspose(glm::mat3(model_view));
 
           RenderCommand command;
-          command.shader = &app->another_program;
+          command.shader = &app->main_object_program;
           command.model_view = model_view;
           command.flags = entity->flags;
           command.normal = normal;
@@ -3057,6 +3058,21 @@ void tick(Memory *memory, Input input) {
         std::swap(app->write_frame, app->read_frame);
       }
 
+      if (app->hdr) {
+        glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
+        use_program(app, &app->fullscreen_hdr_program);
+
+        glActiveTexture(GL_TEXTURE0 + 0);
+        glBindTexture(GL_TEXTURE_2D, app->frames[app->read_frame].texture);
+
+        send_shader_uniformi(app->current_program, "uSampler", 0);
+
+        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        std::swap(app->write_frame, app->read_frame);
+      }
+
       {
         glViewport(0, 0, memory->width, memory->height);
 
@@ -3106,4 +3122,3 @@ void tick(Memory *memory, Input input) {
 
   PROFILE_END(frame);
 }
-

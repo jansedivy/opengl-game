@@ -3,10 +3,10 @@
 template<typename T>
 class Array {
   public:
-    void init() {
+    Array() {
       count = 0;
-      max_size = 1;
-      buffer = static_cast<T*>(malloc(sizeof(T)));
+      max_size = 0;
+      buffer = NULL;
     }
 
     ~Array() {
@@ -14,13 +14,18 @@ class Array {
     }
 
     inline void add(T value) {
-      printf("OMG\n");
-      if (count >= max_size) {
-        max_size *= 2;
-        buffer = static_cast<T*>(realloc(buffer, max_size));
+      if (buffer == NULL) {
+        max_size = 1;
+        buffer = static_cast<T *>(malloc(sizeof(T) * max_size));
       }
 
-      *(buffer + count) = value;
+      if (count >= max_size) {
+        u32 new_size = max_size * 2;
+        buffer = static_cast<T *>(realloc(buffer, new_size));
+        max_size = new_size;
+      }
+
+      buffer[count] = value;
       count += 1;
     }
 

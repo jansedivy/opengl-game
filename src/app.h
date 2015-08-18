@@ -46,7 +46,6 @@
 #include "random.h"
 #include <cstdio>
 
-
 #define CHUNK_SIZE_X 5000
 #define CHUNK_SIZE_Y 5000
 
@@ -320,8 +319,7 @@ struct Particle {
 struct App {
   u32 last_id;
 
-  Shader program;
-  Shader another_program;
+  Shader main_object_program;
   Shader debug_program;
   Shader ui_program;
   Shader solid_program;
@@ -330,6 +328,7 @@ struct App {
   Shader fullscreen_color_program;
   Shader fullscreen_fxaa_program;
   Shader fullscreen_bloom_program;
+  Shader fullscreen_hdr_program;
   Shader fullscreen_SSAO_program;
   Shader fullscreen_depth_program;
   Shader terrain_program;
@@ -365,9 +364,9 @@ struct App {
 
   Model cube_model;
   Model sphere_model;
-  Model rock_model;
   Model quad_model;
-  Model trees[2];
+
+  std::unordered_map<std::string, Model*> models;
 
   Entity entities[10000];
   u32 entity_count = 0;
@@ -395,6 +394,7 @@ struct App {
   bool antialiasing;
   bool color_correction;
   bool bloom;
+  bool hdr;
 
   Particle particles[4096];
   u32 next_particle;
