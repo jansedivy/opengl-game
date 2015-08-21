@@ -903,6 +903,7 @@ void setup_all_shaders(App *app) {
   create_shader(&app->fullscreen_hdr_program, "shaders/fullscreen.vert", "shaders/fullscreen_hdr.frag");
   create_shader(&app->fullscreen_SSAO_program, "shaders/fullscreen.vert", "shaders/fullscreen_ssao.frag");
   create_shader(&app->fullscreen_depth_program, "shaders/fullscreen.vert", "shaders/fullscreen_depth.frag");
+  create_shader(&app->fullscreen_lens_program, "shaders/fullscreen.vert", "shaders/fullscreen_lens_flare.frag");
 }
 
 void init(Memory *memory) {
@@ -913,6 +914,7 @@ void init(Memory *memory) {
 
   app->antialiasing = true;
   app->color_correction = true;
+  app->lens_flare = false;
   app->bloom = false;
   app->hdr = false;
 
@@ -2263,14 +2265,19 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             app->color_correction = !app->color_correction;
           }
 
-          sprintf(text, "HDR: %d\n", app->hdr);
+          sprintf(text, "HDR (wip): %d\n", app->hdr);
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             app->hdr = !app->hdr;
           }
 
-          sprintf(text, "Bloom (not working): %d\n", app->bloom);
+          sprintf(text, "Bloom (wip): %d\n", app->bloom);
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             app->bloom = !app->bloom;
+          }
+
+          sprintf(text, "Lens flare (wip): %d\n", app->lens_flare);
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+            app->lens_flare = !app->lens_flare;
           }
           break;
       }
@@ -2968,6 +2975,10 @@ void tick(Memory *memory, Input input) {
         PROFILE_END(render_debug);
       }
 
+      if (app->editing_mode) {
+        draw_3d_debug_info(app);
+      }
+
       PROFILE_END(render_main);
     }
 
@@ -2977,42 +2988,25 @@ void tick(Memory *memory, Input input) {
       glDisable(GL_DEPTH_TEST);
       glDisable(GL_CULL_FACE);
 
-      app->write_frame = 1;
       app->read_frame = 0;
+      app->write_frame = 1;
 
-#if 0
-      {
-        glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
-        use_program(app, &app->fullscreen_SSAO_program);
+      glActiveTexture(GL_TEXTURE0 + 0);
+      glBindTexture(GL_TEXTURE_2D, app->frames[app->read_frame].texture);
 
-        glActiveTexture(GL_TEXTURE0 + 0);
-        glBindTexture(GL_TEXTURE_2D, app->frames[app->read_frame].texture);
 
-        glActiveTexture(GL_TEXTURE0 + 1);
-        glBindTexture(GL_TEXTURE_2D, app->frames[app->read_frame].depth);
-
-        send_shader_uniformi(app->current_program, "uSampler", 0);
-        send_shader_uniformi(app->current_program, "uDepth", 1);
-
-        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
-        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        std::swap(app->write_frame, app->read_frame);
-      }
-#endif
+      glActiveTexture(GL_TEXTURE0 + 1);
+      glBindTexture(GL_TEXTURE_2D, app->frames[app->write_frame].texture);
 
       if (app->color_correction) {
         glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
         use_program(app, &app->fullscreen_color_program);
 
-        glActiveTexture(GL_TEXTURE0 + 0);
-        glBindTexture(GL_TEXTURE_2D, app->frames[app->read_frame].texture);
-
-        glActiveTexture(GL_TEXTURE0 + 1);
+        glActiveTexture(GL_TEXTURE0 + 2);
         glBindTexture(GL_TEXTURE_2D, app->color_correction_texture.id);
 
-        send_shader_uniformi(app->current_program, "uSampler", 0);
-        send_shader_uniformi(app->current_program, "color_correction_texture", 1);
+        send_shader_uniformi(app->current_program, "uSampler", app->read_frame);
+        send_shader_uniformi(app->current_program, "color_correction_texture", 2);
         send_shader_uniformf(app->current_program, "lut_size", 16.0f);
 
         glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
@@ -3022,18 +3016,11 @@ void tick(Memory *memory, Input input) {
         std::swap(app->write_frame, app->read_frame);
       }
 
-      if (app->editing_mode) {
-        draw_3d_debug_info(app);
-      }
-
       if (app->antialiasing) {
         glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
         use_program(app, &app->fullscreen_fxaa_program);
 
-        glActiveTexture(GL_TEXTURE0 + 0);
-        glBindTexture(GL_TEXTURE_2D, app->frames[app->read_frame].texture);
-
-        send_shader_uniformi(app->current_program, "uSampler", 0);
+        send_shader_uniformi(app->current_program, "uSampler", app->read_frame);
         send_shader_uniform(app->current_program, "texture_size", glm::vec2(app->frames[0].width, app->frames[0].height));
 
         glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
@@ -3047,10 +3034,7 @@ void tick(Memory *memory, Input input) {
         glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
         use_program(app, &app->fullscreen_bloom_program);
 
-        glActiveTexture(GL_TEXTURE0 + 0);
-        glBindTexture(GL_TEXTURE_2D, app->frames[app->read_frame].texture);
-
-        send_shader_uniformi(app->current_program, "uSampler", 0);
+        send_shader_uniformi(app->current_program, "uSampler", app->read_frame);
 
         glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
         glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
@@ -3062,10 +3046,19 @@ void tick(Memory *memory, Input input) {
         glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
         use_program(app, &app->fullscreen_hdr_program);
 
-        glActiveTexture(GL_TEXTURE0 + 0);
-        glBindTexture(GL_TEXTURE_2D, app->frames[app->read_frame].texture);
+        send_shader_uniformi(app->current_program, "uSampler", app->read_frame);
 
-        send_shader_uniformi(app->current_program, "uSampler", 0);
+        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        std::swap(app->write_frame, app->read_frame);
+      }
+
+      if (app->lens_flare) {
+        glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
+        use_program(app, &app->fullscreen_lens_program);
+
+        send_shader_uniformi(app->current_program, "uSampler", app->read_frame);
 
         glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
         glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
@@ -3079,10 +3072,7 @@ void tick(Memory *memory, Input input) {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         use_program(app, &app->fullscreen_program);
 
-        glActiveTexture(GL_TEXTURE0 + 0);
-        glBindTexture(GL_TEXTURE_2D, app->frames[app->read_frame].texture);
-
-        send_shader_uniformi(app->current_program, "uSampler", 0);
+        send_shader_uniformi(app->current_program, "uSampler", app->read_frame);
 
         glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
         glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);

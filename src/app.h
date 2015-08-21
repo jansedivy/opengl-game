@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <algorithm>
+#include <jemalloc/jemalloc.h>
 
 #define array_count(arr) (sizeof(arr) / sizeof(arr[0]))
 
@@ -331,6 +332,7 @@ struct App {
   Shader fullscreen_hdr_program;
   Shader fullscreen_SSAO_program;
   Shader fullscreen_depth_program;
+  Shader fullscreen_lens_program;
   Shader terrain_program;
   Shader particle_program;
   Shader skybox_program;
@@ -395,6 +397,7 @@ struct App {
   bool color_correction;
   bool bloom;
   bool hdr;
+  bool lens_flare;
 
   Particle particles[4096];
   u32 next_particle;

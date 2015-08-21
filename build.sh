@@ -17,6 +17,9 @@ libraries="
   -I./libs/glew/include
   ./libs/glew/lib/libGLEW.a
 
+  -I./libs/jemalloc/include
+  ./libs/jemalloc/lib/libjemalloc.a
+
   -I./libs/glm
 
   -F./build/$app_name/Contents/Frameworks
@@ -43,6 +46,13 @@ build_assimp() {
   popd > /dev/null
 }
 
+build_jemalloc() {
+  pushd jemalloc > /dev/null
+    ./autogen.sh > /dev/null
+    make -j > /dev/null
+  popd > /dev/null
+}
+
 build_glew() {
   pushd glew > /dev/null
     make -j > /dev/null
@@ -57,6 +67,7 @@ build_libraries() {
 
   build_assimp &
   build_glew &
+  build_jemalloc &
 
   popd > /dev/null
 
