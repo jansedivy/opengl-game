@@ -7,8 +7,8 @@ Copyright (c) 2006-2012, assimp team
 
 All rights reserved.
 
-Redistribution and use of this software in source and binary forms,
-with or without modification, are permitted provided that the following
+Redistribution and use of this software in source and binary forms, 
+with or without modification, are permitted provided that the following 
 conditions are met:
 
 * Redistributions of source code must retain the above
@@ -25,16 +25,16 @@ conditions are met:
   derived from this software without specific prior
   written permission of the assimp team.
 
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS 
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT 
 LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT 
 OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT 
 LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY 
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT 
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ---------------------------------------------------------------------------
 */
@@ -42,92 +42,87 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #if (!defined AV_LOG_WINDOW_H_INCLUDED)
 #define AV_LOG_WINDOW_H_INCLUDE
 
-namespace AssimpView
+
+//-------------------------------------------------------------------------------
+/**	\brief Subclass of Assimp::LogStream used to add all log messages to the
+ *         log window.
+*/
+//-------------------------------------------------------------------------------
+class CMyLogStream : public Assimp::LogStream
 {
+public:
+	/**	@brief	Implementation of the abstract method	*/
+	void write(const char* message);
+};
 
 
-    //-------------------------------------------------------------------------------
-    /** \brief Subclass of Assimp::LogStream used to add all log messages to the
-     *         log window.
-     */
-    //-------------------------------------------------------------------------------
-    class CMyLogStream : public Assimp::LogStream
-    {
-    public:
-        /** @brief  Implementation of the abstract method   */
-        void write( const char* message );
-    };
+//-------------------------------------------------------------------------------
+/**	\brief Class to display log strings in a separate window
+*/
+//-------------------------------------------------------------------------------
+class CLogWindow
+	{
+private:
+
+	friend class CMyLogStream;
+	friend INT_PTR CALLBACK LogDialogProc(HWND hwndDlg,UINT uMsg,
+		WPARAM wParam,LPARAM lParam);
+
+	CLogWindow() : hwnd(NULL),  bIsVisible(false), bUpdate(true) {}
+
+public:
 
 
-    //-------------------------------------------------------------------------------
-    /** \brief Class to display log strings in a separate window
-    */
-    //-------------------------------------------------------------------------------
-    class CLogWindow
-    {
-    private:
+	// Singleton accessors
+	static CLogWindow s_cInstance;
+	inline static CLogWindow& Instance ()
+		{
+		return s_cInstance;
+		}
 
-        friend class CMyLogStream;
-        friend INT_PTR CALLBACK LogDialogProc( HWND hwndDlg, UINT uMsg,
-            WPARAM wParam, LPARAM lParam );
+	// initializes the log window
+	void Init ();
 
-        CLogWindow() : hwnd( NULL ), bIsVisible( false ), bUpdate( true ) {}
+	// Shows the log window
+	void Show();
 
-    public:
+	// Clears the log window
+	void Clear();
 
+	// Save the log window to an user-defined file
+	void Save();
 
-        // Singleton accessors
-        static CLogWindow s_cInstance;
-        inline static CLogWindow& Instance()
-        {
-            return s_cInstance;
-        }
+	// write a line to the log window
+	void WriteLine(const char* message);
 
-        // initializes the log window
-        void Init();
+	// Set the bUpdate member
+	inline void SetAutoUpdate(bool b)
+	{
+		this->bUpdate = b;
+	}
 
-        // Shows the log window
-        void Show();
+	// updates the log file
+	void Update();
 
-        // Clears the log window
-        void Clear();
+private:
 
-        // Save the log window to an user-defined file
-        void Save();
+	// Window handle
+	HWND hwnd;
 
-        // write a line to the log window
-        void WriteLine( const char* message );
+	// current text of the window (contains RTF tags)
+	std::string szText;
+	std::string szPlainText;
 
-        // Set the bUpdate member
-        inline void SetAutoUpdate( bool b )
-        {
-            this->bUpdate = b;
-        }
+	// is the log window currently visible?
+	bool bIsVisible;
 
-        // updates the log file
-        void Update();
-
-    private:
-
-        // Window handle
-        HWND hwnd;
-
-        // current text of the window (contains RTF tags)
-        std::string szText;
-        std::string szPlainText;
-
-        // is the log window currently visible?
-        bool bIsVisible;
-
-        // Specified whether each new log message updates the log automatically
-        bool bUpdate;
+	// Specified whether each new log message updates the log automatically
+	bool bUpdate;
 
 
-    public:
-        // associated log stream
-        CMyLogStream* pcStream;
-    };
-
-}
+public:
+	// associated log stream
+	CMyLogStream* pcStream;
+	};
 
 #endif // AV_LOG_DISPLA

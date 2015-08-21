@@ -1,3 +1,5 @@
+#-*- coding: UTF-8 -*-
+
 """
 PyAssimp
 
@@ -8,43 +10,59 @@ import sys
 if sys.version_info < (2,6):
     raise 'pyassimp: need python 2.6 or newer'
 
+
 import ctypes
 import os
 import numpy
 
-import logging
-logger = logging.getLogger("pyassimp")
-# attach default null handler to logger so it doesn't complain
-# even if you don't attach another handler to logger
-logger.addHandler(logging.NullHandler())
+import logging; logger = logging.getLogger("pyassimp")
+
+# Attach a default, null handler, to the logger.
+# applications can easily get log messages from pyassimp
+# by calling for instance
+# >>> logging.basicConfig(level=logging.DEBUG)
+# before importing pyassimp
+class NullHandler(logging.Handler):
+    def emit(self, record):
+        pass
+h = NullHandler()
+logger.addHandler(h)
 
 from . import structs
-from . import helper
-from . import postprocess
 from .errors import AssimpError
-from .formats import available_formats
+from . import helper
 
-class AssimpLib(object):
-    """
-    Assimp-Singleton
-    """
-    load, load_mem, release, dll = helper.search_library()
-_assimp_lib = AssimpLib()
+
+assimp_structs_as_tuple = (
+        structs.Matrix4x4, 
+        structs.Matrix3x3, 
+        structs.Vector2D, 
+        structs.Vector3D, 
+        structs.Color3D, 
+        structs.Color4D, 
+        structs.Quaternion, 
+        structs.Plane, 
+        structs.Texel)
 
 def make_tuple(ai_obj, type = None):
     res = None
+
     if isinstance(ai_obj, structs.Matrix4x4):
         res = numpy.array([getattr(ai_obj, e[0]) for e in ai_obj._fields_]).reshape((4,4))
+        #import pdb;pdb.set_trace()
     elif isinstance(ai_obj, structs.Matrix3x3):
         res = numpy.array([getattr(ai_obj, e[0]) for e in ai_obj._fields_]).reshape((3,3))
     else:
         res = numpy.array([getattr(ai_obj, e[0]) for e in ai_obj._fields_])
+
     return res
 
 # It is faster and more correct to have an init function for each assimp class
 def _init_face(aiFace):
     aiFace.indices = [aiFace.mIndices[i] for i in range(aiFace.mNumIndices)]
-assimp_struct_inits =  { structs.Face : _init_face }
+    
+assimp_struct_inits = \
+    { structs.Face : _init_face }
     
 def call_init(obj, caller = None):
     if helper.hasattr_silent(obj,'contents'): #pointer
@@ -68,7 +86,7 @@ def _is_init_type(obj):
                     
 def _init(self, target = None, parent = None):
     """
-    Custom initialize() for C structs, adds safely accessible member functionality.
+    Custom initialize() for C structs, adds safely accessable member functionality.
 
     :param target: set the object which receive the added methods. Useful when manipulating
     pointers, to skip the intermediate 'contents' deferencing.
@@ -104,7 +122,7 @@ def _init(self, target = None, parent = None):
         obj = getattr(self, m)
 
         # Create tuples
-        if isinstance(obj, structs.assimp_structs_as_tuple):
+        if isinstance(obj, assimp_structs_as_tuple):
             setattr(target, name, make_tuple(obj))
             logger.debug(str(self) + ": Added array " + str(getattr(target, name)) +  " as self." + name.lower())
             continue
@@ -134,7 +152,7 @@ def _init(self, target = None, parent = None):
                 
 
                 try:
-                    if obj._type_ in structs.assimp_structs_as_tuple:
+                    if obj._type_ in assimp_structs_as_tuple:
                         setattr(target, name, numpy.array([make_tuple(obj[i]) for i in range(length)], dtype=numpy.float32))
 
                         logger.debug(str(self) + ": Added an array of numpy arrays (type "+ str(type(obj)) + ") as self." + name)
@@ -169,16 +187,19 @@ def _init(self, target = None, parent = None):
                                      "and quads. Try to load your mesh with"
                                      " a post-processing to triangulate your"
                                      " faces.")
-                    raise e
-                    
+                    sys.exit(1)
 
 
             else: # starts with 'm' but not iterable
+
                 setattr(target, name, obj)
                 logger.debug("Added " + name + " as self." + name + " (type: " + str(type(obj)) + ")")
         
                 if _is_init_type(obj):
                     call_init(obj, target)
+
+
+
 
     if isinstance(self, structs.Mesh):
         _finalize_mesh(self, target)
@@ -189,6 +210,14 @@ def _init(self, target = None, parent = None):
 
     return self
 
+class AssimpLib(object):
+    """
+    Assimp-Singleton
+    """
+    load, release, dll = helper.search_library()
+
+#the loader as singleton
+_assimp_lib = AssimpLib()
 
 def pythonize_assimp(type, obj, scene):
     """ This method modify the Assimp data structures
@@ -210,6 +239,7 @@ def pythonize_assimp(type, obj, scene):
         return meshes
 
     if type == "ADDTRANSFORMATION":
+
         def getnode(node, name):
             if node.name == name: return node
             for child in node.children:
@@ -221,69 +251,51 @@ def pythonize_assimp(type, obj, scene):
             raise AssimpError("Object " + str(obj) + " has no associated node!")
         setattr(obj, "transformation", node.transformation)
 
+
 def recur_pythonize(node, scene):
-    '''
-    Recursively call pythonize_assimp on
+    """ Recursively call pythonize_assimp on
     nodes tree to apply several post-processing to
     pythonize the assimp datastructures.
-    '''
+    """
+
     node.meshes = pythonize_assimp("MESH", node.meshes, scene)
+
     for mesh in node.meshes:
         mesh.material = scene.materials[mesh.materialindex]
+
     for cam in scene.cameras:
         pythonize_assimp("ADDTRANSFORMATION", cam, scene)
+
+    #for light in scene.lights:
+    #    pythonize_assimp("ADDTRANSFORMATION", light, scene)
+
     for c in node.children:
         recur_pythonize(c, scene)
 
-def load(filename, 
-         file_type  = None,
-         processing = postprocess.aiProcess_Triangulate):
-    '''
-    Load a model into a scene. On failure throws AssimpError.
-    
-    Arguments
-    ---------
-    filename:   Either a filename or a file object to load model from.
-                If a file object is passed, file_type MUST be specified
-                Otherwise Assimp has no idea which importer to use.
-                This is named 'filename' so as to not break legacy code. 
-    processing: assimp postprocessing parameters. Verbose keywords are imported
-                from postprocessing, and the parameters can be combined bitwise to
-                generate the final processing value. Note that the default value will
-                triangulate quad faces. Example of generating other possible values:
-                processing = (pyassimp.postprocess.aiProcess_Triangulate | 
-                              pyassimp.postprocess.aiProcess_OptimizeMeshes)
-    file_type:  string of file extension, such as 'stl'
-        
-    Returns
-    ---------
-    Scene object with model data
-    '''
-    
-    if hasattr(filename, 'read'):
-        '''
-        This is the case where a file object has been passed to load. 
-        It is calling the following function:
-        const aiScene* aiImportFileFromMemory(const char* pBuffer,
-                                              unsigned int pLength,
-                                              unsigned int pFlags,
-                                              const char* pHint)
-        '''
-        if file_type == None:
-            raise AssimpError('File type must be specified when passing file objects!')
-        data  = filename.read()
-        model = _assimp_lib.load_mem(data, 
-                                     len(data), 
-                                     processing, 
-                                     file_type)
-    else:
-        # a filename string has been passed
-        model = _assimp_lib.load(filename.encode("ascii"), processing)
-        
+
+def load(filename, processing=0):
+    """
+    Loads the model with some specific processing parameters.
+
+    filename - file to load model from
+    processing - processing parameters
+
+    result Scene-object with model-data
+
+    throws AssimpError - could not open file
+    """
+    #read pure data
+    #from ctypes import c_char_p, c_uint
+    #model = _assimp_lib.load(c_char_p(filename), c_uint(processing))
+    model = _assimp_lib.load(filename.encode("ascii"), processing)
     if not model:
-        raise AssimpError('Could not import file!')
+        #Uhhh, something went wrong!
+        raise AssimpError("could not import file: %s" % filename)
+
     scene = _init(model.contents)
+
     recur_pythonize(scene.rootnode, scene)
+
     return scene
 
 def release(scene):

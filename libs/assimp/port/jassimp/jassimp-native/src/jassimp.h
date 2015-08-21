@@ -7,23 +7,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-JNIEXPORT jint JNICALL Java_jassimp_Jassimp_getVKeysize
-  (JNIEnv *, jclass);
-JNIEXPORT jint JNICALL Java_jassimp_Jassimp_getQKeysize
-  (JNIEnv *, jclass);
-JNIEXPORT jint JNICALL Java_jassimp_Jassimp_getV3Dsize
-  (JNIEnv *, jclass);
-JNIEXPORT jint JNICALL Java_jassimp_Jassimp_getfloatsize
-  (JNIEnv *, jclass);
-JNIEXPORT jint JNICALL Java_jassimp_Jassimp_getintsize
-  (JNIEnv *, jclass);
-JNIEXPORT jint JNICALL Java_jassimp_Jassimp_getuintsize
-  (JNIEnv *, jclass);
-JNIEXPORT jint JNICALL Java_jassimp_Jassimp_getdoublesize
-  (JNIEnv *, jclass);
-JNIEXPORT jint JNICALL Java_jassimp_Jassimp_getlongsize
-  (JNIEnv *, jclass);
-
+/* Inaccessible static: BUILTIN */
+/* Inaccessible static: s_wrapperProvider */
 /*
  * Class:     jassimp_Jassimp
  * Method:    getErrorString

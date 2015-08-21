@@ -6,9 +6,6 @@
 
 // ------------------------------
 // Internal stub
-
-#include <stddef.h> //NULL
-#include <algorithm> //std::swap
 namespace boost {
 	namespace detail {
 		class controller {

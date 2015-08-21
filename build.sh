@@ -40,6 +40,7 @@ game_flags="
 
 build_assimp() {
   pushd assimp > /dev/null
+    cmake -G 'Unix Makefiles'
     make -j > /dev/null
     install_name_tool -id @rpath/libassimp.3.1.1.dylib lib/libassimp.3.1.1.dylib
     cp lib/libassimp.3.1.1.dylib ../../build/$app_name/Contents/Frameworks

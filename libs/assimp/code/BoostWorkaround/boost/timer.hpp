@@ -19,7 +19,6 @@
 
 //#include <boost/config.hpp>
 #include <ctime>
-#include <limits>
 //#include <boost/limits.hpp>
 
 # ifdef BOOST_NO_STDC_NAMESPACE

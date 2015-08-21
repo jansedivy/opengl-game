@@ -1,92 +1,90 @@
+
 #include "UnitTestPCH.h"
-
-#include <assimp/scene.h>
-#include <MaterialSystem.h>
+#include "utMaterialSystem.h"
 
 
-using namespace std;
-using namespace Assimp;
-
-class MaterialSystemTest : public ::testing::Test
-{
-public:
-
-    virtual void SetUp() { this->pcMat = new aiMaterial(); }
-    virtual void TearDown() { delete this->pcMat; }
-
-protected:
-
-    aiMaterial* pcMat;
-};
+CPPUNIT_TEST_SUITE_REGISTRATION (MaterialSystemTest);
 
 // ------------------------------------------------------------------------------------------------
-TEST_F(MaterialSystemTest, testFloatProperty)
+void MaterialSystemTest :: setUp (void)
 {
-    float pf = 150392.63f;
-    this->pcMat->AddProperty(&pf,1,"testKey1");
-    pf = 0.0f;
-
-    EXPECT_EQ(AI_SUCCESS, pcMat->Get("testKey1",0,0,pf));
-    EXPECT_EQ(150392.63f, pf);
+	this->pcMat = new aiMaterial();
 }
 
 // ------------------------------------------------------------------------------------------------
-TEST_F(MaterialSystemTest, testFloatArrayProperty)
+void MaterialSystemTest :: tearDown (void)
 {
-    float pf[] = {0.0f,1.0f,2.0f,3.0f};
-    unsigned int pMax = sizeof(pf) / sizeof(float);
-    this->pcMat->AddProperty(&pf,pMax,"testKey2");
-    pf[0] = pf[1] = pf[2] = pf[3] = 12.0f;
-
-    EXPECT_EQ(AI_SUCCESS, pcMat->Get("testKey2",0,0,pf,&pMax));
-    EXPECT_EQ(sizeof(pf) / sizeof(float), pMax);
-    EXPECT_TRUE(!pf[0] && 1.0f == pf[1] && 2.0f == pf[2] && 3.0f == pf[3] );
+	delete this->pcMat;
 }
 
 // ------------------------------------------------------------------------------------------------
-TEST_F(MaterialSystemTest, testIntProperty)
+void  MaterialSystemTest :: testFloatProperty (void)
 {
-    int pf = 15039263;
-    this->pcMat->AddProperty(&pf,1,"testKey3");
-    pf = 12;
+	float pf = 150392.63f;
+	this->pcMat->AddProperty(&pf,1,"testKey1");
+	pf = 0.0f;
 
-    EXPECT_EQ(AI_SUCCESS, pcMat->Get("testKey3",0,0,pf));
-    EXPECT_EQ(15039263, pf);
+	CPPUNIT_ASSERT(AI_SUCCESS == pcMat->Get("testKey1",0,0,pf));
+	CPPUNIT_ASSERT(pf == 150392.63f);
 }
 
 // ------------------------------------------------------------------------------------------------
-TEST_F(MaterialSystemTest, testIntArrayProperty)
+void  MaterialSystemTest :: testFloatArrayProperty (void)
 {
-    int pf[] = {0,1,2,3};
-    unsigned int pMax = sizeof(pf) / sizeof(int);
-    this->pcMat->AddProperty(&pf,pMax,"testKey4");
-    pf[0] = pf[1] = pf[2] = pf[3] = 12;
+	float pf[] = {0.0f,1.0f,2.0f,3.0f};
+	unsigned int pMax = sizeof(pf) / sizeof(float);
+	this->pcMat->AddProperty(&pf,pMax,"testKey2");
+	pf[0] = pf[1] = pf[2] = pf[3] = 12.0f;
 
-    EXPECT_EQ(AI_SUCCESS, pcMat->Get("testKey4",0,0,pf,&pMax));
-    EXPECT_EQ(sizeof(pf) / sizeof(int), pMax);
-    EXPECT_TRUE(!pf[0] && 1 == pf[1] && 2 == pf[2] && 3 == pf[3] );
+	CPPUNIT_ASSERT(AI_SUCCESS == pcMat->Get("testKey2",0,0,pf,&pMax));
+	CPPUNIT_ASSERT(pMax == sizeof(pf) / sizeof(float));
+	CPPUNIT_ASSERT(!pf[0] && 1.0f == pf[1] && 2.0f == pf[2] && 3.0f == pf[3] );
 }
 
 // ------------------------------------------------------------------------------------------------
-TEST_F(MaterialSystemTest, testColorProperty)
+void  MaterialSystemTest :: testIntProperty (void)
 {
-    aiColor4D clr;
-    clr.r = 2.0f;clr.g = 3.0f;clr.b = 4.0f;clr.a = 5.0f;
-    this->pcMat->AddProperty(&clr,1,"testKey5");
-    clr.b = 1.0f;
-    clr.a = clr.g = clr.r = 0.0f;
+	int pf = 15039263;
+	this->pcMat->AddProperty(&pf,1,"testKey3");
+	pf = 12;
 
-    EXPECT_EQ(AI_SUCCESS, pcMat->Get("testKey5",0,0,clr));
-    EXPECT_TRUE(clr.r == 2.0f && clr.g == 3.0f && clr.b == 4.0f && clr.a == 5.0f);
+	CPPUNIT_ASSERT(AI_SUCCESS == pcMat->Get("testKey3",0,0,pf));
+	CPPUNIT_ASSERT(pf == 15039263);
 }
 
 // ------------------------------------------------------------------------------------------------
-TEST_F(MaterialSystemTest, testStringProperty)
+void  MaterialSystemTest :: testIntArrayProperty (void)
 {
-    aiString s;
-    s.Set("Hello, this is a small test");
-    this->pcMat->AddProperty(&s,"testKey6");
-    s.Set("358358");
-    EXPECT_EQ(AI_SUCCESS, pcMat->Get("testKey6",0,0,s));
-    EXPECT_STREQ("Hello, this is a small test", s.data);
+	int pf[] = {0,1,2,3};
+	unsigned int pMax = sizeof(pf) / sizeof(int);
+	this->pcMat->AddProperty(&pf,pMax,"testKey4");
+	pf[0] = pf[1] = pf[2] = pf[3] = 12;
+
+	CPPUNIT_ASSERT(AI_SUCCESS == pcMat->Get("testKey4",0,0,pf,&pMax));
+	CPPUNIT_ASSERT(pMax == sizeof(pf) / sizeof(int));
+	CPPUNIT_ASSERT(!pf[0] && 1 == pf[1] && 2 == pf[2] && 3 == pf[3] );
+}
+
+// ------------------------------------------------------------------------------------------------
+void  MaterialSystemTest :: testColorProperty (void)
+{
+	aiColor4D clr;
+	clr.r = 2.0f;clr.g = 3.0f;clr.b = 4.0f;clr.a = 5.0f;
+	this->pcMat->AddProperty(&clr,1,"testKey5");
+	clr.b = 1.0f;
+	clr.a = clr.g = clr.r = 0.0f;
+
+	CPPUNIT_ASSERT(AI_SUCCESS == pcMat->Get("testKey5",0,0,clr));
+	CPPUNIT_ASSERT(clr.r == 2.0f && clr.g == 3.0f && clr.b == 4.0f && clr.a == 5.0f);
+}
+
+// ------------------------------------------------------------------------------------------------
+void  MaterialSystemTest :: testStringProperty (void)
+{
+	aiString s;
+	s.Set("Hello, this is a small test");
+	this->pcMat->AddProperty(&s,"testKey6");
+	s.Set("358358");
+	CPPUNIT_ASSERT(AI_SUCCESS == pcMat->Get("testKey6",0,0,s));
+	CPPUNIT_ASSERT(!::strcmp(s.data,"Hello, this is a small test"));
 }

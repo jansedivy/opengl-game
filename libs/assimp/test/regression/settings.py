@@ -48,21 +48,13 @@ test scripts rely on this)
 import os
 
 # -------------------------------------------------------------------------------
-# Files to ignore (with reason)
-#
-# pond.0.ply - loads with 40k identical triangles, causing postprocessing
-# to have quadratic runtime.
-# -------------------------------------------------------------------------------
-files_to_ignore = ["pond.0.ply", "Example.ogex"]
-
-# -------------------------------------------------------------------------------
 # List of file extensions to be excluded from the regression suite
 # File extensions are case insensitive
 # -------------------------------------------------------------------------------
 exclude_extensions = [
-    ".assbin", ".assxml", ".txt", ".md",
+    ".lws", ".assbin", ".assxml", ".txt", ".md",
     ".jpeg", ".jpg", ".png", ".gif", ".tga", ".bmp",
-    ".skeleton", ".skeleton.xml", ".license", ".mtl", ".material"
+    ".skeleton", ".skeleton.xml"
 ]
 
 # -------------------------------------------------------------------------------
