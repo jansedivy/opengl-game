@@ -9,6 +9,7 @@ shared_flags='
 -g -Wall -Wextra -std=c++11 -Wno-missing-field-initializers
 '
 optimalization='-O0'
+internal=''
 
 libraries="
   -I./libs/assimp/include
@@ -79,14 +80,14 @@ build_engine() {
   echo 'Building engine'
   echo '=================='
 
-  clang++ $engine_main -o build/$app_name/Contents/MacOS/$executable_name $shared_flags $engine_flags $optimalization
+  clang++ $engine_main -o build/$app_name/Contents/MacOS/$executable_name $shared_flags $engine_flags $optimalization $internal
 }
 
 build_game() {
   echo 'Building game'
   echo '=================='
 
-  clang++ -dynamiclib $game_main -o build/$app_name/Contents/Resources/app.dylib $shared_flags $game_flags $optimalization
+  clang++ -dynamiclib $game_main -o build/$app_name/Contents/Resources/app.dylib $shared_flags $game_flags $optimalization $internal
 }
 
 main() {
@@ -98,8 +99,11 @@ main() {
   for i in "$@"
   do
     case $i in
+      -i|--internal)
+        internal='-DINTERNAL'
+      ;;
       -r|--release)
-        release=true
+        optimalization='-O3'
       ;;
       libs)
         libs=true
@@ -118,10 +122,6 @@ main() {
     esac
     shift
   done
-
-  if [ $release = true ]; then
-    optimalization='-O3'
-  fi
 
   if [ $libs = true ]; then
     build_libraries

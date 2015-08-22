@@ -1,5 +1,10 @@
 #include "app.h"
 
+#if INTERNAL
+char *debug_assets_path = (char *)"../../../";
+char *debug_level_path = (char *)"../../../assets/level";
+#endif
+
 float clamp(float value, float min, float max) {
   return std::max(min, std::min(max, value));
 }
@@ -21,8 +26,35 @@ inline Entity *get_entity_by_id(App *app, u32 id) {
   return NULL;
 }
 
+char *join_string(char *first, char *second) {
+  u32 first_len = strlen(first);
+  u32 second_len = strlen(second);
+
+  char *result = static_cast<char *>(malloc(first_len + second_len));
+  strcpy(result, first);
+  strcpy(result + first_len, second);
+
+  return result;
+}
+
+void acquire_asset_file(char *path) {
+#if INTERNAL
+  char *full_path = join_string(debug_assets_path, path);
+
+  DebugReadFileResult result = platform.debug_read_entire_file(full_path);
+
+  PlatformFile file = platform.open_file(path, "w+");
+  fwrite(result.contents, 1, result.fileSize, (FILE *)file.platform); // TODO(sedivy): remove fwrite
+  platform.close_file(file);
+
+  platform.debug_free_file(result);
+  free(full_path);
+#endif
+}
+
 void load_texture(Texture *texture, int type=0) {
   if (!texture->initialized && !texture->has_data) {
+    acquire_asset_file((char *)texture->path);
     int channels;
 
     int width, height;
@@ -81,7 +113,7 @@ void save_binary_level_file(LoadedLevel loaded_level) {
   LoadedLevelHeader header;
   header.entity_count = loaded_level.entities.size();
 
-  PlatformFile file = platform.open_file((char *)"level.level", "w");
+  PlatformFile file = platform.open_file((char *)"assets/level.level", "w");
   fwrite(&header, 1, sizeof(header), (FILE *)file.platform); // TODO(sedivy): remove fwrite
   for (auto it = loaded_level.entities.begin(); it != loaded_level.entities.end(); it++) {
     fwrite(&(*it), 1, sizeof(EntitySave), (FILE *)file.platform);
@@ -89,10 +121,8 @@ void save_binary_level_file(LoadedLevel loaded_level) {
   platform.close_file(file);
 }
 
-
-char *debug_level_path = (char *)"../../../level";
-
 void save_text_level_file(Memory *memory, LoadedLevel level) {
+#if INTERNAL
   platform.create_directory((char *)debug_level_path);
 
   for (auto it = level.entities.begin(); it != level.entities.end(); it++) {
@@ -113,12 +143,13 @@ void save_text_level_file(Memory *memory, LoadedLevel level) {
 
     platform.close_file(file);
   }
+#endif
 }
 
 LoadedLevel load_binary_level_file() {
   LoadedLevel result;
 
-  DebugReadFileResult file = platform.debug_read_entire_file("level.level");
+  DebugReadFileResult file = platform.debug_read_entire_file("assets/level.level");
 
   LoadedLevelHeader *header = static_cast<LoadedLevelHeader *>((void *)file.contents);
 
@@ -149,6 +180,7 @@ void deserialize_entity(App *app, EntitySave *src, Entity *dest) {
 }
 
 void load_debug_level(App *app) {
+#if INTERNAL
   PlatformDirectory directory = platform.open_directory(debug_level_path);
   if (directory.platform != NULL) {
     LoadedLevel loaded_level;
@@ -215,6 +247,7 @@ void load_debug_level(App *app) {
 
     save_binary_level_file(loaded_level);
   }
+#endif
 
   LoadedLevel bin_loaded_level = load_binary_level_file();
 
@@ -680,6 +713,9 @@ void delete_shader(Shader *shader) {
 }
 
 Shader *create_shader(Shader *shader, const char *vert_filename, const char *frag_filename) {
+  acquire_asset_file((char *)vert_filename);
+  acquire_asset_file((char *)frag_filename);
+
   if (shader->initialized) {
     delete_shader(shader);
   }
@@ -883,27 +919,27 @@ void load_color_grading_texture(Texture *texture) {
 }
 
 void setup_all_shaders(App *app) {
-  create_shader(&app->main_object_program, "shaders/object.vert", "shaders/object.frag");
-  create_shader(&app->solid_program, "shaders/solid.vert", "shaders/solid.frag");
-  create_shader(&app->terrain_program, "shaders/terrain.vert", "shaders/terrain.frag");
-  create_shader(&app->textured_program, "shaders/textured.vert", "shaders/textured.frag");
+  create_shader(&app->main_object_program, "assets/shaders/object.vert", "assets/shaders/object.frag");
+  create_shader(&app->solid_program, "assets/shaders/solid.vert", "assets/shaders/solid.frag");
+  create_shader(&app->terrain_program, "assets/shaders/terrain.vert", "assets/shaders/terrain.frag");
+  create_shader(&app->textured_program, "assets/shaders/textured.vert", "assets/shaders/textured.frag");
 
-  create_shader(&app->debug_program, "shaders/debug.vert", "shaders/debug.frag");
-  create_shader(&app->particle_program, "shaders/particle.vert", "shaders/particle.frag");
+  create_shader(&app->debug_program, "assets/shaders/debug.vert", "assets/shaders/debug.frag");
+  create_shader(&app->particle_program, "assets/shaders/particle.vert", "assets/shaders/particle.frag");
 
-  create_shader(&app->skybox_program, "shaders/skybox.vert", "shaders/skybox.frag");
+  create_shader(&app->skybox_program, "assets/shaders/skybox.vert", "assets/shaders/skybox.frag");
 
-  create_shader(&app->ui_program, "shaders/ui.vert", "shaders/ui.frag");
+  create_shader(&app->ui_program, "assets/shaders/ui.vert", "assets/shaders/ui.frag");
 
-  create_shader(&app->fullscreen_program, "shaders/fullscreen.vert", "shaders/fullscreen.frag");
-  create_shader(&app->fullscreen_fog_program, "shaders/fullscreen.vert", "shaders/fullscreen_fog.frag");
-  create_shader(&app->fullscreen_color_program, "shaders/fullscreen.vert", "shaders/fullscreen_color.frag");
-  create_shader(&app->fullscreen_fxaa_program, "shaders/fullscreen.vert", "shaders/fullscreen_fxaa.frag");
-  create_shader(&app->fullscreen_bloom_program, "shaders/fullscreen.vert", "shaders/fullscreen_bloom.frag");
-  create_shader(&app->fullscreen_hdr_program, "shaders/fullscreen.vert", "shaders/fullscreen_hdr.frag");
-  create_shader(&app->fullscreen_SSAO_program, "shaders/fullscreen.vert", "shaders/fullscreen_ssao.frag");
-  create_shader(&app->fullscreen_depth_program, "shaders/fullscreen.vert", "shaders/fullscreen_depth.frag");
-  create_shader(&app->fullscreen_lens_program, "shaders/fullscreen.vert", "shaders/fullscreen_lens_flare.frag");
+  create_shader(&app->fullscreen_program, "assets/shaders/fullscreen.vert", "assets/shaders/fullscreen.frag");
+  create_shader(&app->fullscreen_fog_program, "assets/shaders/fullscreen.vert", "assets/shaders/fullscreen_fog.frag");
+  create_shader(&app->fullscreen_color_program, "assets/shaders/fullscreen.vert", "assets/shaders/fullscreen_color.frag");
+  create_shader(&app->fullscreen_fxaa_program, "assets/shaders/fullscreen.vert", "assets/shaders/fullscreen_fxaa.frag");
+  create_shader(&app->fullscreen_bloom_program, "assets/shaders/fullscreen.vert", "assets/shaders/fullscreen_bloom.frag");
+  create_shader(&app->fullscreen_hdr_program, "assets/shaders/fullscreen.vert", "assets/shaders/fullscreen_hdr.frag");
+  create_shader(&app->fullscreen_SSAO_program, "assets/shaders/fullscreen.vert", "assets/shaders/fullscreen_ssao.frag");
+  create_shader(&app->fullscreen_depth_program, "assets/shaders/fullscreen.vert", "assets/shaders/fullscreen_depth.frag");
+  create_shader(&app->fullscreen_lens_program, "assets/shaders/fullscreen.vert", "assets/shaders/fullscreen_lens_flare.frag");
 }
 
 void init(Memory *memory) {
@@ -1142,22 +1178,22 @@ void init(Memory *memory) {
     }
 
     Model *model = static_cast<Model *>(malloc(sizeof(Model)));
-    model->path = allocate_string("models/rock.obj");
+    model->path = allocate_string("assets/models/rock.obj");
     model->id_name = allocate_string("rock");
     app->models[model->id_name] = model;
 
     model = static_cast<Model *>(malloc(sizeof(Model)));
-    model->path = allocate_string("models/trees/tree_01.obj");
+    model->path = allocate_string("assets/models/tree_01.obj");
     model->id_name = allocate_string("tree_001");
     app->models[model->id_name] = model;
 
     model = static_cast<Model *>(malloc(sizeof(Model)));
-    model->path = allocate_string("models/trees/tree_02.obj");
+    model->path = allocate_string("assets/models/tree_02.obj");
     model->id_name = allocate_string("tree_002");
     app->models[model->id_name] = model;
 
     model = static_cast<Model *>(malloc(sizeof(Model)));
-    model->path = allocate_string("models/trees/tree_03.obj");
+    model->path = allocate_string("assets/models/tree_03.obj");
     model->id_name = allocate_string("tree_003");
     app->models[model->id_name] = model;
   }
@@ -1175,10 +1211,10 @@ void init(Memory *memory) {
     chunk->initialized = false;
   }
 
-  app->color_correction_texture.path = allocate_string("textures/color_correction.png");
-  app->gradient_texture.path = allocate_string("textures/gradient.png");
-  app->circle_texture.path = allocate_string("textures/circle.png");
-  app->editor_texture.path = allocate_string("textures/editor_images.png");
+  app->color_correction_texture.path = allocate_string("assets/textures/color_correction.png");
+  app->gradient_texture.path = allocate_string("assets/textures/gradient.png");
+  app->circle_texture.path = allocate_string("assets/textures/circle.png");
+  app->editor_texture.path = allocate_string("assets/textures/editor_images.png");
 
   {
     load_texture(&app->gradient_texture, STBI_rgb_alpha);
@@ -1203,14 +1239,15 @@ void init(Memory *memory) {
     app->circle_texture.data = NULL;
   }
 
-  DebugReadFileResult font_file = platform.debug_read_entire_file("font.ttf");
+  acquire_asset_file((char *)"assets/font.ttf");
+  DebugReadFileResult font_file = platform.debug_read_entire_file("assets/font.ttf");
   app->font = create_font(font_file.contents, 16.0f);
   platform.debug_free_file(font_file);
 
   const char* faces[] = {
-    "textures/skybox/right.png", "textures/skybox/left.png",
-    "textures/skybox/top.png", "textures/skybox/bottom.png",
-    "textures/skybox/back.png", "textures/skybox/front.png"
+    "assets/textures/right.png", "assets/textures/left.png",
+    "assets/textures/top.png", "assets/textures/bottom.png",
+    "assets/textures/back.png", "assets/textures/front.png"
   };
 
   GLenum types[] = {
@@ -1225,6 +1262,7 @@ void init(Memory *memory) {
 
   for (u32 i=0; i<array_count(faces); i++) {
     int width, height, channels;
+    acquire_asset_file((char *)faces[i]);
     u8 *image = stbi_load(faces[i], &width, &height, &channels, STBI_rgb_alpha);
     glTexImage2D(types[i], 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
     stbi_image_free(image);
@@ -1463,6 +1501,7 @@ void load_model_work(void *data) {
   LoadModelWork *work = static_cast<LoadModelWork *>(data);
 
   if (!work->model->initialized && !work->model->has_data) {
+    acquire_asset_file((char *)work->model->path);
 
     DebugReadFileResult result = platform.debug_read_entire_file(work->model->path);
 
