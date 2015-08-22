@@ -369,8 +369,7 @@ int main() {
 
   SDL_GL_CreateContext(window);
 
-  /* SDL_GL_SetSwapInterval(-1); */
-  SDL_GL_SetSwapInterval(0);
+  SDL_GL_SetSwapInterval(-1);
 
   glClear(GL_COLOR_BUFFER_BIT);
 
@@ -385,11 +384,20 @@ int main() {
   int original_mouse_down_x = 0;
   int original_mouse_down_y = 0;
 
+  u32 last_time = get_time();
+
   while (running) {
     PROFILE(tick);
+
+    u32 now = get_time();
+    float delta = (now - last_time) / 1000.0f;
+    last_time = now;
+
     SDL_GetWindowSize(window, &memory.width, &memory.height);
 
     Input input = {};
+
+    input.delta_time = delta;
 
     if (get_last_write_time(code.path) > code.last_time_write) {
       memory.should_reload = true;

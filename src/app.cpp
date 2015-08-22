@@ -2425,10 +2425,10 @@ void tick(Memory *memory, Input input) {
       movement += right;
     }
 
-    float speed = 1.3f;
+    float speed = 1000.3f;
 
     if (app->editing_mode) {
-      speed = 10.0f;
+      speed = 10000.0f;
       if (input.space) {
         movement.y += 1;
       }
@@ -2437,7 +2437,7 @@ void tick(Memory *memory, Input input) {
       }
     } else {
       if (input.shift) {
-        speed = 10.0f;
+        speed = 10000.0f;
       }
       movement.y = 0;
     }
@@ -2446,7 +2446,7 @@ void tick(Memory *memory, Input input) {
       movement = glm::normalize(movement);
     }
 
-    follow_entity->velocity += movement * speed;
+    follow_entity->velocity += movement * speed * input.delta_time;
 
     for (u32 i=0; i<app->entity_count; i++) {
       Entity *entity = app->entities + i;
@@ -2460,22 +2460,22 @@ void tick(Memory *memory, Input input) {
         particle->position = entity->position;
         particle->color = entity->color;
         particle->size = entity->scale.x;
-        particle->velocity = glm::vec3(get_random_float_between(-10.0f, 10.0f), get_random_float_between(0.0f, 10.0f), get_random_float_between(-10.0f, 10.0f));
-        particle->gravity = 5.0f;
+        particle->velocity = glm::vec3(get_random_float_between(-500.0f, 500.0f), get_random_float_between(0.0f, 1000.0f), get_random_float_between(-500.0f, 500.0f));
+        particle->gravity = 500.0f;
       } else if (entity->type == EntityPlayer) {
-        entity->position += entity->velocity;
-        entity->velocity *= 0.6f;
+        entity->position += entity->velocity * input.delta_time;
+        entity->velocity = glm::mix(entity->velocity, glm::vec3(0.0f), input.delta_time * 10.0f);
       }
     }
 
     for (u32 i=0; i<array_count(app->particles); i++) {
       Particle *particle = app->particles + i;
 
-      particle->velocity.y += particle->gravity;
-      particle->position += particle->velocity;
-      particle->size = std::max(particle->size - 10.0f, 0.0f);
-      particle->velocity *= 0.9;
-      particle->color.a *= 0.9;
+      particle->velocity.y += particle->gravity * input.delta_time;
+      particle->position += particle->velocity * input.delta_time;
+      particle->size = std::max(particle->size - 60.0f * input.delta_time, 0.0f);
+      particle->velocity = glm::mix(particle->velocity, glm::vec3(0.0f), input.delta_time);
+      particle->color.a = glm::mix(particle->color.a, 0.0f, input.delta_time * 4.0f);
 
       particle->distance_from_camera = glm::distance2(app->camera.position, particle->position);
     }

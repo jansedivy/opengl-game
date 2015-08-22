@@ -50,6 +50,7 @@ extern "C" {
     bool left_mouse_down;
 
     bool is_mouse_locked;
+    float delta_time;
   };
 
   struct PlatformDirectory {
