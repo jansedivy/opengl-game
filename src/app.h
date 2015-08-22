@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <algorithm>
-#include <jemalloc/jemalloc.h>
 
 #define array_count(arr) (sizeof(arr) / sizeof(arr[0]))
 

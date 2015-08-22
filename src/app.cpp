@@ -1260,7 +1260,7 @@ void init(Memory *memory) {
   for (u32 i=0; i<array_count(app->frames); i++) {
     FrameBuffer *frame = app->frames + i;
 
-#if 1
+#if 0
     frame->width = memory->width;
     frame->height = memory->height;
 #else
@@ -1410,7 +1410,6 @@ void init(Memory *memory) {
   glBindBuffer(GL_ARRAY_BUFFER, app->particle_color_buffer);
   glBufferData(GL_ARRAY_BUFFER, array_count(app->particles) * 4 * sizeof(GLfloat), NULL, GL_STREAM_DRAW);
 }
-
 
 inline bool shader_has_uniform(Shader *shader, const char *name) {
   return shader->uniforms.count(name);
@@ -2127,6 +2126,10 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
       app->editor.show_performance = !app->editor.show_performance;
     }
 
+    sprintf(text, "dt: %f\n", input.delta_time);
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+    }
+
     if (app->editor.show_performance) {
       for (u32 i=0; i<array_count(memory->last_frame_counters); i++) {
         DebugCounter *counter = memory->last_frame_counters + i;
@@ -2178,9 +2181,9 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
       app->editor.left_state = EditorLeftState::MODELING;
     }
 
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Terrain", glm::vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::TERRAIN ? selected_button_background_color : button_background_color)) {
-      app->editor.left_state = EditorLeftState::TERRAIN;
-    }
+/*     if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Terrain", glm::vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::TERRAIN ? selected_button_background_color : button_background_color)) { */
+/*       app->editor.left_state = EditorLeftState::TERRAIN; */
+/*     } */
 
     if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Post Processing", glm::vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::POST_PROCESSING ? selected_button_background_color : button_background_color)) {
       app->editor.left_state = EditorLeftState::POST_PROCESSING;
@@ -2668,7 +2671,7 @@ void tick(Memory *memory, Input input) {
       glBindFramebuffer(GL_FRAMEBUFFER, app->shadow_buffer);
       glViewport(0, 0, app->shadow_width, app->shadow_height);
       glClear(GL_DEPTH_BUFFER_BIT);
-#if 1
+#if 0
 
       use_program(app, &app->solid_program);
 
@@ -2705,6 +2708,8 @@ void tick(Memory *memory, Input input) {
             int detail_level = 2;
             if (distance < 16.0f) { detail_level = 1; }
             if (distance < 4.0f) { detail_level = 0; }
+
+            detail_level = 2;
 
             Model *model = &chunk->models[detail_level];
 
@@ -2843,6 +2848,8 @@ void tick(Memory *memory, Input input) {
             if (distance < 16.0f) { detail_level = 1; }
             if (distance < 4.0f) { detail_level = 0; }
 
+            detail_level = 2;
+
             Model *model = &chunk->models[detail_level];
 
             if (render_terrain_chunk(app, chunk, model)) {
@@ -2960,6 +2967,7 @@ void tick(Memory *memory, Input input) {
         }
       }
 
+      if (0)
       {
         PROFILE(render_debug);
         if (app->debug_lines.size() > 0) {
