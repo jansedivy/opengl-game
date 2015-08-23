@@ -171,6 +171,11 @@ extern "C" {
 
     DebugCounter last_frame_counters[DebugCycleCounter_count];
     DebugCounter counters[DebugCycleCounter_count];
+
+#if INTERNAL
+    char *debug_assets_path; 
+    char *debug_level_path;
+#endif
   };
 
   void tick(Memory *memory, Input input);

@@ -39,7 +39,7 @@ char *join_string(char *first, char *second) {
 
 void acquire_asset_file(char *path) {
 #if INTERNAL
-  char *full_path = join_string(debug_assets_path, path);
+  char *full_path = join_string(debug_global_memory->debug_assets_path, path);
 
   DebugReadFileResult result = platform.debug_read_entire_file(full_path);
 
@@ -123,11 +123,11 @@ void save_binary_level_file(LoadedLevel loaded_level) {
 
 void save_text_level_file(Memory *memory, LoadedLevel level) {
 #if INTERNAL
-  platform.create_directory((char *)debug_level_path);
+  platform.create_directory(memory->debug_level_path);
 
   for (auto it = level.entities.begin(); it != level.entities.end(); it++) {
     char full_path[256];
-    sprintf(full_path, "%s/%d.entity", debug_level_path, it->id);
+    sprintf(full_path, "%s/%d.entity", memory->debug_level_path, it->id);
 
     PlatformFile file = platform.open_file(full_path, "w");
 
@@ -179,9 +179,9 @@ void deserialize_entity(App *app, EntitySave *src, Entity *dest) {
   }
 }
 
-void load_debug_level(App *app) {
+void load_debug_level(Memory *memory, App *app) {
 #if INTERNAL
-  PlatformDirectory directory = platform.open_directory(debug_level_path);
+  PlatformDirectory directory = platform.open_directory(memory->debug_level_path);
   if (directory.platform != NULL) {
     LoadedLevel loaded_level;
 
@@ -190,8 +190,8 @@ void load_debug_level(App *app) {
       if (entry.empty) { break; }
 
       if (platform.is_directory_entry_file(entry)) {
-        char *full_path = (char *)alloca(sizeof(debug_level_path) + sizeof(entry.name));
-        sprintf(full_path, "%s/%s", debug_level_path, entry.name);
+        char *full_path = (char *)alloca(sizeof(memory->debug_level_path) + sizeof(entry.name));
+        sprintf(full_path, "%s/%s", memory->debug_level_path, entry.name);
 
         if (strcmp(get_filename_ext(full_path), "entity") == 0) {
           PlatformFile file = platform.open_file(full_path, "r");
@@ -1371,7 +1371,7 @@ void init(Memory *memory) {
 
   glGenBuffers(1, &app->debug_buffer);
 
-  load_debug_level(app);
+  load_debug_level(memory, app);
 
   {
     Entity *entity = app->entities + app->entity_count;
