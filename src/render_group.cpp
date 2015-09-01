@@ -10,10 +10,20 @@ bool sort_function(const RenderCommand &a, const RenderCommand &b) {
   if (a.shader < b.shader) { return true; }
   if (b.shader < a.shader) { return false; }
 
+  if (a.texture < b.texture) { return true; }
+  if (b.texture < a.texture) { return false; }
+
   if (a.model_mesh < b.model_mesh) { return true; }
   if (b.model_mesh < a.model_mesh) { return false; }
 
   return false;
+}
+
+bool transparent_sort_function(const RenderCommand &a, const RenderCommand &b) {
+  /* if (a.distance_from_camera > b.distance_from_camera) { return true; } */
+  /* if (a.distance_from_camera < b.distance_from_camera) { return false; } */
+
+  return sort_function(a, b);
 }
 
 void start_render_group(RenderGroup *group) {
@@ -27,10 +37,45 @@ inline void set_depth_mode(RenderGroup *group, GLenum mode, bool force=false) {
   }
 }
 
+void change_shader(RenderGroup *group, App *app, Shader *shader) {
+  use_program(app, shader);
+
+  if (shader_has_uniform(app->current_program, "eye_position")) {
+    set_uniform(app->current_program, "eye_position", app->camera.position);
+  }
+
+  if (shader_has_uniform(app->current_program, "uPMatrix")) {
+    set_uniform(app->current_program, "uPMatrix", group->camera->view_matrix);
+  }
+
+  if (shader_has_uniform(app->current_program, "uShadow")) {
+    set_uniformi(app->current_program, "uShadow", 0);
+  }
+
+  if (shader_has_uniform(app->current_program, "shadow_matrix")) {
+    set_uniform(app->current_program, "shadow_matrix", app->shadow_camera.view_matrix);
+  }
+
+  if (shader_has_uniform(app->current_program, "texmapscale")) {
+    set_uniform(app->current_program, "texmapscale", glm::vec2(1.0f / app->shadow_width, 1.0f / app->shadow_height));
+  }
+
+  if (shader_has_uniform(app->current_program, "shadow_light_position")) {
+    set_uniform(app->current_program, "shadow_light_position", app->shadow_camera.position);
+  }
+}
+
 void end_render_group(App *app, RenderGroup *group) {
-  std::sort(group->commands.begin(), group->commands.end(), sort_function);
+  if (group->transparent_pass) {
+    std::sort(group->commands.begin(), group->commands.end(), transparent_sort_function);
+  } else {
+    std::sort(group->commands.begin(), group->commands.end(), sort_function);
+  }
 
   glEnable(GL_CULL_FACE);
+
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
   group->model_change = 0;
   group->shader_change = 0;
@@ -41,17 +86,28 @@ void end_render_group(App *app, RenderGroup *group) {
 
   set_depth_mode(group, GL_LESS, true);
 
-  glCullFace(GL_FRONT);
-  group->cull_face = GL_FRONT;
+  if (group->shadow_pass) {
+    glCullFace(GL_FRONT);
+    group->cull_face = GL_FRONT;
+  } else {
+    glCullFace(GL_BACK);
+    group->cull_face = GL_BACK;
+  }
+
+  if (group->force_shader) {
+    change_shader(group, app, group->force_shader);
+  }
 
   for (auto it = group->commands.begin(); it != group->commands.end(); it++) {
-    if (group->last_shader != it->shader) {
-      use_program(app, it->shader);
-      group->last_shader = it->shader;
-      group->shader_change += 1;
+    if (group->force_shader == NULL) {
+      if (group->last_shader != it->shader) {
+        change_shader(group, app, it->shader);
+        group->last_shader = it->shader;
+        group->shader_change += 1;
+      }
     }
 
-    if (it->cull_type != group->cull_face) {
+    if (!group->shadow_pass && it->cull_type != group->cull_face) {
       glCullFace(it->cull_type);
       group->cull_face = it->cull_type;
     }
@@ -63,15 +119,37 @@ void end_render_group(App *app, RenderGroup *group) {
     }
 
     if (shader_has_uniform(app->current_program, "uNMatrix")) {
-      send_shader_uniform(app->current_program, "uNMatrix", it->normal);
+      set_uniform(app->current_program, "uNMatrix", it->normal);
     }
 
     if (shader_has_uniform(app->current_program, "uMVMatrix")) {
-      send_shader_uniform(app->current_program, "uMVMatrix", it->model_view);
+      set_uniform(app->current_program, "uMVMatrix", it->model_view);
     }
 
     if (shader_has_uniform(app->current_program, "in_color")) {
-      send_shader_uniform(app->current_program, "in_color", it->color);
+      set_uniform(app->current_program, "in_color", it->color);
+    }
+
+    if (shader_has_uniform(app->current_program, "znear")) {
+      set_uniformf(app->current_program, "znear", app->camera.near);
+    }
+
+    if (shader_has_uniform(app->current_program, "zfar")) {
+      set_uniformf(app->current_program, "zfar", app->camera.far);
+    }
+
+    if (shader_has_uniform(app->current_program, "camera_depth_texture")) {
+      glActiveTexture(GL_TEXTURE0 + 2);
+      glBindTexture(GL_TEXTURE_2D, app->frames[0].depth);
+      set_uniformi(app->current_program, "camera_depth_texture", 2);
+    }
+
+    if (shader_has_uniform(app->current_program, "textureImage")) {
+      if (it->texture && it->texture != group->last_texture) {
+        glActiveTexture(GL_TEXTURE0 + 1);
+        glBindTexture(GL_TEXTURE_2D, it->texture->id);
+      }
+      set_uniformi(app->current_program, "textureImage", 1);
     }
 
     group->draw_calls += 1;

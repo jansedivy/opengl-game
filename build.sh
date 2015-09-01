@@ -22,6 +22,8 @@ libraries="
   ./libs/jemalloc/lib/libjemalloc.a
 
   -I./libs/glm
+  -I./libs/vcache
+  -I./libs/stb
 
   -F./build/$app_name/Contents/Frameworks
   -rpath @executable_path/../Frameworks

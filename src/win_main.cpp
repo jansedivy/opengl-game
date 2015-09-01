@@ -330,8 +330,8 @@ int WinMain(
   memory.main_queue = &main_queue;
 
 #if INTERNAL
-  memory.debug_assets_path = (char *)"../";
-  memory.debug_level_path = (char *)"../assets/level";
+  memory.debug_assets_path = (char *)"../../";
+  memory.debug_level_path = (char *)"../../assets/level";
 #endif
 
   AppCode code = load_app_code();

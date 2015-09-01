@@ -21,24 +21,27 @@
 
 #include "app.h"
 
+SDL_Window *window;
+int x, y;
+
 struct AppCode {
   TickType* tick;
   InitType* init;
   QuitType* quit;
 
-  time_t last_time_write;
+  u64 last_time_write;
 
   const char *path;
   void* library;
 };
 
-time_t get_last_write_time(const char *path) {
-  time_t result = 0;
+u64 get_file_time(char *path) {
+  u64 result = 0;
 
-  struct stat FileStat;
+  struct stat file_stat;
 
-  if (stat(path, &FileStat) == 0) {
-    result = FileStat.st_mtimespec.tv_sec;
+  if (stat(path, &file_stat) == 0) {
+    result = file_stat.st_mtime;
   }
 
   return result;
@@ -56,7 +59,7 @@ AppCode load_app_code() {
   }
 
   result.library = lib;
-  result.last_time_write = get_last_write_time(path);
+  result.last_time_write = get_file_time((char *)path);
   result.path = path;
 
   result.init = (InitType*)dlsym(lib, "init");
@@ -66,7 +69,7 @@ AppCode load_app_code() {
   return result;
 }
 
-void UnloadAppCode(AppCode *code) {
+void unload_app_code(AppCode *code) {
   dlclose(code->library);
 }
 
@@ -86,7 +89,7 @@ DebugReadFileResult debug_read_entire_file(const char *path) {
     size_t size = ftell(file);
     fseek(file, 0, SEEK_SET);
 
-    char *buffer = (char *)malloc(size + 1);
+    char *buffer = (char *)malloc(size);
 
     if (buffer != NULL) {
       size_t bytes_read = fread(buffer, 1, size, file);
@@ -212,9 +215,6 @@ void delay(u32 time) {
   SDL_Delay(time);
 }
 
-SDL_Window *window;
-int x, y;
-
 void lock_mouse() {
   SDL_GetMouseState(&x, &y);
 
@@ -243,11 +243,15 @@ PlatformDirectory open_directory(const char *path) {
 PlatformDirectoryEntry read_next_directory_entry(PlatformDirectory directory) {
   PlatformDirectoryEntry result;
 
-  dirent *entry = readdir(static_cast<DIR *>(directory.platform));
-  result.platform = entry;
-  if (entry) {
-    result.name = entry->d_name;
-    result.empty = false;
+  if (directory.platform != NULL) {
+    dirent *entry = readdir(static_cast<DIR *>(directory.platform));
+    result.platform = entry;
+    if (entry) {
+      result.name = entry->d_name;
+      result.empty = false;
+    } else {
+      result.empty = true;
+    }
   } else {
     result.empty = true;
   }
@@ -272,11 +276,41 @@ void close_file(PlatformFile file) {
   fclose(static_cast<FILE *>(file.platform));
 }
 
-void write_to_file(PlatformFile file, char *text) {
+void write_to_file(PlatformFile file, u64 len, void *value) {
+  fwrite(value, 1, len, static_cast<FILE *>(file.platform));
 }
 
 void create_directory(char *path) {
   mkdir(path, 0777);
+}
+
+inline void format_string(char* buf, int buf_size, const char* fmt, va_list args) {
+  int val = vsnprintf(buf, buf_size, fmt, args);
+  if (val == -1 || val >= buf_size) {
+    buf[buf_size-1] = '\0';
+  }
+}
+
+void toggle_fullscreen() {
+  u32 flags = SDL_GetWindowFlags(window);
+
+  if (flags & SDL_WINDOW_FULLSCREEN_DESKTOP) {
+    SDL_SetWindowFullscreen(window, 0);
+  } else {
+    SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+  }
+}
+
+void message_box(const char *title, const char *format, ...) {
+  static const int size = 512;
+  char message[size];
+
+  va_list args;
+  va_start(args, format);
+  format_string(message, size, format, args);
+  va_end(args);
+
+  SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, title, message, NULL);
 }
 
 PlatformFileLine read_file_line(PlatformFile file) {
@@ -339,14 +373,17 @@ int main() {
   platform.close_directory = close_directory;
   platform.write_to_file = write_to_file;
   platform.create_directory = create_directory;
+  platform.get_file_time = get_file_time;
+  platform.message_box = message_box;
+  platform.toggle_fullscreen = toggle_fullscreen;
 
   memory.platform = platform;
   memory.low_queue = &low_queue;
   memory.main_queue = &main_queue;
 
 #if INTERNAL
-  memory.debug_assets_path = (char *)"../../../";
-  memory.debug_level_path = (char *)"../../../assets/level";
+  memory.debug_assets_path = (char *)"../../../../";
+  memory.debug_level_path = (char *)"../../../../assets/level";
 #endif
 
   chdir(SDL_GetBasePath());
@@ -374,7 +411,8 @@ int main() {
 
   SDL_GL_CreateContext(window);
 
-  SDL_GL_SetSwapInterval(-1);
+  /* SDL_GL_SetSwapInterval(-1); */
+  SDL_GL_SetSwapInterval(0);
 
   glClear(GL_COLOR_BUFFER_BIT);
 
@@ -398,15 +436,19 @@ int main() {
     float delta = (now - last_time) / 1000.0f;
     last_time = now;
 
+    if (delta > (1.0f/60.0f)) {
+      delta = (1.0f/60.0f);
+    }
+
     SDL_GetWindowSize(window, &memory.width, &memory.height);
 
     Input input = {};
 
     input.delta_time = delta;
 
-    if (get_last_write_time(code.path) > code.last_time_write) {
+    if (get_file_time((char *)code.path) > code.last_time_write) {
       memory.should_reload = true;
-      UnloadAppCode(&code);
+      unload_app_code(&code);
       code = load_app_code();
     }
 
@@ -420,6 +462,9 @@ int main() {
         case SDL_KEYDOWN:
           if (event.key.keysym.scancode == SDL_SCANCODE_P) {
             input.once.key_p = true;
+          }
+          if (event.key.keysym.scancode == SDL_SCANCODE_RETURN) {
+            input.once.enter = true;
           }
           if (event.key.keysym.scancode == SDL_SCANCODE_R) {
             input.once.key_r = true;
@@ -457,6 +502,7 @@ int main() {
 
     input.space = state[SDL_SCANCODE_SPACE];
     input.shift = state[SDL_SCANCODE_LSHIFT];
+    input.alt = state[SDL_SCANCODE_LALT];
     input.key_r = state[SDL_SCANCODE_R];
     input.key_o = state[SDL_SCANCODE_O];
     input.escape = state[SDL_SCANCODE_ESCAPE];

@@ -21,6 +21,9 @@
 #include <glm/gtx/string_cast.hpp>
 #include <glm/gtx/intersect.hpp>
 #include <glm/gtx/norm.hpp>
+#include <glm/gtc/noise.hpp>
+
+#include <vcacheopt.h>
 
 #include <cstdio>
 
@@ -51,12 +54,14 @@
 
 PlatformAPI platform;
 
-class Shader {
-  public:
-    GLuint id;
-    std::unordered_map<std::string, GLuint> uniforms;
-    std::unordered_map<std::string, GLuint> attributes;
-    bool initialized = false;
+static float tau = glm::pi<float>() * 2.0f;
+static float pi = glm::pi<float>();
+
+struct Shader {
+  GLuint id;
+  std::unordered_map<std::string, GLuint> uniforms;
+  std::unordered_map<std::string, GLuint> attributes;
+  bool initialized = false;
 };
 
 struct Box {
@@ -126,11 +131,14 @@ struct TerrainChunk {
 enum EntityType {
   EntityPlayer = 0,
   EntityBlock = 1,
-  EntityParticleEmitter = 2
+  EntityParticleEmitter = 2,
+  EntityPlanet = 3,
+  EntityWater = 4
 };
 
 struct Texture {
   const char *path = NULL;
+
   GLuint id = 0;
   u8 *data = NULL;
 
@@ -151,20 +159,19 @@ namespace EntityFlags {
     RENDER_HIDDEN = (1 << 3),
     RENDER_WIREFRAME = (1 << 4),
     RENDER_IGNORE_DEPTH = (1 << 5),
-    HIDE_IN_EDITOR = (1 << 6)
+    HIDE_IN_EDITOR = (1 << 6),
+    LOOK_AT_CAMERA = (1 << 7)
   };
 };
 
 struct RayMatchResult {
   bool hit;
   glm::vec3 hit_position;
-  float distance;
 };
 
 struct Entity {
   u32 id = 0;
 
-  u32 render_flags = 0;
   u32 flags = 0;
 
   Model *model = NULL;
@@ -179,9 +186,10 @@ struct Entity {
 
   EntityType type;
   Texture *texture = 0;
-};
 
-#include "render_group.h"
+  // TODO(sedivy): Move planet specific stuff into union
+  std::vector<glm::vec2> positions;
+};
 
 struct Ray {
   glm::vec3 start;
@@ -220,9 +228,12 @@ struct Camera {
   float near;
 };
 
+#include "render_group.h"
+
 struct EditorHandleRenderCommand {
   float distance_from_camera;
   glm::mat4 model_view;
+  glm::vec4 color;
 };
 
 namespace UICommandType {
@@ -249,14 +260,18 @@ namespace EditorLeftState {
   enum EditorLeftState {
     MODELING,
     TERRAIN,
-    POST_PROCESSING
+    EDITOR_SETTINGS,
+    POST_PROCESSING,
+    LIGHT,
   };
 }
 
 struct Editor {
-  bool holding_entity;
-  bool inspect_entity;
+  bool holding_entity = false;
+  bool hovering_entity = false;
+  bool inspect_entity = false;
   u32 entity_id;
+  u32 hover_entity;
   float distance_from_entity_offset;
   glm::vec3 hold_offset;
   float handle_size;
@@ -264,6 +279,7 @@ struct Editor {
   bool show_left = true;
   bool show_right = true;
 
+  bool show_handles = true;
   bool show_performance = false;
   bool show_state_changes = false;
 
@@ -320,10 +336,13 @@ struct App {
   u32 last_id;
 
   Shader main_object_program;
+  Shader transparent_program;
+  Shader water_program;
   Shader debug_program;
   Shader ui_program;
   Shader solid_program;
   Shader fullscreen_program;
+  Shader fullscreen_merge_alpha;
   Shader fullscreen_fog_program;
   Shader fullscreen_color_program;
   Shader fullscreen_fxaa_program;
@@ -336,6 +355,7 @@ struct App {
   Shader particle_program;
   Shader skybox_program;
   Shader textured_program;
+  Shader controls_program;
 
   Shader *current_program;
 
@@ -350,6 +370,11 @@ struct App {
   u32 write_frame;
   FrameBuffer frames[2];
 
+  GLuint transparent_buffer;
+  GLuint transparent_color_texture;
+  GLuint transparent_alpha_texture;
+  GLenum transparent_buffers[2];
+
   GLuint shadow_buffer;
   GLuint shadow_depth_texture;
   u32 shadow_width;
@@ -357,7 +382,10 @@ struct App {
 
   Texture gradient_texture;
   Texture color_correction_texture;
+  Texture planet_texture;
   Texture circle_texture;
+  Texture debug_texture;
+  Texture debug_transparent_texture;
   Texture editor_texture;
   CubeMap cubemap;
 
@@ -383,6 +411,7 @@ struct App {
   u32 chunk_cache_count;
 
   RenderGroup render_group;
+  RenderGroup transparent_render_group;
 
   bool editing_mode = false;
 

@@ -37,11 +37,11 @@ void main() {
   vec3 V = normalize(eye_position - inPosition.xyz);
 
   vec3 rim = vec3(smoothstep(0.5, 1.0, 1.0 - max(dot(V, normals), 0.0)));
-  vec3 light = rim + final_directional_light;
+  vec3 light = final_directional_light;
 
   vec2 shadow_offset = get_shadow_offsets(normals, direction_to_light);
 
-  vec4 sc = depthScaleMatrix * shadow_matrix * (inPosition + vec4(normals * 2.0, 0.0));
+  vec4 sc = depthScaleMatrix * shadow_matrix * (inPosition + vec4(normals * 2, 0.0));
 
   float shadow = 1.0;
   if (sc.w > 0.0 && (sc.x > 0 && sc.y > 0) && (sc.x < 1 && sc.y < 1)) {
@@ -68,20 +68,20 @@ void main() {
     float v1 = (3 + t) / vw1;
     float v2 = t / vw2 + 2;
 
-    sum += uw0 * vw0 * offset_lookup(uShadow, sc, vec2(u0, v0));
-    sum += uw1 * vw0 * offset_lookup(uShadow, sc, vec2(u1, v0));
-    sum += uw2 * vw0 * offset_lookup(uShadow, sc, vec2(u2, v0));
+    sum += uw0 * vw0 * offset_lookup(uShadow, sc, shadow_offset + vec2(u0, v0));
+    sum += uw1 * vw0 * offset_lookup(uShadow, sc, shadow_offset + vec2(u1, v0));
+    sum += uw2 * vw0 * offset_lookup(uShadow, sc, shadow_offset + vec2(u2, v0));
 
-    sum += uw0 * vw1 * offset_lookup(uShadow, sc, vec2(u0, v1));
-    sum += uw1 * vw1 * offset_lookup(uShadow, sc, vec2(u1, v1));
-    sum += uw2 * vw1 * offset_lookup(uShadow, sc, vec2(u2, v1));
+    sum += uw0 * vw1 * offset_lookup(uShadow, sc, shadow_offset + vec2(u0, v1));
+    sum += uw1 * vw1 * offset_lookup(uShadow, sc, shadow_offset + vec2(u1, v1));
+    sum += uw2 * vw1 * offset_lookup(uShadow, sc, shadow_offset + vec2(u2, v1));
 
-    sum += uw0 * vw2 * offset_lookup(uShadow, sc, vec2(u0, v2));
-    sum += uw1 * vw2 * offset_lookup(uShadow, sc, vec2(u1, v2));
-    sum += uw2 * vw2 * offset_lookup(uShadow, sc, vec2(u2, v2));
+    sum += uw0 * vw2 * offset_lookup(uShadow, sc, shadow_offset + vec2(u0, v2));
+    sum += uw1 * vw2 * offset_lookup(uShadow, sc, shadow_offset + vec2(u1, v2));
+    sum += uw2 * vw2 * offset_lookup(uShadow, sc, shadow_offset + vec2(u2, v2));
 
     shadow = sum * 1.0 / 144;
   }
 
-  color = vec4(in_color.xyz * (vec3(0.8) + light * shadow), 1.0);
+  color = vec4(in_color.xyz * (vec3(0.8) + light * shadow), in_color.a);
 }

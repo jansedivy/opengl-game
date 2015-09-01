@@ -1,14 +1,5 @@
 #include "app.h"
 
-#if INTERNAL
-char *debug_assets_path = (char *)"../../../";
-char *debug_level_path = (char *)"../../../assets/level";
-#endif
-
-float clamp(float value, float min, float max) {
-  return std::max(min, std::min(max, value));
-}
-
 void normalize_plane(Plane *plane) {
   float mag = glm::sqrt(plane->normal.x * plane->normal.x + plane->normal.y * plane->normal.y + plane->normal.z * plane->normal.z);
   plane->normal = plane->normal / mag;
@@ -27,28 +18,31 @@ inline Entity *get_entity_by_id(App *app, u32 id) {
 }
 
 char *join_string(char *first, char *second) {
-  u32 first_len = strlen(first);
-  u32 second_len = strlen(second);
+  char *result = static_cast<char *>(malloc(strlen(first) + strlen(second) + 1));
 
-  char *result = static_cast<char *>(malloc(first_len + second_len));
   strcpy(result, first);
-  strcpy(result + first_len, second);
+  strcat(result, second);
 
   return result;
 }
 
 void acquire_asset_file(char *path) {
 #if INTERNAL
-  char *full_path = join_string(debug_global_memory->debug_assets_path, path);
+  char *original_file_path = join_string(debug_global_memory->debug_assets_path, path);
+  u64 original_time = platform.get_file_time(original_file_path);
+  u64 used_time = platform.get_file_time(path);
 
-  DebugReadFileResult result = platform.debug_read_entire_file(full_path);
+  if (original_time > used_time) {
+    DebugReadFileResult result = platform.debug_read_entire_file(original_file_path);
 
-  PlatformFile file = platform.open_file(path, "w+");
-  fwrite(result.contents, 1, result.fileSize, (FILE *)file.platform); // TODO(sedivy): remove fwrite
-  platform.close_file(file);
+    PlatformFile file = platform.open_file(path, "w+");
+    platform.write_to_file(file, result.fileSize, result.contents);
+    platform.close_file(file);
 
-  platform.debug_free_file(result);
-  free(full_path);
+    platform.debug_free_file(result);
+  }
+
+  free(original_file_path);
 #endif
 }
 
@@ -74,7 +68,7 @@ float distance_from_plane(Plane plane, glm::vec3 position) {
 
 const char *get_filename_ext(const char *filename) {
   const char *dot = strrchr(filename, '.');
-  if(!dot || dot == filename) return "";
+  if (!dot || dot == filename) return "";
   return dot + 1;
 }
 
@@ -96,7 +90,6 @@ Model *get_model_by_name(App *app, char *name) {
 
 float get_terrain_height_at(float x, float y) {
   return (
-    scaled_octave_noise_2d(20.0f, 0.3f, 10.0f, 0.0f, 40.0f, y / 4000.0f, x / 4000.0f) +
     scaled_octave_noise_2d(20.0f, 0.3f, 10.0f, 0.0f, 40.0f, x / 4000.0f, y / 4000.0f) +
     scaled_octave_noise_2d(1.0f, 1.0f, 10.0f, -100.0f, 500.0f, x / 40000.0f, y / 40000.0f) +
     scaled_octave_noise_2d(1.0f, 1.0f, 10.0f, 00.0f, 1000.0f, x / 400000.0f, y / 400000.0f) +
@@ -114,9 +107,9 @@ void save_binary_level_file(LoadedLevel loaded_level) {
   header.entity_count = loaded_level.entities.size();
 
   PlatformFile file = platform.open_file((char *)"assets/level.level", "w");
-  fwrite(&header, 1, sizeof(header), (FILE *)file.platform); // TODO(sedivy): remove fwrite
+  platform.write_to_file(file, sizeof(header), &header);
   for (auto it = loaded_level.entities.begin(); it != loaded_level.entities.end(); it++) {
-    fwrite(&(*it), 1, sizeof(EntitySave), (FILE *)file.platform);
+    platform.write_to_file(file, sizeof(EntitySave), &(*it));
   }
   platform.close_file(file);
 }
@@ -263,51 +256,61 @@ void load_debug_level(Memory *memory, App *app) {
 }
 
 RayMatchResult ray_match_sphere(Ray ray, glm::vec3 position, float radius) {
+  glm::vec3 result_position;
+  glm::vec3 result_normal;
+
   RayMatchResult result;
-  result.hit = false;
-
-  glm::vec3 offset = ray.start - position;
-  float a = glm::dot(ray.direction, ray.direction);
-  float b = 2 * glm::dot(ray.direction, offset);
-
-  float c = glm::dot(offset, offset) - radius * radius;
-  float discriminant = b * b - 4 * a * c;
-
-  if (discriminant > 0.0f) {
-    float t = (-b - sqrt(discriminant)) / (2 * a);
-    if (t >= 0.0f) {
-
-      result.hit = true;
-      result.distance = t;
-      result.hit_position = ray.start + (ray.direction * t);
-    }
+  result.hit = intersectRaySphere(ray.start, ray.direction, position, radius, result_position, result_normal);
+  if (result.hit) {
+    result.hit_position = result_position;
   }
 
   return result;
 }
 
-#if 0
-bool ray_match_entity(Ray ray, Entity *entity) {
-  /* if (!entity->model) { */
-  /*   return false; */
-  /* } */
+glm::mat4 make_billboard_matrix(glm::vec3 position, glm::vec3 camera_position, glm::vec3 camera_up) {
+  glm::vec3 look = glm::normalize(camera_position - position);
+  glm::vec3 right = glm::cross(camera_up, look);
+  glm::vec3 up = glm::cross(look, right);
+  glm::mat4 transform;
+  transform[0] = glm::vec4(right, 0.0f);
+  transform[1] = glm::vec4(up, 0.0f);
+  transform[2] = glm::vec4(look, 0.0f);
+  /* transform[3] = glm::vec4(position, 1.0f); */
+  return transform;
+}
 
-  /* if (!ray_match_sphere(ray, entity->position, entity->model->radius * glm::compMax(entity->scale))) { */
-  /*   return false; */
-  /* } */
+RayMatchResult ray_match_entity(App *app, Ray ray, Entity *entity) {
+  RayMatchResult result;
+
+  if (!entity->model) {
+    result.hit = false;
+    return result;
+  }
+
+  RayMatchResult sphere = ray_match_sphere(ray, entity->position, entity->model->radius * glm::compMax(entity->scale));
+  if (!sphere.hit) {
+    result.hit = false;
+    return result;
+  }
 
   glm::mat4 model_view;
   model_view = glm::translate(model_view, entity->position);
-  /* model_view = glm::rotate(model_view, entity->rotation.x, glm::vec3(1.0, 0.0, 0.0)); */
-  /* model_view = glm::rotate(model_view, entity->rotation.y, glm::vec3(0.0, 1.0, 0.0)); */
-  /* model_view = glm::rotate(model_view, entity->rotation.z, glm::vec3(0.0, 0.0, 1.0)); */
-  model_view = glm::scale(model_view, entity->scale);
 
+  if (entity->flags & EntityFlags::LOOK_AT_CAMERA) {
+    model_view *= make_billboard_matrix(entity->position, app->camera.position, glm::vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
+  }
+
+  model_view = glm::rotate(model_view, entity->rotation.x, glm::vec3(1.0, 0.0, 0.0));
+  model_view = glm::rotate(model_view, entity->rotation.y, glm::vec3(0.0, 1.0, 0.0));
+  model_view = glm::rotate(model_view, entity->rotation.z, glm::vec3(0.0, 0.0, 1.0));
+
+  model_view = glm::scale(model_view, entity->scale);
 
   glm::mat4 res = glm::inverse(model_view);
 
-  glm::vec3 start = glm::vec3(glm::vec4(ray.start, 0.0f) * res);
-  glm::vec3 direction = glm::normalize(glm::vec3(res * glm::vec4(ray.start + ray.direction, 0.0f)) - start);
+  glm::vec3 start = glm::vec3(res * glm::vec4(ray.start, 1.0f));
+  glm::vec3 direction = glm::vec3(res * glm::vec4(ray.direction, 0.0f));
 
   ModelData mesh = entity->model->mesh.data;
 
@@ -329,15 +332,17 @@ bool ray_match_entity(Ray ray, Entity *entity) {
                              mesh.vertices[indices_c + 2]);
 
     glm::vec3 result_position;
+
     if (glm::intersectRayTriangle(start, direction, a, b, c, result_position)) {
-      return true;
+      result.hit_position = ray.start + ray.direction * result_position.z;
+      result.hit = true;
+      return result;
     }
   }
 
-
-  return false;
+  result.hit = false;
+  return result;
 }
-#endif
 
 bool is_sphere_in_frustum(Frustum *frustum, glm::vec3 position, float radius) {
   for (int i=0; i<6; i++) {
@@ -435,21 +440,21 @@ char *allocate_string(const char *string) {
   return new_location;
 }
 
-void initialize_texture(Texture *texture, GLenum type=GL_RGB, bool mipmap=true, GLenum wrap_type=GL_REPEAT) {
+void initialize_texture(Texture *texture, GLenum interal_type=GL_RGB, GLenum type=GL_RGB, bool mipmap=true, GLenum wrap_type=GL_REPEAT) {
   if (!texture->initialized) {
     glGenTextures(1, &texture->id);
 
     glBindTexture(GL_TEXTURE_2D, texture->id);
-    glTexImage2D(GL_TEXTURE_2D, 0, type, texture->width, texture->height, 0, type, GL_UNSIGNED_BYTE, texture->data);
+    glTexImage2D(GL_TEXTURE_2D, 0, interal_type, texture->width, texture->height, 0, type, GL_UNSIGNED_BYTE, texture->data);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap_type);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap_type);
 
-    float aniso = 0.0f;
-    glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &aniso);
-    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, aniso);
-
     if (mipmap) {
+      float aniso = 0.0f;
+      glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &aniso);
+      glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, aniso);
+
       glGenerateMipmap(GL_TEXTURE_2D);
       glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     } else {
@@ -461,6 +466,22 @@ void initialize_texture(Texture *texture, GLenum type=GL_RGB, bool mipmap=true, 
 
     texture->initialized = true;
   }
+}
+
+void optimize_model(Model *model) {
+#if 0
+  VertexCache vertex_cache;
+  int misses = vertex_cache.GetCacheMissCount(model->mesh.data.indices, model->mesh.data.indices_count / 3);
+  float before = (float)misses/(float)model->mesh.data.indices_count;
+#endif
+
+  VertexCacheOptimizer vco;
+  VertexCacheOptimizer::Result res = vco.Optimize(model->mesh.data.indices, model->mesh.data.indices_count / 3);
+
+#if 0
+  misses = vertex_cache.GetCacheMissCount(model->mesh.data.indices, model->mesh.data.indices_count / 3);
+  printf("%s before: (%f) - after: (%f)\n", model->id_name, before, (float)misses/(float)model->mesh.data.indices_count / 3);
+#endif
 }
 
 void initialize_model(Model *model) {
@@ -496,75 +517,6 @@ void initialize_model(Model *model) {
   model->initialized = true;
 }
 
-inline bool shader_has_attribute(Shader *shader, const char *name) {
-  return shader->attributes.count(name);
-}
-
-inline GLuint shader_get_attribute_location(Shader *shader, const char *name) {
-  assert(shader_has_attribute(shader, name));
-  return shader->attributes[name];
-}
-
-void use_program(App* app, Shader *program) {
-  if (program == app->current_program) { return; }
-  if (app->current_program != NULL) {
-    for (auto it = app->current_program->attributes.begin(); it != app->current_program->attributes.end(); it++) {
-      glDisableVertexAttribArray(it->second);
-    }
-  }
-
-  app->current_program = program;
-  glUseProgram(program->id);
-
-  for (auto it = program->attributes.begin(); it != program->attributes.end(); it++) {
-    glEnableVertexAttribArray(it->second);
-  }
-}
-
-void unload_chunk(TerrainChunk *chunk) {
-  for (u32 i=0; i<array_count(chunk->models); i++) {
-    Model *model = chunk->models + i;
-    unload_model(model);
-  }
-  chunk->has_data = false;
-  chunk->is_being_loaded = false;
-}
-
-TerrainChunk *get_chunk_at(TerrainChunk *chunks, u32 count, u32 x, u32 y) {
-  u32 hash = 6269 * x + 8059 * y;
-  u32 slot = hash % (count - 1);
-  assert(slot < count);
-
-  TerrainChunk *chunk = chunks + slot;
-
-  do {
-    if (chunk->initialized) {
-      if (chunk->x == x && chunk->y == y) {
-        break;
-      }
-
-      if (!chunk->next) {
-        chunk->next = static_cast<TerrainChunk *>(malloc(sizeof(TerrainChunk)));
-        chunk->next->initialized = false;
-        chunk->next->prev = chunk;
-      }
-    } else {
-      chunk->x = x;
-      chunk->y = y;
-      chunk->initialized = true;
-      chunk->next = 0;
-      chunk->models[0].initialized = false;
-      chunk->has_data = false;
-      chunk->is_being_loaded = false;
-      break;
-    }
-
-    chunk = chunk->next;
-  } while (chunk);
-
-  return chunk;
-}
-
 void allocate_mesh(Mesh *mesh, u32 vertices_count, u32 normals_count, u32 indices_count, u32 uv_count) {
   u32 vertices_size = vertices_count * sizeof(float);
   u32 normals_size = normals_count * sizeof(float);
@@ -592,214 +544,12 @@ void allocate_mesh(Mesh *mesh, u32 vertices_count, u32 normals_count, u32 indice
   mesh->data.uv_count = uv_count;
 }
 
-Model generate_ground(int chunk_x, int chunk_y, float detail) {
-  int size_x = CHUNK_SIZE_X;
-  int size_y = CHUNK_SIZE_Y;
-
-  int offset_x = chunk_x * size_x;
-  int offset_y = chunk_y * size_y;
-
-  int width = size_x * detail + 1;
-  int height = size_y * detail + 1;
-
-  u32 vertices_count = width * height * 3;
-  u32 normals_count = vertices_count;
-  u32 indices_count = (width - 1) * (height - 1) * 6;
-
-  Mesh mesh;
-  allocate_mesh(&mesh, vertices_count, normals_count, indices_count, 0);
-
-  u32 vertices_index = 0;
-  u32 normals_index = 0;
-  u32 indices_index = 0;
-
-  float radius = 0.0f;
-
-  for (int x=0; x<width; x++) {
-    for (int y=0; y<height; y++) {
-      float x_coord = static_cast<float>(x) / detail;
-      float y_coord = static_cast<float>(y) / detail;
-
-      float value = get_terrain_height_at(x_coord + offset_x, y_coord + offset_y);
-
-      mesh.data.vertices[vertices_index++] = x_coord;
-      mesh.data.vertices[vertices_index++] = value;
-      mesh.data.vertices[vertices_index++] = y_coord;
-
-      // TODO(sedivy): calculate center
-      float distance = glm::length(glm::vec3(x_coord, value, y_coord));
-      if (distance > radius) {
-        radius = distance;
-      }
-
-      mesh.data.normals[normals_index++] = 0.0f;
-      mesh.data.normals[normals_index++] = 0.0f;
-      mesh.data.normals[normals_index++] = 0.0f;
-    }
-  }
-
-  for (int i=0; i<height - 1; i++) {
-    for (int l=0; l<width - 1; l++) {
-      mesh.data.indices[indices_index++] = (height * l + i + 0);
-      mesh.data.indices[indices_index++] = (height * l + i + 1);
-      mesh.data.indices[indices_index++] = (height * l + i + height);
-
-      mesh.data.indices[indices_index++] = (height * l + i + height);
-      mesh.data.indices[indices_index++] = (height * l + i + 1);
-      mesh.data.indices[indices_index++] = (height * l + i + height + 1);
-    }
-  }
-
-  for (u32 i=0; i<indices_count; i += 3) {
-    int indices_a = mesh.data.indices[i + 0] * 3;
-    int indices_b = mesh.data.indices[i + 1] * 3;
-    int indices_c = mesh.data.indices[i + 2] * 3;
-
-    glm::vec3 v0 = glm::vec3(mesh.data.vertices[indices_a + 0],
-                             mesh.data.vertices[indices_a + 1],
-                             mesh.data.vertices[indices_a + 2]);
-
-    glm::vec3 v1 = glm::vec3(mesh.data.vertices[indices_b + 0],
-                             mesh.data.vertices[indices_b + 1],
-                             mesh.data.vertices[indices_b + 2]);
-
-    glm::vec3 v2 = glm::vec3(mesh.data.vertices[indices_c + 0],
-                             mesh.data.vertices[indices_c + 1],
-                             mesh.data.vertices[indices_c + 2]);
-
-    glm::vec3 normal = glm::normalize(glm::cross(v2 - v0, v1 - v0));
-
-    mesh.data.normals[indices_a + 0] = -normal.x;
-    mesh.data.normals[indices_a + 1] = -normal.y;
-    mesh.data.normals[indices_a + 2] = -normal.z;
-
-    mesh.data.normals[indices_b + 0] = -normal.x;
-    mesh.data.normals[indices_b + 1] = -normal.y;
-    mesh.data.normals[indices_b + 2] = -normal.z;
-
-    mesh.data.normals[indices_c + 0] = -normal.x;
-    mesh.data.normals[indices_c + 1] = -normal.y;
-    mesh.data.normals[indices_c + 2] = -normal.z;
-  }
-
-  for (u32 i=0; i<normals_count / 3; i += 3) {
-    float x = mesh.data.normals[i + 0];
-    float y = mesh.data.normals[i + 1];
-    float z = mesh.data.normals[i + 2];
-
-    glm::vec3 normal = glm::normalize(glm::vec3(x, y, z));
-
-    mesh.data.normals[i + 0] = normal.x;
-    mesh.data.normals[i + 1] = normal.y;
-    mesh.data.normals[i + 2] = normal.z;
-  }
-
-  Model model;
-  model.path = allocate_string("chunk");
-  model.mesh = mesh;
-  model.initialized = false;
-  model.has_data = true;
-  model.is_being_loaded = false;
-  model.radius = radius;
-
-  return model;
-}
-
-void delete_shader(Shader *shader) {
-  glDeleteProgram(shader->id);
-  shader->initialized = false;
-  shader->uniforms.clear();
-  shader->attributes.clear();
-}
-
-Shader *create_shader(Shader *shader, const char *vert_filename, const char *frag_filename) {
-  acquire_asset_file((char *)vert_filename);
-  acquire_asset_file((char *)frag_filename);
-
-  if (shader->initialized) {
-    delete_shader(shader);
-  }
-
-  GLuint vertexShader;
-  GLuint fragmentShader;
-
-  {
-    DebugReadFileResult vertex = platform.debug_read_entire_file(vert_filename);
-    vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertexShader, 1, &vertex.contents, (const GLint*)&vertex.fileSize);
-    glCompileShader(vertexShader);
-
-    GLint success;
-    GLchar infoLog[512];
-    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
-
-    if (!success) {
-      glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-      printf("ERROR::SHADER::VERTEX::COMPILATION_FAILED\n %s\n", infoLog);
-    }
-
-    platform.debug_free_file(vertex);
-  }
-
-  {
-    DebugReadFileResult fragment = platform.debug_read_entire_file(frag_filename);
-
-    fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragmentShader, 1, &fragment.contents, (const GLint*)&fragment.fileSize);
-    glCompileShader(fragmentShader);
-
-    GLint success;
-    GLchar infoLog[512];
-    glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
-
-    if (!success) {
-      glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-      printf("ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n %s\n", infoLog);
-    }
-    platform.debug_free_file(fragment);
-  }
-
-  GLuint shaderProgram;
-  shaderProgram = glCreateProgram();
-
-  glAttachShader(shaderProgram, vertexShader);
-  glAttachShader(shaderProgram, fragmentShader);
-  glLinkProgram(shaderProgram);
-
-  glDeleteShader(vertexShader);
-  glDeleteShader(fragmentShader);
-
-  shader->id = shaderProgram;
-  shader->initialized = true;
-
-  glUseProgram(shaderProgram);
-
-  int length, size, count;
-  char name[256];
-  GLenum type;
-  glGetProgramiv(shaderProgram, GL_ACTIVE_UNIFORMS, &count);
-  for (int i=0; i<count; i++) {
-    glGetActiveUniform(shaderProgram, static_cast<GLuint>(i), sizeof(name), &length, &size, &type, name);
-    shader->uniforms[name] = glGetUniformLocation(shaderProgram, name);
-  }
-
-  glGetProgramiv(shaderProgram, GL_ACTIVE_ATTRIBUTES, &count);
-  for (int i=0; i<count; i++) {
-    glGetActiveAttrib(shaderProgram, GLuint(i), sizeof(name), &length, &size, &type, name);
-    shader->attributes[name] = glGetAttribLocation(shaderProgram, name);
-  }
-
-  glUseProgram(0);
-
-  return shader;
-}
+#include "shader.h"
+#include "chunk.h"
 
 u32 next_entity_id(App *app) {
   return ++app->last_id;
 }
-
-static float tau = glm::pi<float>() * 2.0f;
-static float pi = glm::pi<float>();
 
 u32 generate_blue_noise(glm::vec2 *positions, u32 position_count, float min_radius, float radius) {
   u32 noise_count = 0;
@@ -900,29 +650,14 @@ void save_level(Memory *memory, App *app) {
 void quit(Memory *memory) {
 }
 
-void load_color_grading_texture(Texture *texture) {
-  load_texture(texture, STBI_rgb_alpha);
-  glGenTextures(1, &texture->id);
-
-  glBindTexture(GL_TEXTURE_2D, texture->id);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, 256, 16, 0, GL_RGBA, GL_UNSIGNED_BYTE, texture->data);
-
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-
-  glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glBindTexture(GL_TEXTURE_2D, 0);
-
-  texture->initialized = true;
-  texture->data = NULL;
-}
-
 void setup_all_shaders(App *app) {
   create_shader(&app->main_object_program, "assets/shaders/object.vert", "assets/shaders/object.frag");
+  create_shader(&app->transparent_program, "assets/shaders/transparent.vert", "assets/shaders/transparent.frag");
+  create_shader(&app->water_program, "assets/shaders/water.vert", "assets/shaders/water.frag");
   create_shader(&app->solid_program, "assets/shaders/solid.vert", "assets/shaders/solid.frag");
   create_shader(&app->terrain_program, "assets/shaders/terrain.vert", "assets/shaders/terrain.frag");
   create_shader(&app->textured_program, "assets/shaders/textured.vert", "assets/shaders/textured.frag");
+  create_shader(&app->controls_program, "assets/shaders/controls.vert", "assets/shaders/controls.frag");
 
   create_shader(&app->debug_program, "assets/shaders/debug.vert", "assets/shaders/debug.frag");
   create_shader(&app->particle_program, "assets/shaders/particle.vert", "assets/shaders/particle.frag");
@@ -932,6 +667,7 @@ void setup_all_shaders(App *app) {
   create_shader(&app->ui_program, "assets/shaders/ui.vert", "assets/shaders/ui.frag");
 
   create_shader(&app->fullscreen_program, "assets/shaders/fullscreen.vert", "assets/shaders/fullscreen.frag");
+  create_shader(&app->fullscreen_merge_alpha, "assets/shaders/fullscreen.vert", "assets/shaders/fullscreen_merge_alpha.frag");
   create_shader(&app->fullscreen_fog_program, "assets/shaders/fullscreen.vert", "assets/shaders/fullscreen_fog.frag");
   create_shader(&app->fullscreen_color_program, "assets/shaders/fullscreen.vert", "assets/shaders/fullscreen_color.frag");
   create_shader(&app->fullscreen_fxaa_program, "assets/shaders/fullscreen.vert", "assets/shaders/fullscreen_fxaa.frag");
@@ -997,24 +733,24 @@ void init(Memory *memory) {
 
       u32 vertices_count = (latitude_bands + 1) * (longitude_bands + 1) * 3;
       u32 normals_count = vertices_count;
-      /* u32 uv_count = 0; */
+      u32 uv_count = vertices_count;
       u32 indices_count = latitude_bands * longitude_bands * 6;
 
       Mesh mesh;
-      allocate_mesh(&mesh, vertices_count, normals_count, indices_count, 0);
+      allocate_mesh(&mesh, vertices_count, normals_count, indices_count, uv_count);
 
       u32 vertices_index = 0;
       u32 normals_index = 0;
-      /* u32 uv_index = 0; */
+      u32 uv_index = 0;
       u32 indices_index = 0;
 
       for (float lat_number = 0; lat_number <= latitude_bands; lat_number++) {
-        float theta = lat_number * M_PI / latitude_bands;
+        float theta = lat_number * pi / latitude_bands;
         float sinTheta = sin(theta);
         float cos_theta = cos(theta);
 
         for (float long_number = 0; long_number <= longitude_bands; long_number++) {
-          float phi = long_number * 2 * M_PI / longitude_bands;
+          float phi = long_number * 2 * pi / longitude_bands;
           float sin_phi = sin(phi);
           float cos_phi = cos(phi);
 
@@ -1022,8 +758,8 @@ void init(Memory *memory) {
           float y = cos_theta;
           float z = sin_phi * sinTheta;
 
-          /* uv.push_back(1 - (long_number / longitude_bands)); */
-          /* uv.push_back(1 - (lat_number / latitude_bands)); */
+          mesh.data.uv[uv_index++] = 1 - (long_number / longitude_bands);
+          mesh.data.uv[uv_index++] = 1 - (lat_number / latitude_bands);
 
           mesh.data.vertices[vertices_index++] = radius * x;
           mesh.data.vertices[vertices_index++] = radius * y;
@@ -1212,31 +948,53 @@ void init(Memory *memory) {
   }
 
   app->color_correction_texture.path = allocate_string("assets/textures/color_correction.png");
+  app->planet_texture.path = allocate_string("assets/textures/planet.jpg");
   app->gradient_texture.path = allocate_string("assets/textures/gradient.png");
   app->circle_texture.path = allocate_string("assets/textures/circle.png");
+  app->debug_texture.path = allocate_string("assets/textures/debug.png");
+  app->debug_transparent_texture.path = allocate_string("assets/textures/debug_transparent.png");
   app->editor_texture.path = allocate_string("assets/textures/editor_images.png");
 
   {
     load_texture(&app->gradient_texture, STBI_rgb_alpha);
-    initialize_texture(&app->gradient_texture, GL_RGBA, false);
+    initialize_texture(&app->gradient_texture, GL_RGBA, GL_RGBA, false);
     stbi_image_free(app->gradient_texture.data);
     app->gradient_texture.data = NULL;
   }
 
   {
     load_texture(&app->editor_texture, STBI_rgb_alpha);
-    initialize_texture(&app->editor_texture, GL_RGBA, false);
+    initialize_texture(&app->editor_texture, GL_RGBA, GL_RGBA, false);
     stbi_image_free(app->editor_texture.data);
     app->editor_texture.data = NULL;
   }
 
-  load_color_grading_texture(&app->color_correction_texture);
+  {
+    load_texture(&app->color_correction_texture, STBI_rgb_alpha);
+    initialize_texture(&app->color_correction_texture, GL_RGB8, GL_RGBA, false);
+    stbi_image_free(app->color_correction_texture.data);
+    app->color_correction_texture.data = NULL;
+  }
 
   {
     load_texture(&app->circle_texture, STBI_rgb_alpha);
-    initialize_texture(&app->circle_texture, GL_RGBA, true);
+    initialize_texture(&app->circle_texture, GL_RGBA, GL_RGBA, true);
     stbi_image_free(app->circle_texture.data);
     app->circle_texture.data = NULL;
+  }
+
+  {
+    load_texture(&app->debug_texture, STBI_rgb_alpha);
+    initialize_texture(&app->debug_texture, GL_RGBA, GL_RGBA, true);
+    stbi_image_free(app->debug_texture.data);
+    app->debug_texture.data = NULL;
+  }
+
+  {
+    load_texture(&app->debug_transparent_texture, STBI_rgb_alpha);
+    initialize_texture(&app->debug_transparent_texture, GL_RGBA, GL_RGBA, true);
+    stbi_image_free(app->debug_transparent_texture.data);
+    app->debug_transparent_texture.data = NULL;
   }
 
   acquire_asset_file((char *)"assets/font.ttf");
@@ -1298,7 +1056,7 @@ void init(Memory *memory) {
   for (u32 i=0; i<array_count(app->frames); i++) {
     FrameBuffer *frame = app->frames + i;
 
-#if 0
+#if 1
     frame->width = memory->width;
     frame->height = memory->height;
 #else
@@ -1339,6 +1097,35 @@ void init(Memory *memory) {
       glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, frame->depth, 0);
     }
   }
+
+  {
+    glGenFramebuffers(1, &app->transparent_buffer);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, app->transparent_buffer);
+
+    glGenTextures(1, &app->transparent_color_texture);
+    glBindTexture(GL_TEXTURE_2D, app->transparent_color_texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, app->frames[0].width, app->frames[0].height, 0, GL_RGBA, GL_FLOAT, NULL);
+    /* glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, app->frames[0].width, app->frames[0].height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL); */
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, app->transparent_color_texture, 0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glGenTextures(1, &app->transparent_alpha_texture);
+    glBindTexture(GL_TEXTURE_2D, app->transparent_alpha_texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, app->frames[0].width, app->frames[0].height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    /* glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, app->frames[0].width, app->frames[0].height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL); */
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, app->transparent_alpha_texture, 0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    app->transparent_buffers[0] = GL_COLOR_ATTACHMENT0;
+    app->transparent_buffers[1] = GL_COLOR_ATTACHMENT1;
+  }
+
 
   {
     app->shadow_width = 4096;
@@ -1449,50 +1236,6 @@ void init(Memory *memory) {
   glBufferData(GL_ARRAY_BUFFER, array_count(app->particles) * 4 * sizeof(GLfloat), NULL, GL_STREAM_DRAW);
 }
 
-inline bool shader_has_uniform(Shader *shader, const char *name) {
-  return shader->uniforms.count(name);
-}
-
-inline GLuint shader_get_uniform_location(Shader *shader, const char *name) {
-  assert(shader_has_uniform(shader, name));
-  return shader->uniforms[name];
-}
-
-inline void send_shader_uniform(Shader *shader, const char *name, glm::mat4 value) {
-  GLint location = shader_get_uniform_location(shader, name);
-  glUniformMatrix4fv(location, 1, false, glm::value_ptr(value));
-}
-
-inline void send_shader_uniform(Shader *shader, const char *name, glm::mat3 value) {
-  GLint location = shader_get_uniform_location(shader, name);
-  glUniformMatrix3fv(location, 1, false, glm::value_ptr(value));
-}
-
-inline void send_shader_uniformi(Shader *shader, const char *name, int value) {
-  GLint location = shader_get_uniform_location(shader, name);
-  glUniform1i(location, value);
-}
-
-inline void send_shader_uniformf(Shader *shader, const char *name, float value) {
-  GLint location = shader_get_uniform_location(shader, name);
-  glUniform1f(location, value);
-}
-
-inline void send_shader_uniform(Shader *shader, const char *name, glm::vec3 value) {
-  GLint location = shader_get_uniform_location(shader, name);
-  glUniform3fv(location, 1, glm::value_ptr(value));
-}
-
-inline void send_shader_uniform(Shader *shader, const char *name, glm::vec4 value) {
-  GLint location = shader_get_uniform_location(shader, name);
-  glUniform4fv(location, 1, glm::value_ptr(value));
-}
-
-inline void send_shader_uniform(Shader *shader, const char *name, glm::vec2 value) {
-  GLint location = shader_get_uniform_location(shader, name);
-  glUniform2fv(location, 1, glm::value_ptr(value));
-}
-
 struct LoadModelWork {
   Model *model;
 };
@@ -1587,38 +1330,31 @@ void load_model_work(void *data) {
 
     platform.debug_free_file(result);
 
+    optimize_model(model);
+
     model->has_data = true;
     model->radius = max_distance;
   }
 
   free(work);
-};
+}
 
 void load_texture_work(void *data) {
   load_texture(static_cast<Texture*>(data));
-};
-
-void generate_ground_work(void *data) {
-  TerrainChunk *chunk = static_cast<TerrainChunk*>(data);
-  chunk->models[0] = generate_ground(chunk->x, chunk->y, 0.03f);
-  chunk->models[1] = generate_ground(chunk->x, chunk->y, 0.01f);
-  chunk->models[2] = generate_ground(chunk->x, chunk->y, 0.005f);
-  chunk->has_data = true;
-  chunk->is_being_loaded = true;
 }
 
-inline bool process_texture(Memory *memory, Entity *entity) {
-  if (!entity->texture->initialized && !entity->texture->has_data && !entity->texture->is_being_loaded) {
+inline bool process_texture(Memory *memory, Texture *texture) {
+  if (!texture->initialized && !texture->has_data && !texture->is_being_loaded) {
     if (platform.queue_has_free_spot(memory->low_queue)) {
-      platform.add_work(memory->low_queue, load_texture_work, entity->texture);
+      platform.add_work(memory->low_queue, load_texture_work, texture);
 
-      entity->texture->is_being_loaded = true;
+      texture->is_being_loaded = true;
     }
     return true;
   }
 
-  if (!entity->texture->initialized && entity->texture->has_data) {
-    initialize_texture(entity->texture);
+  if (!texture->initialized && texture->has_data) {
+    initialize_texture(texture);
     return true;
   }
 
@@ -1699,15 +1435,15 @@ bool render_terrain_chunk(App *app, TerrainChunk *chunk, Model *model) {
   glm::mat3 normal = glm::inverseTranspose(glm::mat3(model_view));
 
   if (shader_has_uniform(app->current_program, "uNMatrix")) {
-    send_shader_uniform(app->current_program, "uNMatrix", normal);
+    set_uniform(app->current_program, "uNMatrix", normal);
   }
 
   if (shader_has_uniform(app->current_program, "uMVMatrix")) {
-    send_shader_uniform(app->current_program, "uMVMatrix", model_view);
+    set_uniform(app->current_program, "uMVMatrix", model_view);
   }
 
   if (shader_has_uniform(app->current_program, "in_color")) {
-    send_shader_uniform(app->current_program, "in_color", glm::vec4(1.0f, 0.4f, 0.1f, 1.0f));
+    set_uniform(app->current_program, "in_color", glm::vec4(1.0f, 0.4f, 0.1f, 1.0f));
   }
 
   use_model_mesh(app, &model->mesh);
@@ -1824,21 +1560,23 @@ bool push_debug_button(Input &input,
 
   bool clicked = false;
 
-  if (input.original_mouse_down_x > min_x && input.original_mouse_down_y > min_y && input.original_mouse_down_x < max_x && input.original_mouse_down_y < max_y &&
-      input.mouse_x > min_x && input.mouse_y > min_y && input.mouse_x < max_x && input.mouse_y < max_y) {
-    if (input.left_mouse_down) {
-      background_color = shade_color(background_color, -0.3f);
-      input.mouse_click = false;
-    }
+  if (!input.is_mouse_locked) {
+    if (input.original_mouse_down_x > min_x && input.original_mouse_down_y > min_y && input.original_mouse_down_x < max_x && input.original_mouse_down_y < max_y &&
+        input.mouse_x > min_x && input.mouse_y > min_y && input.mouse_x < max_x && input.mouse_y < max_y) {
+      if (input.left_mouse_down) {
+        background_color = shade_color(background_color, -0.3f);
+        input.mouse_click = false;
+      }
 
-    if (input.mouse_up) {
-      clicked = true;
-      input.mouse_click = false;
-      input.mouse_up = false;
-    }
-  } else {
-    if (input.mouse_x > min_x && input.mouse_y > min_y && input.mouse_x < max_x && input.mouse_y < max_y) {
-      background_color = shade_color(background_color, 0.3f);
+      if (input.mouse_up) {
+        clicked = true;
+        input.mouse_click = false;
+        input.mouse_up = false;
+      }
+    } else {
+      if (input.mouse_x > min_x && input.mouse_y > min_y && input.mouse_x < max_x && input.mouse_y < max_y) {
+        background_color = shade_color(background_color, 0.3f);
+      }
     }
   }
 
@@ -1869,16 +1607,16 @@ glm::mat4 get_camera_projection(Camera *camera) {
 
 Ray get_mouse_ray(App *app, Input input, Memory *memory) {
   glm::vec3 from = glm::unProject(
-      glm::vec3(input.mouse_x, memory->height - input.mouse_y, 0.0),
+      glm::vec3(input.mouse_x, memory->height - input.mouse_y, 0.0f),
       glm::mat4(),
       app->camera.view_matrix,
-      glm::vec4(0.0, 0.0, memory->width, memory->height));
+      glm::vec4(0.0f, 0.0f, memory->width, memory->height));
 
   glm::vec3 to = glm::unProject(
-      glm::vec3(input.mouse_x, memory->height - input.mouse_y, 1.0),
+      glm::vec3(input.mouse_x, memory->height - input.mouse_y, 1.0f),
       glm::mat4(),
       app->camera.view_matrix,
-      glm::vec4(0.0, 0.0, memory->width, memory->height));
+      glm::vec4(0.0f, 0.0f, memory->width, memory->height));
 
   glm::vec3 direction = glm::normalize(to - from);
 
@@ -1887,18 +1625,6 @@ Ray get_mouse_ray(App *app, Input input, Memory *memory) {
   ray.direction = direction;
 
   return ray;
-}
-
-glm::mat4 make_billboard_matrix(glm::vec3 position, glm::vec3 camera_position, glm::vec3 camera_up) {
-  glm::vec3 look = glm::normalize(camera_position - position);
-  glm::vec3 right = glm::cross(camera_up, look);
-  glm::vec3 up = glm::cross(look, right);
-  glm::mat4 transform;
-  transform[0] = glm::vec4(right, 0.0f);
-  transform[1] = glm::vec4(up, 0.0f);
-  transform[2] = glm::vec4(look, 0.0f);
-  /* transform[3] = glm::vec4(position, 1.0f); */
-  return transform;
 }
 
 #include "render_group.cpp"
@@ -1913,16 +1639,18 @@ void debug_render_range(Input &input, UICommandBuffer *command_buffer, float x, 
   float max_x = min_x + width;
   float max_y = min_y + height;
 
-  if (input.mouse_x > min_x && input.mouse_y > min_y && input.mouse_x < max_x && input.mouse_y < max_y) {
-    bg_color = shade_color(bg_color, -0.2f);
-    background_color = shade_color(background_color, -0.4f);
+  if (!input.is_mouse_locked) {
+    if (input.mouse_x > min_x && input.mouse_y > min_y && input.mouse_x < max_x && input.mouse_y < max_y) {
+      bg_color = shade_color(bg_color, -0.2f);
+      background_color = shade_color(background_color, -0.4f);
+    }
   }
 
   debug_render_rect(command_buffer, x, y, width, height, background_color);
   debug_render_rect(command_buffer, x, y, width * scale, height, bg_color);
 
   if (input.left_mouse_down && input.original_mouse_down_x > min_x && input.original_mouse_down_y > min_y && input.original_mouse_down_x < max_x && input.original_mouse_down_y < max_y) {
-    *value = clamp((input.mouse_x - min_x) / width * (max - min), min, max);
+    *value = glm::clamp((input.mouse_x - min_x) / width * (max - min), min, max);
     input.mouse_click = false;
   }
 }
@@ -1982,6 +1710,36 @@ void push_debug_editable_vector(Input &input, DebugDrawState *state, Font *font,
   state->offset_top += 25.0f;
 }
 
+void push_debug_editable_quat(Input &input, DebugDrawState *state, Font *font, UICommandBuffer *command_buffer, float x, const char *name, glm::quat *vector, glm::vec4 background_color, float min, float max) {
+  char text[256];
+
+  debug_render_rect(command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color);
+
+  sprintf(text, "%s", name);
+  draw_string(command_buffer, font, x + 5.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  state->offset_top += 25.0f;
+
+  sprintf(text, "%f", vector->x);
+  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->x, min, max);
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  state->offset_top += 25.0f;
+
+  sprintf(text, "%f", vector->y);
+  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->y, min, max);
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  state->offset_top += 25.0f;
+
+  sprintf(text, "%f", vector->z);
+  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->z, min, max);
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  state->offset_top += 25.0f;
+
+  sprintf(text, "%f", vector->w);
+  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->w, min, max);
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
+  state->offset_top += 25.0f;
+}
+
 void push_debug_vector(DebugDrawState *state, Font *font, UICommandBuffer *command_buffer, float x, const char *name, glm::vec3 vector, glm::vec4 background_color) {
   char text[256];
 
@@ -2012,26 +1770,28 @@ bool sort_particles_by_distance(const Particle &a, const Particle &b) {
   return a.distance_from_camera > b.distance_from_camera;
 }
 
-void draw_3d_debug_info(App *app) {
-  use_program(app, &app->textured_program);
+void draw_3d_debug_info(Input &input, App *app) {
+  use_program(app, &app->controls_program);
 
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glDepthFunc(GL_ALWAYS);
 
-  send_shader_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
+  set_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
 
   glActiveTexture(GL_TEXTURE0 + 0);
   glBindTexture(GL_TEXTURE_2D, app->circle_texture.id);
-  send_shader_uniformi(app->current_program, "textureImage", 0);
+  set_uniformi(app->current_program, "textureImage", 0);
 
   use_model_mesh(app, &app->quad_model.mesh);
 
   std::vector<EditorHandleRenderCommand> render_commands;
 
-  if (!app->editor.holding_entity) {
+  if (app->editor.show_handles && !app->editor.holding_entity) {
     for (u32 i=0; i<app->entity_count; i++) {
       Entity *entity = app->entities + i;
+
+      if (entity->type == EntityBlock) { continue; }
 
       if (entity->flags & EntityFlags::HIDE_IN_EDITOR) { continue; }
 
@@ -2047,6 +1807,18 @@ void draw_3d_debug_info(App *app) {
       EditorHandleRenderCommand command;
       command.distance_from_camera = glm::distance2(app->camera.position, entity->position);
       command.model_view = model_view;
+      if (entity->type == EntityParticleEmitter) {
+        command.color = glm::vec4(0.0, 1.0, 1.0, 0.7);
+      } else if (entity->type == EntityPlanet) {
+        command.color = glm::vec4(1.0, 1.0, 0.0, 0.7);
+      } else {
+        command.color = glm::vec4(0.0, 1.0, 0.0, 0.7);
+      }
+
+      if (!input.is_mouse_locked && app->editor.hovering_entity && app->editor.hover_entity == entity->id) {
+        command.color *= glm::vec4(0.6, 0.6, 0.6, 1.0);
+      }
+
       render_commands.push_back(command);
     }
   }
@@ -2054,7 +1826,8 @@ void draw_3d_debug_info(App *app) {
   std::sort(render_commands.begin(), render_commands.end(), sort_by_distance);
 
   for (auto it = render_commands.begin(); it != render_commands.end(); it++) {
-    send_shader_uniform(app->current_program, "uMVMatrix", it->model_view);
+    set_uniform(app->current_program, "uMVMatrix", it->model_view);
+    set_uniform(app->current_program, "in_color", it->color);
     glDrawElements(GL_TRIANGLES, app->quad_model.mesh.data.indices_count, GL_UNSIGNED_INT, 0);
   }
 
@@ -2068,7 +1841,6 @@ void flush_2d_render(App *app, Memory *memory) {
   UICommandBuffer *command_buffer = &app->editor.command_buffer;
 
   glDisable(GL_DEPTH_TEST);
-  glDisable(GL_CULL_FACE);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glEnable(GL_BLEND);
 
@@ -2080,7 +1852,7 @@ void flush_2d_render(App *app, Memory *memory) {
   glActiveTexture(GL_TEXTURE0 + 1);
   glBindTexture(GL_TEXTURE_2D, app->editor_texture.id);
 
-  send_shader_uniform(app->current_program, "uPMatrix", projection);
+  set_uniform(app->current_program, "uPMatrix", projection);
 
   u32 vertices_index = 0;
 
@@ -2096,14 +1868,14 @@ void flush_2d_render(App *app, Memory *memory) {
       case UICommandType::NONE:
         break;
       case UICommandType::RECT:
-        send_shader_uniformi(app->current_program, "textureImage", 1);
-          send_shader_uniform(app->current_program, "background_color", it->color);
-          send_shader_uniform(app->current_program, "image_color", it->image_color);
+        set_uniformi(app->current_program, "textureImage", 1);
+        set_uniform(app->current_program, "background_color", it->color);
+        set_uniform(app->current_program, "image_color", it->image_color);
         break;
       case UICommandType::TEXT:
-        send_shader_uniformi(app->current_program, "textureImage", 0);
-        send_shader_uniform(app->current_program, "background_color", glm::vec4(0.0f));
-          send_shader_uniform(app->current_program, "image_color", it->color);
+        set_uniformi(app->current_program, "textureImage", 0);
+        set_uniform(app->current_program, "background_color", glm::vec4(0.0f));
+        set_uniform(app->current_program, "image_color", it->color);
         break;
     }
 
@@ -2111,13 +1883,11 @@ void flush_2d_render(App *app, Memory *memory) {
     vertices_index += it->vertices_count;
   }
 
-  glEnable(GL_CULL_FACE);
   glDisable(GL_BLEND);
   glEnable(GL_DEPTH_TEST);
 }
 
 void push_toggle_button(App *app, Input &input, DebugDrawState *draw_state, UICommandBuffer *command_buffer, float x, bool *value, glm::vec4 background_color) {
-
   u32 toggl_button_x_index;
   u32 toggl_button_y_index;
 
@@ -2129,7 +1899,7 @@ void push_toggle_button(App *app, Input &input, DebugDrawState *draw_state, UICo
     toggl_button_y_index = 0;
   }
 
-  float image_height = 40.0f;
+  float image_height = 30.0f;
   if (push_debug_button(input, app, draw_state, command_buffer, x, image_height, (char *)"", glm::vec3(0.0f), background_color)) {
     *value = !(*value);
   }
@@ -2140,7 +1910,9 @@ void push_toggle_button(App *app, Input &input, DebugDrawState *draw_state, UICo
 void rebuild_chunks(App *app) {
   for (u32 i=0; i<app->chunk_cache_count; i++) {
     TerrainChunk *chunk = app->chunk_cache + i;
-    unload_chunk(chunk);
+    if (chunk->has_data) {
+      unload_chunk(chunk);
+    }
   }
 }
 
@@ -2163,10 +1935,6 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
     sprintf(text, "performance: %d\n", app->editor.show_performance);
     if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
       app->editor.show_performance = !app->editor.show_performance;
-    }
-
-    sprintf(text, "dt: %f\n", input.delta_time);
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
     }
 
     if (app->editor.show_performance) {
@@ -2220,12 +1988,20 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
       app->editor.left_state = EditorLeftState::MODELING;
     }
 
-/*     if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Terrain", glm::vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::TERRAIN ? selected_button_background_color : button_background_color)) { */
-/*       app->editor.left_state = EditorLeftState::TERRAIN; */
-/*     } */
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Terrain", glm::vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::TERRAIN ? selected_button_background_color : button_background_color)) {
+      app->editor.left_state = EditorLeftState::TERRAIN;
+    }
+
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Light", glm::vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::LIGHT ? selected_button_background_color : button_background_color)) {
+      app->editor.left_state = EditorLeftState::LIGHT;
+    }
 
     if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Post Processing", glm::vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::POST_PROCESSING ? selected_button_background_color : button_background_color)) {
       app->editor.left_state = EditorLeftState::POST_PROCESSING;
+    }
+
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Editor settings", glm::vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::EDITOR_SETTINGS ? selected_button_background_color : button_background_color)) {
+      app->editor.left_state = EditorLeftState::EDITOR_SETTINGS;
     }
 
     draw_state.offset_top += 10.0f;
@@ -2239,7 +2015,8 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             "tree_003",
             "rock",
             "cube",
-            "sphere"
+            "sphere",
+            "quad"
           };
 
           for (u32 i=0; i<array_count(types); i++) {
@@ -2262,8 +2039,13 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
               if (strcmp(types[i], "cube") == 0 ||
                   strcmp(types[i], "sphere") == 0 ||
+                  strcmp(types[i], "quad") == 0 ||
                   strcmp(types[i], "rock") == 0) {
                 entity->scale = glm::vec3(100.f);
+              }
+
+              if (strcmp(types[i], "quad") == 0) {
+                entity->flags |= EntityFlags::LOOK_AT_CAMERA;
               }
             }
           }
@@ -2286,12 +2068,62 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             entity->color = glm::vec4(1.0f);
             entity->flags = EntityFlags::RENDER_HIDDEN | EntityFlags::PERMANENT_FLAG;
           }
+
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Planet", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+            Entity *entity = app->entities + app->entity_count++;
+
+            glm::vec3 forward;
+            forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
+            forward.y = -glm::sin(app->camera.rotation[0]);
+            forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
+
+
+            entity->id = next_entity_id(app);
+            entity->type = EntityPlanet;
+            entity->position = app->camera.position + forward * 400.0f;
+            entity->scale = glm::vec3(100.0f);
+            entity->model = get_model_by_name(app, (char *)"sphere");
+            entity->color = glm::vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
+            entity->flags = EntityFlags::CASTS_SHADOW | EntityFlags::PERMANENT_FLAG;
+            entity->positions.push_back(glm::vec2(50.0833f, 14.4167f));
+            entity->positions.push_back(glm::vec2(37.7833f, 122.4167f));
+          }
+
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Water", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+            Entity *entity = app->entities + app->entity_count++;
+
+            glm::vec3 forward;
+            forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
+            forward.y = -glm::sin(app->camera.rotation[0]);
+            forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
+
+            entity->id = next_entity_id(app);
+            entity->type = EntityWater;
+            entity->position = app->camera.position + forward * 400.0f;
+            entity->scale = glm::vec3(100.0f);
+            entity->model = get_model_by_name(app, (char *)"quad");
+            entity->color = glm::vec4(0.2f, 0.45f, 0.5f, 0.5f);
+            entity->flags = EntityFlags::PERMANENT_FLAG;
+          }
           break;
       }
       {
         case EditorLeftState::TERRAIN:
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"rebuild chunks", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             rebuild_chunks(app);
+          }
+          break;
+      }
+      {
+        case EditorLeftState::LIGHT:
+          push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, 10.0f, "rotation", &app->shadow_camera.rotation, default_background_color, 0.0f, tau);
+          break;
+      }
+      {
+        case EditorLeftState::EDITOR_SETTINGS:
+          sprintf(text, "Show handles %d\n", app->editor.show_handles);
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+            app->editor.show_handles = !app->editor.show_handles;
           }
           break;
       }
@@ -2364,6 +2196,11 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           entity->flags = entity->flags ^ EntityFlags::CASTS_SHADOW;
         }
 
+        sprintf(text, "look at camera: %d\n", (entity->flags & EntityFlags::LOOK_AT_CAMERA) != 0);
+        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+          entity->flags = entity->flags ^ EntityFlags::LOOK_AT_CAMERA;
+        }
+
         sprintf(text, "save to file: %d\n", (entity->flags & EntityFlags::PERMANENT_FLAG) != 0);
         if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
           entity->flags = entity->flags ^ EntityFlags::PERMANENT_FLAG;
@@ -2371,6 +2208,240 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
       }
     }
   }
+}
+
+void render_skybox(App *app) {
+  PROFILE(render_skybox);
+  glDisable(GL_CULL_FACE);
+  glDisable(GL_DEPTH_TEST);
+  glDepthMask(GL_FALSE);
+
+  use_program(app, &app->skybox_program);
+
+  glm::mat4 projection = get_camera_projection(&app->camera);
+
+  projection = glm::rotate(projection, app->camera.rotation.x, glm::vec3(1.0, 0.0, 0.0));
+  projection = glm::rotate(projection, app->camera.rotation.y, glm::vec3(0.0, 1.0, 0.0));
+  projection = glm::rotate(projection, app->camera.rotation.z, glm::vec3(0.0, 0.0, 1.0));
+
+  set_uniform(app->current_program, "projection", projection);
+
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_CUBE_MAP, app->cubemap.id);
+  set_uniformi(app->current_program, "uSampler", 0);
+
+  use_model_mesh(app, &app->cube_model.mesh);
+  glDrawElements(GL_TRIANGLES, app->cube_model.mesh.data.indices_count, GL_UNSIGNED_INT, 0);
+
+  glDepthMask(GL_TRUE);
+  glEnable(GL_DEPTH_TEST);
+  glEnable(GL_CULL_FACE);
+  PROFILE_END(render_skybox);
+}
+
+void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shader=NULL, bool shadow_pass=false) {
+  start_render_group(&app->transparent_render_group);
+  app->transparent_render_group.camera = camera;
+  app->transparent_render_group.transparent_pass = true;
+  app->transparent_render_group.force_shader = forced_shader;
+  app->transparent_render_group.shadow_pass = shadow_pass;
+
+  start_render_group(&app->render_group);
+  app->render_group.camera = camera;
+  app->render_group.transparent_pass = false;
+  app->render_group.force_shader = forced_shader;
+  app->render_group.shadow_pass = shadow_pass;
+
+  PROFILE(render_entities);
+  for (u32 i=0; i<app->entity_count; i++) {
+    Entity *entity = app->entities + i;
+
+    if (entity->flags & EntityFlags::RENDER_HIDDEN) { continue; }
+
+    bool model_wait = process_model(memory, entity->model);
+    bool texture_wait = false;
+
+    if (entity->texture) {
+      texture_wait = process_texture(memory, entity->texture);
+    }
+
+    if (model_wait || texture_wait) { continue; }
+
+    if (!is_sphere_in_frustum(&camera->frustum, entity->position, entity->model->radius * glm::compMax(entity->scale))) {
+      continue;
+    }
+
+    glm::mat4 model_view;
+
+    model_view = glm::translate(model_view, entity->position);
+
+    if (entity->flags & EntityFlags::LOOK_AT_CAMERA) {
+      model_view *= make_billboard_matrix(entity->position, app->camera.position, glm::vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
+    }
+
+    model_view = glm::rotate(model_view, entity->rotation.x, glm::vec3(1.0, 0.0, 0.0));
+    model_view = glm::rotate(model_view, entity->rotation.y, glm::vec3(0.0, 1.0, 0.0));
+    model_view = glm::rotate(model_view, entity->rotation.z, glm::vec3(0.0, 0.0, 1.0));
+
+    model_view = glm::scale(model_view, entity->scale);
+
+    glm::mat3 normal = glm::inverseTranspose(glm::mat3(model_view));
+
+    RenderCommand command;
+
+    command.shader = &app->main_object_program;
+    command.model_view = model_view;
+    command.flags = entity->flags;
+    command.normal = normal;
+    command.color = entity->color;
+    command.cull_type = GL_BACK;
+    command.model_mesh = &entity->model->mesh;
+
+    if (entity->type == EntityWater) {
+      command.shader = &app->water_program;
+    } else if (entity->type == EntityPlanet) {
+      if (process_texture(memory, &app->planet_texture)) { continue; }
+
+      command.texture = &app->planet_texture;
+      command.shader = &app->textured_program;
+
+      for (auto it = entity->positions.begin(); it != entity->positions.end(); it++) {
+        glm::mat4 child_view;
+        child_view = glm::translate(child_view, entity->position);
+        float radius = entity->scale.x;
+
+#if 0
+        float lat = glm::radians(180.0f - (90.0f + it->x));
+        float lon = glm::radians(it->y);
+#else
+        float lat = glm::radians(it->x);
+        float lon = glm::radians(it->y);
+
+        /* float lat = it->x; */
+        /* float lon = it->y; */
+#endif
+
+        float f = 0.0f;
+        float ls = glm::pow(glm::atan((1.0f - f)), 2) * glm::tan(lat);
+
+        float x = radius * glm::cos(ls) * glm::cos(lon) + glm::cos(lon);
+        float y = radius * glm::cos(ls) * glm::sin(lon) + glm::sin(lon);
+        float z = radius * glm::sin(ls);
+
+        glm::vec3 position = glm::vec3(x, z, y);
+
+        child_view = glm::translate(child_view, position);
+        child_view = glm::scale(child_view, glm::vec3(1.0f));
+        glm::mat3 normal = glm::inverseTranspose(glm::mat3(child_view));
+
+        RenderCommand child_command;
+        child_command.shader = &app->solid_program;
+        child_command.model_view = child_view;
+        child_command.flags = entity->flags;
+        child_command.normal = normal;
+        child_command.color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+        child_command.cull_type = GL_BACK;
+        child_command.model_mesh = &entity->model->mesh;
+        add_command_to_render_group(&app->render_group, child_command);
+      }
+    }
+
+    bool transparent = command.texture != NULL || command.color.a < 1.0f; // TODO(sedivy): remove when there is way to tell if the object is transparent
+    if (transparent) {
+      command.distance_from_camera = glm::distance2(app->camera.position, entity->position);
+      command.shader = &app->transparent_program;
+      add_command_to_render_group(&app->transparent_render_group, command);
+    } else {
+      add_command_to_render_group(&app->render_group, command);
+    }
+  }
+
+  end_render_group(app, &app->render_group);
+
+  if (!shadow_pass) {
+#if 0
+    glActiveTexture(GL_TEXTURE0 + 0);
+    glBindTexture(GL_TEXTURE_2D, app->shadow_depth_texture);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, app->transparent_buffer);
+
+    glDrawBuffer(GL_COLOR_ATTACHMENT0);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    glDrawBuffer(GL_COLOR_ATTACHMENT1);
+    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    glDepthMask(GL_FALSE);
+
+    glEnable(GL_BLEND);
+    glBlendFunci(0, GL_ONE, GL_ONE);
+    glBlendFunci(1, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+
+    glDrawBuffers(2, app->transparent_buffers);
+    end_render_group(app, &app->transparent_render_group);
+
+    glDepthMask(GL_TRUE);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#endif
+  }
+
+  PROFILE_END_COUNTED(render_entities, app->entity_count);
+}
+
+void render_terrain(Memory *memory, App *app) {
+  use_program(app, &app->terrain_program);
+
+  glCullFace(GL_BACK);
+
+  set_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
+
+  glActiveTexture(GL_TEXTURE0 + 0);
+  glBindTexture(GL_TEXTURE_2D, app->shadow_depth_texture);
+  set_uniformi(app->current_program, "uShadow", 0);
+  set_uniform(app->current_program, "shadow_matrix", app->shadow_camera.view_matrix);
+  set_uniform(app->current_program, "texmapscale", glm::vec2(1.0f / app->shadow_width, 1.0f / app->shadow_height));
+
+  int x_coord = static_cast<int>(app->camera.position.x / CHUNK_SIZE_X);
+  int y_coord = static_cast<int>(app->camera.position.z / CHUNK_SIZE_Y);
+
+  u32 chunk_count = 0;
+
+  PROFILE(render_chunks);
+  for (int y=-4 + y_coord; y<=4 + y_coord; y++) {
+    for (int x=-4 + x_coord; x<=4 + x_coord; x++) {
+      if (x < 0 || y < 0 ) { continue; }
+
+      TerrainChunk *chunk = get_chunk_at(app->chunk_cache, app->chunk_cache_count, x, y);
+
+      if (process_terrain(memory, chunk)) {
+        continue;
+      }
+
+      if (!is_sphere_in_frustum(&app->camera.frustum, glm::vec3(chunk->x * CHUNK_SIZE_X, 0.0f, chunk->y * CHUNK_SIZE_Y), chunk->models[0].radius)) {
+        continue;
+      }
+
+      int dx = chunk->x - x_coord;
+      int dy = chunk->y - y_coord;
+
+      float distance = glm::pow(dx, 2) + glm::pow(dy, 2);
+
+      int detail_level = 2;
+      if (distance < 16.0f) { detail_level = 1; }
+      if (distance < 4.0f) { detail_level = 0; }
+
+      Model *model = &chunk->models[detail_level];
+
+      if (render_terrain_chunk(app, chunk, model)) {
+        chunk_count += 1;
+      }
+    }
+  }
+
+  PROFILE_END_COUNTED(render_chunks, chunk_count);
 }
 
 void tick(Memory *memory, Input input) {
@@ -2406,16 +2477,27 @@ void tick(Memory *memory, Input input) {
 
       unload_texture(&app->gradient_texture);
       load_texture(&app->gradient_texture, STBI_rgb_alpha);
-      initialize_texture(&app->gradient_texture, GL_RGBA, false);
+      initialize_texture(&app->gradient_texture, GL_RGBA, GL_RGBA, false);
       stbi_image_free(app->gradient_texture.data);
       app->gradient_texture.data = NULL;
 
       unload_texture(&app->color_correction_texture);
-      load_color_grading_texture(&app->color_correction_texture);
+      load_texture(&app->color_correction_texture, STBI_rgb_alpha);
+      initialize_texture(&app->color_correction_texture, GL_RGB8, GL_RGBA, false);
+      stbi_image_free(app->color_correction_texture.data);
+      app->color_correction_texture.data = NULL;
 
       unload_texture(&app->circle_texture);
       load_texture(&app->circle_texture, STBI_rgb_alpha);
-      initialize_texture(&app->circle_texture, GL_RGBA, true);
+      initialize_texture(&app->circle_texture, GL_RGBA, GL_RGBA, true);
+
+      {
+        unload_texture(&app->debug_transparent_texture);
+        load_texture(&app->debug_transparent_texture, STBI_rgb_alpha);
+        initialize_texture(&app->debug_transparent_texture, GL_RGBA, GL_RGBA, true);
+        stbi_image_free(app->debug_transparent_texture.data);
+        app->debug_transparent_texture.data = NULL;
+      }
     }
 
     if (input.once.key_p) {
@@ -2469,14 +2551,12 @@ void tick(Memory *memory, Input input) {
 
     float speed = 1000.3f;
 
+    if (input.alt && input.once.enter) {
+      platform.toggle_fullscreen();
+    }
+
     if (app->editing_mode) {
       speed = 10000.0f;
-      if (input.space) {
-        movement.y += 1;
-      }
-      if (input.shift) {
-        movement.y += -1;
-      }
     } else {
       if (input.shift) {
         speed = 10000.0f;
@@ -2561,32 +2641,55 @@ void tick(Memory *memory, Input input) {
     app->camera.view_matrix = glm::translate(app->camera.view_matrix, (app->camera.position * -1.0f));
     fill_frustum_with_matrix(&app->camera.frustum, app->camera.view_matrix);
 
-    if (app->editing_mode && input.mouse_click) {
-      Ray ray = get_mouse_ray(app, input, memory);
+    Ray ray = get_mouse_ray(app, input, memory);
 
-      Entity *closest_entity = NULL;
-      float closest_distance = FLT_MAX;
-      glm::vec3 hit_position;
+    Entity *closest_entity = NULL;
+    float closest_distance = FLT_MAX;
+    glm::vec3 hit_position;
 
-      for (u32 i=0; i<app->entity_count; i++) {
-        Entity *entity = app->entities + i;
-        if (!(entity->flags & EntityFlags::HIDE_IN_EDITOR)) {
-          RayMatchResult hit = ray_match_sphere(ray, entity->position, app->editor.handle_size);
+    for (u32 i=0; i<app->entity_count; i++) {
+      Entity *entity = app->entities + i;
 
-          if (hit.hit) {
-            if (hit.distance < closest_distance) {
-              closest_distance = hit.distance;
-              closest_entity = entity;
-              hit_position = hit.hit_position;
-            }
+      if (!(entity->flags & EntityFlags::HIDE_IN_EDITOR)) {
+        RayMatchResult hit;
+        hit.hit = false;
+
+        if (entity->type == EntityBlock) {
+          hit = ray_match_entity(app, ray, entity);
+        } else {
+          hit = ray_match_sphere(ray, entity->position, app->editor.handle_size);
+        }
+
+        if (hit.hit) {
+          float distance = glm::distance(hit.hit_position, ray.start);
+          if (distance < closest_distance) {
+            closest_distance = distance;
+            closest_entity = entity;
+            hit_position = hit.hit_position;
           }
         }
       }
+    }
 
+    if (closest_entity) {
+      app->editor.hover_entity = closest_entity->id;
+      app->editor.hovering_entity = true;
+    } else {
+      app->editor.hovering_entity = false;
+    }
+
+    if (app->editing_mode && input.mouse_click) {
       if (closest_entity) {
+        if (input.shift) {
+          Entity *new_entity = app->entities + app->entity_count++;
+          *new_entity = *closest_entity;
+          new_entity->id = next_entity_id(app);
+          closest_entity = new_entity;
+        }
+
         app->editor.entity_id = closest_entity->id;
         app->editor.holding_entity = true;
-        app->editor.distance_from_entity_offset = glm::distance(app->camera.position, hit_position);
+        app->editor.distance_from_entity_offset = closest_distance;
         app->editor.hold_offset = hit_position - closest_entity->position;
         app->editor.inspect_entity = true;
       } else {
@@ -2710,94 +2813,13 @@ void tick(Memory *memory, Input input) {
       glBindFramebuffer(GL_FRAMEBUFFER, app->shadow_buffer);
       glViewport(0, 0, app->shadow_width, app->shadow_height);
       glClear(GL_DEPTH_BUFFER_BIT);
-#if 0
-
-      use_program(app, &app->solid_program);
-
-      send_shader_uniform(app->current_program, "uPMatrix", app->shadow_camera.view_matrix);
-      send_shader_uniform(app->current_program, "in_color", glm::vec4(0.0f));
 
       glEnable(GL_DEPTH_TEST);
-      glEnable(GL_CULL_FACE);
-      glCullFace(GL_FRONT);
 
-      {
-        int x_coord = static_cast<int>(app->shadow_camera.position.x / CHUNK_SIZE_X);
-        int y_coord = static_cast<int>(app->shadow_camera.position.z / CHUNK_SIZE_Y);
+      render_scene(memory, app, &app->shadow_camera, &app->solid_program, true);
 
-        for (int y=-1 + y_coord; y<=1 + y_coord; y++) {
-          for (int x=-1 + x_coord; x<=1 + x_coord; x++) {
-            if (x < 0 || y < 0 ) { continue; }
-
-            TerrainChunk *chunk = get_chunk_at(app->chunk_cache, app->chunk_cache_count, x, y);
-
-            if (process_terrain(memory, chunk)) {
-              continue;
-            }
-
-            if (!is_sphere_in_frustum(&app->camera.frustum, glm::vec3(chunk->x * CHUNK_SIZE_X, 0.0f, chunk->y * CHUNK_SIZE_Y), chunk->models[0].radius)) {
-              continue;
-            }
-
-            int dx = chunk->x - x_coord;
-            int dy = chunk->y - y_coord;
-
-            float distance = glm::pow(dx, 2) + glm::pow(dy, 2);
-
-            int detail_level = 2;
-            if (distance < 16.0f) { detail_level = 1; }
-            if (distance < 4.0f) { detail_level = 0; }
-
-            detail_level = 2;
-
-            Model *model = &chunk->models[detail_level];
-
-            render_terrain_chunk(app, chunk, model);
-          }
-        }
-      }
-
-      start_render_group(&app->render_group);
-      for (u32 i=0; i<app->entity_count; i++) {
-        Entity *entity = app->entities + i;
-
-        if ((entity->flags & EntityFlags::CASTS_SHADOW) == 0 || (entity->flags & EntityFlags::RENDER_HIDDEN) != 0) { continue; }
-
-        bool model_wait = process_model(memory, entity->model);
-        bool texture_wait = false;
-
-        if (entity->texture) {
-          texture_wait = process_texture(memory, entity);
-        }
-
-        if (model_wait || texture_wait) { continue; }
-
-        if (!is_sphere_in_frustum(&app->shadow_camera.frustum, entity->position, entity->model->radius * glm::compMax(entity->scale))) {
-          continue;
-        }
-
-        glm::mat4 model_view;
-        model_view = glm::translate(model_view, entity->position);
-        model_view = glm::rotate(model_view, entity->rotation.x, glm::vec3(1.0, 0.0, 0.0));
-        model_view = glm::rotate(model_view, entity->rotation.y, glm::vec3(0.0, 1.0, 0.0));
-        model_view = glm::rotate(model_view, entity->rotation.z, glm::vec3(0.0, 0.0, 1.0));
-        model_view = glm::scale(model_view, entity->scale);
-
-        RenderCommand command;
-        command.shader = &app->solid_program;
-        command.model_view = model_view;
-        command.flags = 0;
-        command.color = glm::vec4(1.0f);
-        command.cull_type = GL_FRONT;
-
-        command.model_mesh = &entity->model->mesh;
-        add_command_to_render_group(&app->render_group, command);
-      }
-
-      end_render_group(app, &app->render_group);
       glBindFramebuffer(GL_FRAMEBUFFER, 0);
       PROFILE_END(render_shadows);
-#endif
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, app->frames[0].id);
@@ -2805,208 +2827,62 @@ void tick(Memory *memory, Input input) {
     glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // NOTE(sedivy): skybox
-    {
-      PROFILE(render_skybox);
-      glDisable(GL_CULL_FACE);
-      glDisable(GL_DEPTH_TEST);
-      glDepthMask(GL_FALSE);
-
-      use_program(app, &app->skybox_program);
-
-      glm::mat4 projection = get_camera_projection(&app->camera);
-
-      projection = glm::rotate(projection, app->camera.rotation.x, glm::vec3(1.0, 0.0, 0.0));
-      projection = glm::rotate(projection, app->camera.rotation.y, glm::vec3(0.0, 1.0, 0.0));
-      projection = glm::rotate(projection, app->camera.rotation.z, glm::vec3(0.0, 0.0, 1.0));
-
-      send_shader_uniform(app->current_program, "projection", projection);
-
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_CUBE_MAP, app->cubemap.id);
-      send_shader_uniformi(app->current_program, "uSampler", 0);
-
-      use_model_mesh(app, &app->cube_model.mesh);
-      glDrawElements(GL_TRIANGLES, app->cube_model.mesh.data.indices_count, GL_UNSIGNED_INT, 0);
-
-      glDepthMask(GL_TRUE);
-      glEnable(GL_DEPTH_TEST);
-      glEnable(GL_CULL_FACE);
-      PROFILE_END(render_skybox);
-    }
+    render_skybox(app);
 
     {
       PROFILE(render_main);
-      // NOTE(sedivy): Terrain
-      {
-        use_program(app, &app->terrain_program);
 
+      render_terrain(memory, app);
+      render_scene(memory, app, &app->camera);
+      glBindFramebuffer(GL_FRAMEBUFFER, app->frames[0].id);
+
+      // NOTE(sedivy): particles
+      {
+        PROFILE(render_particles);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+        glDepthMask(GL_FALSE);
+
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
 
-        send_shader_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
+        use_program(app, &app->particle_program);
 
-        glActiveTexture(GL_TEXTURE0 + 0);
-        glBindTexture(GL_TEXTURE_2D, app->shadow_depth_texture);
-        send_shader_uniformi(app->current_program, "uShadow", 0);
-        send_shader_uniform(app->current_program, "shadow_matrix", app->shadow_camera.view_matrix);
-        send_shader_uniform(app->current_program, "texmapscale", glm::vec2(1.0f / app->shadow_width, 1.0f / app->shadow_height));
+        set_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
+        set_uniform(app->current_program, "camera_up", glm::vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
+        set_uniform(app->current_program, "camera_right", glm::vec3(app->camera.view_matrix[0][0], app->camera.view_matrix[1][0], app->camera.view_matrix[2][0]));
 
-#if 1
-        int x_coord = static_cast<int>(app->camera.position.x / CHUNK_SIZE_X);
-        int y_coord = static_cast<int>(app->camera.position.z / CHUNK_SIZE_Y);
-#else
-        int x_coord = static_cast<int>(20000.0f / CHUNK_SIZE_X);
-        int y_coord = static_cast<int>(20000.0f / CHUNK_SIZE_Y);
-#endif
+        glBindBuffer(GL_ARRAY_BUFFER, app->particle_buffer);
+        glBufferData(GL_ARRAY_BUFFER, array_count(app->particles) * 4 * sizeof(GLfloat), NULL, GL_STREAM_DRAW);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, array_count(app->particles) * 4 * sizeof(GLfloat), &app->particle_positions);
+        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 4, GL_FLOAT, GL_FALSE, 0, 0);
 
-        u32 chunk_count = 0;
+        glBindBuffer(GL_ARRAY_BUFFER, app->particle_color_buffer);
+        glBufferData(GL_ARRAY_BUFFER, array_count(app->particles) * 4 * sizeof(GLfloat), NULL, GL_STREAM_DRAW);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, array_count(app->particles) * 4 * sizeof(GLfloat), &app->particle_colors);
+        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "color"), 4, GL_FLOAT, GL_FALSE, 0, 0);
 
-        start_render_group(&app->render_group);
+        glBindBuffer(GL_ARRAY_BUFFER, app->particle_model);
+        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "data"), 3, GL_FLOAT, GL_FALSE, 0, 0);
 
-        PROFILE(render_chunks);
-        for (int y=-1 + y_coord; y<=1 + y_coord; y++) {
-          for (int x=-1 + x_coord; x<=1 + x_coord; x++) {
-            if (x < 0 || y < 0 ) { continue; }
+        glVertexAttribDivisor(0, 0);
+        glVertexAttribDivisor(1, 1);
+        glVertexAttribDivisor(2, 1);
 
-            TerrainChunk *chunk = get_chunk_at(app->chunk_cache, app->chunk_cache_count, x, y);
+        glDrawArraysInstanced(GL_TRIANGLES, 0, 6, array_count(app->particles));
 
-            if (process_terrain(memory, chunk)) {
-              continue;
-            }
+        glVertexAttribDivisor(0, 0);
+        glVertexAttribDivisor(1, 0);
+        glVertexAttribDivisor(2, 0);
 
-            if (!is_sphere_in_frustum(&app->camera.frustum, glm::vec3(chunk->x * CHUNK_SIZE_X, 0.0f, chunk->y * CHUNK_SIZE_Y), chunk->models[0].radius)) {
-              continue;
-            }
-
-            int dx = chunk->x - x_coord;
-            int dy = chunk->y - y_coord;
-
-            float distance = glm::pow(dx, 2) + glm::pow(dy, 2);
-
-            int detail_level = 2;
-            if (distance < 16.0f) { detail_level = 1; }
-            if (distance < 4.0f) { detail_level = 0; }
-
-            detail_level = 2;
-
-            Model *model = &chunk->models[detail_level];
-
-            if (render_terrain_chunk(app, chunk, model)) {
-              chunk_count += 1;
-            }
-          }
-        }
-
-        end_render_group(app, &app->render_group);
-        PROFILE_END_COUNTED(render_chunks, chunk_count);
+        glDisable(GL_BLEND);
+        glDisable(GL_CULL_FACE);
+        glDepthMask(GL_TRUE);
+        PROFILE_END(render_particles);
       }
 
-      {
-        start_render_group(&app->render_group);
-
-        use_program(app, &app->main_object_program);
-
-        send_shader_uniform(app->current_program, "eye_position", app->camera.position);
-        send_shader_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
-
-        glActiveTexture(GL_TEXTURE0 + 0);
-        glBindTexture(GL_TEXTURE_2D, app->shadow_depth_texture);
-        send_shader_uniformi(app->current_program, "uShadow", 0);
-        send_shader_uniform(app->current_program, "shadow_matrix", app->shadow_camera.view_matrix);
-        send_shader_uniform(app->current_program, "texmapscale", glm::vec2(1.0f / app->shadow_width, 1.0f / app->shadow_height));
-        send_shader_uniform(app->current_program, "shadow_light_position", app->shadow_camera.position);
-
-        PROFILE(render_entities);
-        for (u32 i=0; i<app->entity_count; i++) {
-          Entity *entity = app->entities + i;
-
-          if (entity->flags & EntityFlags::RENDER_HIDDEN) { continue; }
-
-          bool model_wait = process_model(memory, entity->model);
-          bool texture_wait = false;
-
-          if (entity->texture) {
-            texture_wait = process_texture(memory, entity);
-          }
-
-          if (model_wait || texture_wait) { continue; }
-
-          if (!is_sphere_in_frustum(&app->camera.frustum, entity->position, entity->model->radius * glm::compMax(entity->scale))) {
-            continue;
-          }
-
-          glm::mat4 model_view;
-
-          model_view = glm::translate(model_view, entity->position);
-
-          model_view = glm::rotate(model_view, entity->rotation.x, glm::vec3(1.0, 0.0, 0.0));
-          model_view = glm::rotate(model_view, entity->rotation.y, glm::vec3(0.0, 1.0, 0.0));
-          model_view = glm::rotate(model_view, entity->rotation.z, glm::vec3(0.0, 0.0, 1.0));
-
-          model_view = glm::scale(model_view, entity->scale);
-
-          glm::mat3 normal = glm::inverseTranspose(glm::mat3(model_view));
-
-          RenderCommand command;
-          command.shader = &app->main_object_program;
-          command.model_view = model_view;
-          command.flags = entity->flags;
-          command.normal = normal;
-          command.color = entity->color;
-          command.cull_type = GL_BACK;
-
-          command.model_mesh = &entity->model->mesh;
-          add_command_to_render_group(&app->render_group, command);
-        }
-        end_render_group(app, &app->render_group);
-        PROFILE_END_COUNTED(render_entities, app->entity_count);
-
-        {
-          PROFILE(render_particles);
-          glEnable(GL_BLEND);
-          glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-          glEnable(GL_DEPTH_TEST);
-          glEnable(GL_CULL_FACE);
-          glCullFace(GL_BACK);
-
-          use_program(app, &app->particle_program);
-
-          send_shader_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
-          send_shader_uniform(app->current_program, "camera_up", glm::vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
-          send_shader_uniform(app->current_program, "camera_right", glm::vec3(app->camera.view_matrix[0][0], app->camera.view_matrix[1][0], app->camera.view_matrix[2][0]));
-
-          glBindBuffer(GL_ARRAY_BUFFER, app->particle_buffer);
-          glBufferData(GL_ARRAY_BUFFER, array_count(app->particles) * 4 * sizeof(GLfloat), NULL, GL_STREAM_DRAW);
-          glBufferSubData(GL_ARRAY_BUFFER, 0, array_count(app->particles) * 4 * sizeof(GLfloat), &app->particle_positions);
-          glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 4, GL_FLOAT, GL_FALSE, 0, 0);
-
-          glBindBuffer(GL_ARRAY_BUFFER, app->particle_color_buffer);
-          glBufferData(GL_ARRAY_BUFFER, array_count(app->particles) * 4 * sizeof(GLfloat), NULL, GL_STREAM_DRAW);
-          glBufferSubData(GL_ARRAY_BUFFER, 0, array_count(app->particles) * 4 * sizeof(GLfloat), &app->particle_colors);
-          glVertexAttribPointer(shader_get_attribute_location(app->current_program, "color"), 4, GL_FLOAT, GL_FALSE, 0, 0);
-
-          glBindBuffer(GL_ARRAY_BUFFER, app->particle_model);
-          glVertexAttribPointer(shader_get_attribute_location(app->current_program, "data"), 3, GL_FLOAT, GL_FALSE, 0, 0);
-
-          glVertexAttribDivisor(0, 0);
-          glVertexAttribDivisor(1, 1);
-          glVertexAttribDivisor(2, 1);
-
-          glDrawArraysInstanced(GL_TRIANGLES, 0, 6, array_count(app->particles));
-
-          glVertexAttribDivisor(0, 0);
-          glVertexAttribDivisor(1, 0);
-          glVertexAttribDivisor(2, 0);
-
-          glDisable(GL_BLEND);
-          glDisable(GL_DEPTH_TEST);
-          glDisable(GL_CULL_FACE);
-          PROFILE_END(render_particles);
-        }
-      }
-
-      if (0)
       {
         PROFILE(render_debug);
         if (app->debug_lines.size() > 0) {
@@ -3014,7 +2890,7 @@ void tick(Memory *memory, Input input) {
           glBindBuffer(GL_ARRAY_BUFFER, app->debug_buffer);
           glBufferData(GL_ARRAY_BUFFER, app->debug_lines.size() * sizeof(GLfloat)*3*2, NULL, GL_STREAM_DRAW);
           glBufferSubData(GL_ARRAY_BUFFER, 0, app->debug_lines.size() * sizeof(GLfloat)*3*2, &app->debug_lines[0]);
-          send_shader_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
+          set_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
           glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
           glDrawArrays(GL_LINES, 0, app->debug_lines.size()*2);
           app->debug_lines.clear();
@@ -3023,7 +2899,7 @@ void tick(Memory *memory, Input input) {
       }
 
       if (app->editing_mode) {
-        draw_3d_debug_info(app);
+        draw_3d_debug_info(input, app);
       }
 
       PROFILE_END(render_main);
@@ -3041,9 +2917,58 @@ void tick(Memory *memory, Input input) {
       glActiveTexture(GL_TEXTURE0 + 0);
       glBindTexture(GL_TEXTURE_2D, app->frames[app->read_frame].texture);
 
-
       glActiveTexture(GL_TEXTURE0 + 1);
       glBindTexture(GL_TEXTURE_2D, app->frames[app->write_frame].texture);
+
+      {
+        glViewport(0, 0, memory->width, memory->height);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
+        use_program(app, &app->fullscreen_program);
+
+        glActiveTexture(GL_TEXTURE0 + 2);
+        glBindTexture(GL_TEXTURE_2D, app->color_correction_texture.id);
+
+        set_uniformi(app->current_program, "uSampler", app->read_frame);
+
+        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+
+        std::swap(app->write_frame, app->read_frame);
+      }
+
+      if (0)
+      {
+        glViewport(0, 0, memory->width, memory->height);
+
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, app->frames[app->write_frame].id);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, app->transparent_buffer);
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+
+        use_program(app, &app->fullscreen_merge_alpha);
+
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA);
+
+        glActiveTexture(GL_TEXTURE0 + 3);
+        glBindTexture(GL_TEXTURE_2D, app->transparent_color_texture);
+        set_uniformi(app->current_program, "color_texture", 3);
+
+        glActiveTexture(GL_TEXTURE0 + 4);
+        glBindTexture(GL_TEXTURE_2D, app->transparent_alpha_texture);
+        set_uniformi(app->current_program, "transparent_color_texture", 4);
+
+        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glDisable(GL_BLEND);
+
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+
+        std::swap(app->write_frame, app->read_frame);
+      }
 
       if (app->color_correction) {
         glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
@@ -3052,9 +2977,9 @@ void tick(Memory *memory, Input input) {
         glActiveTexture(GL_TEXTURE0 + 2);
         glBindTexture(GL_TEXTURE_2D, app->color_correction_texture.id);
 
-        send_shader_uniformi(app->current_program, "uSampler", app->read_frame);
-        send_shader_uniformi(app->current_program, "color_correction_texture", 2);
-        send_shader_uniformf(app->current_program, "lut_size", 16.0f);
+        set_uniformi(app->current_program, "uSampler", app->read_frame);
+        set_uniformi(app->current_program, "color_correction_texture", 2);
+        set_uniformf(app->current_program, "lut_size", 16.0f);
 
         glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
         glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
@@ -3067,8 +2992,8 @@ void tick(Memory *memory, Input input) {
         glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
         use_program(app, &app->fullscreen_fxaa_program);
 
-        send_shader_uniformi(app->current_program, "uSampler", app->read_frame);
-        send_shader_uniform(app->current_program, "texture_size", glm::vec2(app->frames[0].width, app->frames[0].height));
+        set_uniformi(app->current_program, "uSampler", app->read_frame);
+        set_uniform(app->current_program, "texture_size", glm::vec2(app->frames[0].width, app->frames[0].height));
 
         glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
         glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
@@ -3081,7 +3006,7 @@ void tick(Memory *memory, Input input) {
         glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
         use_program(app, &app->fullscreen_bloom_program);
 
-        send_shader_uniformi(app->current_program, "uSampler", app->read_frame);
+        set_uniformi(app->current_program, "uSampler", app->read_frame);
 
         glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
         glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
@@ -3093,7 +3018,7 @@ void tick(Memory *memory, Input input) {
         glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
         use_program(app, &app->fullscreen_hdr_program);
 
-        send_shader_uniformi(app->current_program, "uSampler", app->read_frame);
+        set_uniformi(app->current_program, "uSampler", app->read_frame);
 
         glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
         glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
@@ -3105,7 +3030,7 @@ void tick(Memory *memory, Input input) {
         glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
         use_program(app, &app->fullscreen_lens_program);
 
-        send_shader_uniformi(app->current_program, "uSampler", app->read_frame);
+        set_uniformi(app->current_program, "uSampler", app->read_frame);
 
         glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
         glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
@@ -3119,7 +3044,7 @@ void tick(Memory *memory, Input input) {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         use_program(app, &app->fullscreen_program);
 
-        send_shader_uniformi(app->current_program, "uSampler", app->read_frame);
+        set_uniformi(app->current_program, "uSampler", app->read_frame);
 
         glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
         glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);

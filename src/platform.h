@@ -18,6 +18,7 @@ extern "C" {
     bool key_p;
     bool key_r;
     bool key_o;
+    bool enter;
   };
 
   struct Input {
@@ -41,6 +42,7 @@ extern "C" {
     InputOnce once;
 
     bool shift;
+    bool alt;
     bool escape;
 
     bool space;
@@ -106,8 +108,11 @@ extern "C" {
   typedef void close_file_type(PlatformFile file);
   typedef PlatformFileLine read_file_line_type(PlatformFile file);
   typedef void close_directory_type(PlatformDirectory directory);
-  typedef void write_to_file_type(PlatformFile file, char *text);
+  typedef void write_to_file_type(PlatformFile file, u64 len, void *value);
   typedef void create_directory_type(char *path);
+  typedef u64 get_file_time_type(char *path);
+  typedef void message_box_type(const char *title, const char *format, ...);
+  typedef void toggle_fullscreen_type();
 
   enum {
     /* 0  */DebugCycleCounter_update,
@@ -137,6 +142,7 @@ extern "C" {
     complete_all_work_type *complete_all_work;
     queue_has_free_spot_type *queue_has_free_spot;
     debugReadEntireFileType *debug_read_entire_file;
+    get_file_time_type *get_file_time;
     debugFreeFileType *debug_free_file;
     get_time_type *get_time;
     get_performance_counter_type *get_performance_counter;
@@ -144,6 +150,8 @@ extern "C" {
     delay_type *delay;
     lock_mouse_type *lock_mouse;
     unlock_mouse_type *unlock_mouse;
+    message_box_type *message_box;
+    toggle_fullscreen_type *toggle_fullscreen;
 
     open_directory_type *open_directory;
     read_next_directory_entry_type *read_next_directory_entry;
