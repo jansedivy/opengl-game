@@ -6,7 +6,7 @@ app_name='Explore.app'
 executable_name='explore'
 
 shared_flags='
--g -Wall -Wextra -std=c++11 -Wno-missing-field-initializers
+-g -Wall -Wextra -std=c++11 -Wno-missing-field-initializers -Wno-unused-parameter
 '
 optimalization='-O0'
 internal=''

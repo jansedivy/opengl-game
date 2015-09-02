@@ -113,6 +113,7 @@ extern "C" {
   typedef u64 get_file_time_type(char *path);
   typedef void message_box_type(const char *title, const char *format, ...);
   typedef void toggle_fullscreen_type();
+  typedef bool atomic_exchange_type(u32 *atomic, u32 old_value, u32 new_value);
 
   enum {
     /* 0  */DebugCycleCounter_update,
@@ -152,6 +153,7 @@ extern "C" {
     unlock_mouse_type *unlock_mouse;
     message_box_type *message_box;
     toggle_fullscreen_type *toggle_fullscreen;
+    atomic_exchange_type *atomic_exchange;
 
     open_directory_type *open_directory;
     read_next_directory_entry_type *read_next_directory_entry;

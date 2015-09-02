@@ -291,6 +291,10 @@ inline void format_string(char* buf, int buf_size, const char* fmt, va_list args
   }
 }
 
+bool atomic_exchange(u32 *atomic, u32 old_value, u32 new_value) {
+  return (bool)SDL_AtomicCAS((SDL_atomic_t *)atomic, old_value, new_value);
+}
+
 void toggle_fullscreen() {
   u32 flags = SDL_GetWindowFlags(window);
 
@@ -376,6 +380,7 @@ int main() {
   platform.get_file_time = get_file_time;
   platform.message_box = message_box;
   platform.toggle_fullscreen = toggle_fullscreen;
+  platform.atomic_exchange = atomic_exchange;
 
   memory.platform = platform;
   memory.low_queue = &low_queue;

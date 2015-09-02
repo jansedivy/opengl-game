@@ -95,6 +95,16 @@ struct Mesh {
   ModelData data;
 };
 
+namespace ModelDataState {
+  enum ModelDataState {
+    EMPTY,
+    INITIALIZED,
+    HAS_DATA,
+    PROCESSING,
+    REGISTERED_TO_LOAD
+  };
+}
+
 struct Model {
   const char *path = NULL;
   const char *id_name;
@@ -103,9 +113,7 @@ struct Model {
 
   float radius = 0.0f;
 
-  bool is_being_loaded = false;
-  bool has_data = false;
-  bool initialized = false;
+  u32 state = ModelDataState::EMPTY;
 };
 
 struct CubeMap {
@@ -120,9 +128,6 @@ struct TerrainChunk {
   Model models[3];
 
   bool initialized;
-
-  bool has_data;
-  bool is_being_loaded;
 
   TerrainChunk *prev;
   TerrainChunk *next;
@@ -283,6 +288,8 @@ struct Editor {
   bool show_performance = false;
   bool show_state_changes = false;
 
+  float speed;
+
   EditorLeftState::EditorLeftState left_state;
 
   UICommandBuffer command_buffer;
@@ -441,6 +448,4 @@ struct App {
 
 Memory *debug_global_memory;
 
-#define PROFILE(ID) u64 profile_cycle_count##ID = platform.get_performance_counter();
-#define PROFILE_END(ID) debug_global_memory->counters[DebugCycleCounter_##ID].cycle_count += (platform.get_performance_counter()) - profile_cycle_count##ID; ++debug_global_memory->counters[DebugCycleCounter_##ID].hit_count;
-#define PROFILE_END_COUNTED(ID, COUNT) debug_global_memory->counters[DebugCycleCounter_##ID].cycle_count += platform.get_performance_counter() - profile_cycle_count##ID; debug_global_memory->counters[DebugCycleCounter_##ID].hit_count += (COUNT);
+#include "debug.h"

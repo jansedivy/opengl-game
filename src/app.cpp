@@ -283,7 +283,7 @@ glm::mat4 make_billboard_matrix(glm::vec3 position, glm::vec3 camera_position, g
 RayMatchResult ray_match_entity(App *app, Ray ray, Entity *entity) {
   RayMatchResult result;
 
-  if (!entity->model) {
+  if (entity->model->state != ModelDataState::INITIALIZED) {
     result.hit = false;
     return result;
   }
@@ -314,7 +314,7 @@ RayMatchResult ray_match_entity(App *app, Ray ray, Entity *entity) {
 
   ModelData mesh = entity->model->mesh.data;
 
-  for (int i=0; i<mesh.indices_count; i += 3) {
+  for (u32 i=0; i<mesh.indices_count; i += 3) {
     int indices_a = mesh.indices[i + 0] * 3;
     int indices_b = mesh.indices[i + 1] * 3;
     int indices_c = mesh.indices[i + 2] * 3;
@@ -405,18 +405,16 @@ void unload_texture(Texture *texture) {
 };
 
 void unload_model(Model *model) {
-  if (model->initialized) {
+  if (platform.atomic_exchange(&model->state, ModelDataState::INITIALIZED, ModelDataState::PROCESSING)) {
     glDeleteBuffers(1, &model->mesh.vertices_id);
     glDeleteBuffers(1, &model->mesh.indices_id);
     glDeleteBuffers(1, &model->mesh.normals_id);
     glDeleteBuffers(1, &model->mesh.uv_id);
+
+    free(model->mesh.data.data);
+
+    model->state = ModelDataState::EMPTY;
   }
-
-  free(model->mesh.data.data);
-
-  model->initialized = false;
-  model->has_data = false;
-  model->is_being_loaded = false;
 }
 
 float calculate_radius(Mesh *mesh) {
@@ -469,19 +467,8 @@ void initialize_texture(Texture *texture, GLenum interal_type=GL_RGB, GLenum typ
 }
 
 void optimize_model(Model *model) {
-#if 0
-  VertexCache vertex_cache;
-  int misses = vertex_cache.GetCacheMissCount(model->mesh.data.indices, model->mesh.data.indices_count / 3);
-  float before = (float)misses/(float)model->mesh.data.indices_count;
-#endif
-
   VertexCacheOptimizer vco;
-  VertexCacheOptimizer::Result res = vco.Optimize(model->mesh.data.indices, model->mesh.data.indices_count / 3);
-
-#if 0
-  misses = vertex_cache.GetCacheMissCount(model->mesh.data.indices, model->mesh.data.indices_count / 3);
-  printf("%s before: (%f) - after: (%f)\n", model->id_name, before, (float)misses/(float)model->mesh.data.indices_count / 3);
-#endif
+  vco.Optimize(model->mesh.data.indices, model->mesh.data.indices_count / 3);
 }
 
 void initialize_model(Model *model) {
@@ -514,7 +501,7 @@ void initialize_model(Model *model) {
   model->mesh.normals_id = normals_id;
   model->mesh.uv_id = uv_id;
 
-  model->initialized = true;
+  model->state = ModelDataState::INITIALIZED; // TODO(sedivy): atomic
 }
 
 void allocate_mesh(Mesh *mesh, u32 vertices_count, u32 normals_count, u32 indices_count, u32 uv_count) {
@@ -545,7 +532,6 @@ void allocate_mesh(Mesh *mesh, u32 vertices_count, u32 normals_count, u32 indice
 }
 
 #include "shader.h"
-#include "chunk.h"
 
 u32 next_entity_id(App *app) {
   return ++app->last_id;
@@ -698,6 +684,7 @@ void init(Memory *memory) {
   app->editor.show_left = true;
   app->editor.show_right = true;
   app->editor.left_state = EditorLeftState::MODELING;
+  app->editor.speed = 10000.0f;
 
   debug_global_memory = memory;
 
@@ -790,10 +777,7 @@ void init(Memory *memory) {
       app->sphere_model.path = allocate_string("sphere");
       app->sphere_model.id_name = allocate_string("sphere");
       app->sphere_model.radius = radius;
-
-      app->sphere_model.has_data = true;
-      app->sphere_model.initialized = false;
-      app->sphere_model.is_being_loaded = false;
+      app->sphere_model.state = ModelDataState::HAS_DATA;
       app->models[app->sphere_model.id_name] = &app->sphere_model;
     }
 
@@ -871,9 +855,7 @@ void init(Memory *memory) {
       app->cube_model.id_name = allocate_string("cube");
       app->cube_model.radius = calculate_radius(&mesh);
       app->cube_model.mesh = mesh;
-      app->cube_model.has_data = true;
-      app->cube_model.is_being_loaded = false;
-      app->cube_model.initialized = false;
+      app->cube_model.state = ModelDataState::HAS_DATA;
       initialize_model(&app->cube_model);
       app->models[app->cube_model.id_name] = &app->cube_model;
     }
@@ -906,9 +888,7 @@ void init(Memory *memory) {
       app->quad_model.id_name = allocate_string("quad");
       app->quad_model.radius = calculate_radius(&mesh);
       app->quad_model.mesh = mesh;
-      app->quad_model.has_data = true;
-      app->quad_model.is_being_loaded = false;
-      app->quad_model.initialized = false;
+      app->quad_model.state = ModelDataState::HAS_DATA;
       initialize_model(&app->quad_model);
       app->models[app->quad_model.id_name] = &app->quad_model;
     }
@@ -941,9 +921,9 @@ void init(Memory *memory) {
 
   for (u32 i=0; i<app->chunk_cache_count; i++) {
     TerrainChunk *chunk = app->chunk_cache + i;
-    chunk->models[0].initialized = false;
-    chunk->has_data = false;
-    chunk->is_being_loaded = false;
+    chunk->models[0].state = ModelDataState::EMPTY;
+    chunk->models[1].state = ModelDataState::EMPTY;
+    chunk->models[2].state = ModelDataState::EMPTY;
     chunk->initialized = false;
   }
 
@@ -1056,13 +1036,8 @@ void init(Memory *memory) {
   for (u32 i=0; i<array_count(app->frames); i++) {
     FrameBuffer *frame = app->frames + i;
 
-#if 1
-    frame->width = memory->width;
-    frame->height = memory->height;
-#else
-    frame->width = memory->width / 4;
-    frame->height = memory->height / 4;
-#endif
+    frame->width = 1280;
+    frame->height = 720;
 
     // NOTE(sedivy): texture
     {
@@ -1243,7 +1218,7 @@ struct LoadModelWork {
 void load_model_work(void *data) {
   LoadModelWork *work = static_cast<LoadModelWork *>(data);
 
-  if (!work->model->initialized && !work->model->has_data) {
+  if (platform.atomic_exchange(&work->model->state, ModelDataState::REGISTERED_TO_LOAD, ModelDataState::PROCESSING)) {
     acquire_asset_file((char *)work->model->path);
 
     DebugReadFileResult result = platform.debug_read_entire_file(work->model->path);
@@ -1332,8 +1307,8 @@ void load_model_work(void *data) {
 
     optimize_model(model);
 
-    model->has_data = true;
     model->radius = max_distance;
+    model->state = ModelDataState::HAS_DATA; // TODO(sedivy): atomic
   }
 
   free(work);
@@ -1362,24 +1337,27 @@ inline bool process_texture(Memory *memory, Texture *texture) {
 }
 
 inline bool process_model(Memory *memory, Model *model) {
-  if (!model->initialized && !model->has_data && !model->is_being_loaded) {
-    if (platform.queue_has_free_spot(memory->low_queue)) {
+  if (model->state == ModelDataState::INITIALIZED) {
+    return false;
+  }
+
+  if (platform.queue_has_free_spot(memory->low_queue)) {
+    if (platform.atomic_exchange(&model->state, ModelDataState::EMPTY, ModelDataState::REGISTERED_TO_LOAD)) {
       LoadModelWork *work = static_cast<LoadModelWork *>(malloc(sizeof(LoadModelWork)));
       work->model = model;
 
       platform.add_work(memory->low_queue, load_model_work, work);
 
-      model->is_being_loaded = true;
+      return true;
     }
-    return true;
   }
 
-  if (!model->initialized && model->has_data) {
+  if (model->state == ModelDataState::HAS_DATA) {
     initialize_model(model);
-    return true;
+    return false;
   }
 
-  return false;
+  return true;
 }
 
 inline void use_model_mesh(App *app, Mesh *mesh) {
@@ -1404,53 +1382,7 @@ inline void use_model_mesh(App *app, Mesh *mesh) {
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->indices_id);
 }
 
-inline bool process_terrain(Memory *memory, TerrainChunk *chunk) {
-  if (!chunk->has_data) {
-    if (!chunk->is_being_loaded && platform.queue_has_free_spot(memory->main_queue)) {
-      chunk->is_being_loaded = true;
-
-      platform.add_work(memory->main_queue, generate_ground_work, chunk);
-    }
-
-    return true;
-  }
-
-  bool generated = false;
-
-  for (u32 i=0; i<array_count(chunk->models); i++) {
-    Model *model = chunk->models + i;
-    if (!model->initialized) {
-      initialize_model(model);
-      generated = true;
-    }
-  }
-
-  return generated;
-}
-
-bool render_terrain_chunk(App *app, TerrainChunk *chunk, Model *model) {
-  glm::mat4 model_view;
-  model_view = glm::translate(model_view, glm::vec3(chunk->x * CHUNK_SIZE_X, 0.0f, chunk->y * CHUNK_SIZE_Y));
-
-  glm::mat3 normal = glm::inverseTranspose(glm::mat3(model_view));
-
-  if (shader_has_uniform(app->current_program, "uNMatrix")) {
-    set_uniform(app->current_program, "uNMatrix", normal);
-  }
-
-  if (shader_has_uniform(app->current_program, "uMVMatrix")) {
-    set_uniform(app->current_program, "uMVMatrix", model_view);
-  }
-
-  if (shader_has_uniform(app->current_program, "in_color")) {
-    set_uniform(app->current_program, "in_color", glm::vec4(1.0f, 0.4f, 0.1f, 1.0f));
-  }
-
-  use_model_mesh(app, &model->mesh);
-  glDrawElements(GL_TRIANGLES, model->mesh.data.indices_count, GL_UNSIGNED_INT, 0);
-
-  return true;
-}
+#include "chunk.h"
 
 void debug_render_rect(UICommandBuffer *command_buffer, float x, float y, float width, float height, glm::vec4 color, glm::vec4 image_color=glm::vec4(0.0f), u32 x_index=0, u32 y_index=0) {
   float scale = 1.0f / 4.0f;
@@ -1501,6 +1433,9 @@ void debug_render_rect(UICommandBuffer *command_buffer, float x, float y, float 
 }
 
 void draw_string(UICommandBuffer *command_buffer, Font *font, float x, float y, char *text, glm::vec3 color=glm::vec3(1.0f, 1.0f, 1.0f)) {
+  y = glm::round(y);
+  x = glm::round(x);
+
   float font_x = 0, font_y = font->size;
   stbtt_aligned_quad q;
 
@@ -1910,9 +1845,7 @@ void push_toggle_button(App *app, Input &input, DebugDrawState *draw_state, UICo
 void rebuild_chunks(App *app) {
   for (u32 i=0; i<app->chunk_cache_count; i++) {
     TerrainChunk *chunk = app->chunk_cache + i;
-    if (chunk->has_data) {
-      unload_chunk(chunk);
-    }
+    unload_chunk(chunk);
   }
 }
 
@@ -2124,6 +2057,18 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           sprintf(text, "Show handles %d\n", app->editor.show_handles);
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             app->editor.show_handles = !app->editor.show_handles;
+          }
+
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"slow speed", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+            app->editor.speed = 10000.0f;
+          }
+
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"medium speed", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+            app->editor.speed = 40000.0f;
+          }
+
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"fast speed", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+            app->editor.speed = 60000.0f;
           }
           break;
       }
@@ -2410,33 +2355,31 @@ void render_terrain(Memory *memory, App *app) {
   u32 chunk_count = 0;
 
   PROFILE(render_chunks);
-  for (int y=-4 + y_coord; y<=4 + y_coord; y++) {
-    for (int x=-4 + x_coord; x<=4 + x_coord; x++) {
+  for (int y=-8 + y_coord; y<=8 + y_coord; y++) {
+    for (int x=-8 + x_coord; x<=8 + x_coord; x++) {
       if (x < 0 || y < 0 ) { continue; }
 
       TerrainChunk *chunk = get_chunk_at(app->chunk_cache, app->chunk_cache_count, x, y);
 
-      if (process_terrain(memory, chunk)) {
-        continue;
-      }
-
-      if (!is_sphere_in_frustum(&app->camera.frustum, glm::vec3(chunk->x * CHUNK_SIZE_X, 0.0f, chunk->y * CHUNK_SIZE_Y), chunk->models[0].radius)) {
-        continue;
-      }
-
       int dx = chunk->x - x_coord;
       int dy = chunk->y - y_coord;
 
-      float distance = glm::pow(dx, 2) + glm::pow(dy, 2);
+      float distance = glm::length2(glm::vec2(dx, dy));
 
       int detail_level = 2;
       if (distance < 16.0f) { detail_level = 1; }
       if (distance < 4.0f) { detail_level = 0; }
 
-      Model *model = &chunk->models[detail_level];
+      Model *model = chunk_get_model(memory, chunk, detail_level);
 
-      if (render_terrain_chunk(app, chunk, model)) {
-        chunk_count += 1;
+      if (model) {
+        if (!is_sphere_in_frustum(&app->camera.frustum, glm::vec3(chunk->x * CHUNK_SIZE_X, 0.0f, chunk->y * CHUNK_SIZE_Y), model->radius)) {
+          continue;
+        }
+
+        if (render_terrain_chunk(app, chunk, model)) {
+          chunk_count += 1;
+        }
       }
     }
   }
@@ -2556,7 +2499,7 @@ void tick(Memory *memory, Input input) {
     }
 
     if (app->editing_mode) {
-      speed = 10000.0f;
+      speed = app->editor.speed;
     } else {
       if (input.shift) {
         speed = 10000.0f;
@@ -2907,7 +2850,7 @@ void tick(Memory *memory, Input input) {
 
     {
       PROFILE(render_final);
-      glViewport(0, 0, app->frames[0].width, app->frames[1].height);
+      glViewport(0, 0, app->frames[0].width, app->frames[0].height);
       glDisable(GL_DEPTH_TEST);
       glDisable(GL_CULL_FACE);
 
@@ -2921,8 +2864,6 @@ void tick(Memory *memory, Input input) {
       glBindTexture(GL_TEXTURE_2D, app->frames[app->write_frame].texture);
 
       {
-        glViewport(0, 0, memory->width, memory->height);
-
         glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
         use_program(app, &app->fullscreen_program);
 
@@ -2940,8 +2881,6 @@ void tick(Memory *memory, Input input) {
 
       if (0)
       {
-        glViewport(0, 0, memory->width, memory->height);
-
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, app->frames[app->write_frame].id);
         glBindFramebuffer(GL_READ_FRAMEBUFFER, app->transparent_buffer);
         glReadBuffer(GL_COLOR_ATTACHMENT0);

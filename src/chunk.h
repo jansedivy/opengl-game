@@ -5,8 +5,6 @@ void unload_chunk(TerrainChunk *chunk) {
     Model *model = chunk->models + i;
     unload_model(model);
   }
-  chunk->has_data = false;
-  chunk->is_being_loaded = false;
 }
 
 TerrainChunk *get_chunk_at(TerrainChunk *chunks, u32 count, u32 x, u32 y) {
@@ -32,9 +30,9 @@ TerrainChunk *get_chunk_at(TerrainChunk *chunks, u32 count, u32 x, u32 y) {
       chunk->y = y;
       chunk->initialized = true;
       chunk->next = 0;
-      chunk->models[0].initialized = false;
-      chunk->has_data = false;
-      chunk->is_being_loaded = false;
+      chunk->models[0].state = ModelDataState::EMPTY;
+      chunk->models[1].state = ModelDataState::EMPTY;
+      chunk->models[2].state = ModelDataState::EMPTY;
       break;
     }
 
@@ -44,7 +42,7 @@ TerrainChunk *get_chunk_at(TerrainChunk *chunks, u32 count, u32 x, u32 y) {
   return chunk;
 }
 
-Model generate_ground(int chunk_x, int chunk_y, float detail) {
+void generate_ground(Model *model, int chunk_x, int chunk_y, float detail) {
   int size_x = CHUNK_SIZE_X;
   int size_y = CHUNK_SIZE_Y;
 
@@ -146,29 +144,106 @@ Model generate_ground(int chunk_x, int chunk_y, float detail) {
     mesh.data.normals[i + 2] = normal.z;
   }
 
-  Model model;
-  model.id_name = allocate_string("chunk");
-  model.path = allocate_string("chunk");
-  model.mesh = mesh;
-  model.initialized = false;
-  model.has_data = true;
-  model.is_being_loaded = false;
-  model.radius = radius;
-
-  return model;
+  model->id_name = allocate_string("chunk");
+  model->path = allocate_string("chunk");
+  model->mesh = mesh;
+  model->radius = radius;
 }
+
+struct GenerateGrountWorkData {
+  TerrainChunk *chunk;
+  int detail_level;
+};
 
 void generate_ground_work(void *data) {
-  TerrainChunk *chunk = static_cast<TerrainChunk*>(data);
-  chunk->models[0] = generate_ground(chunk->x, chunk->y, 0.03f);
-  chunk->models[1] = generate_ground(chunk->x, chunk->y, 0.01f);
-  chunk->models[2] = generate_ground(chunk->x, chunk->y, 0.005f);
+  auto *work = static_cast<GenerateGrountWorkData*>(data);
 
-  optimize_model(chunk->models + 0);
-  optimize_model(chunk->models + 1);
-  optimize_model(chunk->models + 2);
+  TerrainChunk *chunk = work->chunk;
 
-  chunk->has_data = true;
-  chunk->is_being_loaded = true;
+  Model *model = chunk->models + work->detail_level;
+
+  if (platform.atomic_exchange(&model->state, ModelDataState::REGISTERED_TO_LOAD, ModelDataState::PROCESSING)) {
+    float resolution = 0.0f;
+    if (work->detail_level == 0) {
+      resolution = 0.03f;
+    } else if (work->detail_level == 1) {
+      resolution = 0.01f;
+    } else if (work->detail_level == 2) {
+      resolution = 0.005f;
+    }
+
+    generate_ground(model, chunk->x, chunk->y, resolution);
+
+    optimize_model(model);
+
+    model->state = ModelDataState::HAS_DATA;
+  }
+
+  free(work);
 }
 
+inline bool process_terrain(Memory *memory, TerrainChunk *chunk, int detail_level) {
+  Model *model = chunk->models + detail_level;
+
+  if (model->state == ModelDataState::INITIALIZED) {
+    return false;
+  }
+
+  if (model->state == ModelDataState::HAS_DATA) {
+    initialize_model(model);
+    return true;
+  }
+
+  if (platform.queue_has_free_spot(memory->main_queue)) {
+    if (platform.atomic_exchange(&model->state, ModelDataState::EMPTY, ModelDataState::REGISTERED_TO_LOAD)) {
+      auto *work = static_cast<GenerateGrountWorkData*>(malloc(sizeof(GenerateGrountWorkData)));
+      work->chunk = chunk;
+      work->detail_level = detail_level;
+
+      platform.add_work(memory->main_queue, generate_ground_work, work);
+
+      return true;
+    }
+  }
+
+  return true;
+}
+
+
+Model *chunk_get_model(Memory *memory, TerrainChunk *chunk, int detail_level) {
+  if (process_terrain(memory, chunk, detail_level)) {
+    for (u32 i=0; i<array_count(chunk->models); i++) {
+      Model *model = chunk->models + i;
+      if (model->state == ModelDataState::INITIALIZED) {
+        return model;
+      }
+    }
+    return NULL;
+  }
+
+  return chunk->models + detail_level;
+}
+
+bool render_terrain_chunk(App *app, TerrainChunk *chunk, Model *model) {
+  glm::mat4 model_view;
+  model_view = glm::translate(model_view, glm::vec3(chunk->x * CHUNK_SIZE_X, 0.0f, chunk->y * CHUNK_SIZE_Y));
+
+  glm::mat3 normal = glm::inverseTranspose(glm::mat3(model_view));
+
+  if (shader_has_uniform(app->current_program, "uNMatrix")) {
+    set_uniform(app->current_program, "uNMatrix", normal);
+  }
+
+  if (shader_has_uniform(app->current_program, "uMVMatrix")) {
+    set_uniform(app->current_program, "uMVMatrix", model_view);
+  }
+
+  if (shader_has_uniform(app->current_program, "in_color")) {
+    set_uniform(app->current_program, "in_color", glm::vec4(1.0f, 0.4f, 0.1f, 1.0f));
+  }
+
+  use_model_mesh(app, &model->mesh);
+  glDrawElements(GL_TRIANGLES, model->mesh.data.indices_count, GL_UNSIGNED_INT, 0);
+
+  return true;
+}
