@@ -20,8 +20,8 @@ bool sort_function(const RenderCommand &a, const RenderCommand &b) {
 }
 
 bool transparent_sort_function(const RenderCommand &a, const RenderCommand &b) {
-  /* if (a.distance_from_camera > b.distance_from_camera) { return true; } */
-  /* if (a.distance_from_camera < b.distance_from_camera) { return false; } */
+  if (a.distance_from_camera > b.distance_from_camera) { return true; }
+  if (a.distance_from_camera < b.distance_from_camera) { return false; }
 
   return sort_function(a, b);
 }
@@ -57,7 +57,7 @@ void change_shader(RenderGroup *group, App *app, Shader *shader) {
   }
 
   if (shader_has_uniform(app->current_program, "texmapscale")) {
-    set_uniform(app->current_program, "texmapscale", glm::vec2(1.0f / app->shadow_width, 1.0f / app->shadow_height));
+    set_uniform(app->current_program, "texmapscale", vec2(1.0f / app->shadow_width, 1.0f / app->shadow_height));
   }
 
   if (shader_has_uniform(app->current_program, "shadow_light_position")) {
@@ -66,6 +66,7 @@ void change_shader(RenderGroup *group, App *app, Shader *shader) {
 }
 
 void end_render_group(App *app, RenderGroup *group) {
+  PROFILE_BLOCK("Render Group Blit");
   if (group->transparent_pass) {
     std::sort(group->commands.begin(), group->commands.end(), transparent_sort_function);
   } else {
@@ -77,12 +78,8 @@ void end_render_group(App *app, RenderGroup *group) {
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-  group->model_change = 0;
-  group->shader_change = 0;
-
   group->last_model = 0;
   group->last_shader = 0;
-  group->draw_calls = 0;
 
   set_depth_mode(group, GL_LESS, true);
 
@@ -98,69 +95,68 @@ void end_render_group(App *app, RenderGroup *group) {
     change_shader(group, app, group->force_shader);
   }
 
-  for (auto it = group->commands.begin(); it != group->commands.end(); it++) {
-    if (group->force_shader == NULL) {
-      if (group->last_shader != it->shader) {
-        change_shader(group, app, it->shader);
-        group->last_shader = it->shader;
-        group->shader_change += 1;
+  {
+    PROFILE_BLOCK("Render Entity", group->commands.size());
+    for (auto it = group->commands.begin(); it != group->commands.end(); it++) {
+      if (group->force_shader == NULL) {
+        if (group->last_shader != it->shader) {
+          change_shader(group, app, it->shader);
+          group->last_shader = it->shader;
+        }
       }
-    }
 
-    if (!group->shadow_pass && it->cull_type != group->cull_face) {
-      glCullFace(it->cull_type);
-      group->cull_face = it->cull_type;
-    }
-
-    if ((it->flags & EntityFlags::RENDER_IGNORE_DEPTH) != 0) {
-      set_depth_mode(group, GL_ALWAYS);
-    } else {
-      set_depth_mode(group, GL_LESS);
-    }
-
-    if (shader_has_uniform(app->current_program, "uNMatrix")) {
-      set_uniform(app->current_program, "uNMatrix", it->normal);
-    }
-
-    if (shader_has_uniform(app->current_program, "uMVMatrix")) {
-      set_uniform(app->current_program, "uMVMatrix", it->model_view);
-    }
-
-    if (shader_has_uniform(app->current_program, "in_color")) {
-      set_uniform(app->current_program, "in_color", it->color);
-    }
-
-    if (shader_has_uniform(app->current_program, "znear")) {
-      set_uniformf(app->current_program, "znear", app->camera.near);
-    }
-
-    if (shader_has_uniform(app->current_program, "zfar")) {
-      set_uniformf(app->current_program, "zfar", app->camera.far);
-    }
-
-    if (shader_has_uniform(app->current_program, "camera_depth_texture")) {
-      glActiveTexture(GL_TEXTURE0 + 2);
-      glBindTexture(GL_TEXTURE_2D, app->frames[0].depth);
-      set_uniformi(app->current_program, "camera_depth_texture", 2);
-    }
-
-    if (shader_has_uniform(app->current_program, "textureImage")) {
-      if (it->texture && it->texture != group->last_texture) {
-        glActiveTexture(GL_TEXTURE0 + 1);
-        glBindTexture(GL_TEXTURE_2D, it->texture->id);
+      if (!group->shadow_pass && it->cull_type != group->cull_face) {
+        glCullFace(it->cull_type);
+        group->cull_face = it->cull_type;
       }
-      set_uniformi(app->current_program, "textureImage", 1);
+
+      if ((it->flags & EntityFlags::RENDER_IGNORE_DEPTH) != 0) {
+        set_depth_mode(group, GL_ALWAYS);
+      } else {
+        set_depth_mode(group, GL_LESS);
+      }
+
+      if (shader_has_uniform(app->current_program, "uNMatrix")) {
+        set_uniform(app->current_program, "uNMatrix", it->normal);
+      }
+
+      if (shader_has_uniform(app->current_program, "uMVMatrix")) {
+        set_uniform(app->current_program, "uMVMatrix", it->model_view);
+      }
+
+      if (shader_has_uniform(app->current_program, "in_color")) {
+        set_uniform(app->current_program, "in_color", it->color);
+      }
+
+      if (shader_has_uniform(app->current_program, "znear")) {
+        set_uniformf(app->current_program, "znear", app->camera.near);
+      }
+
+      if (shader_has_uniform(app->current_program, "zfar")) {
+        set_uniformf(app->current_program, "zfar", app->camera.far);
+      }
+
+      if (shader_has_uniform(app->current_program, "camera_depth_texture")) {
+        glActiveTexture(GL_TEXTURE0 + 2);
+        glBindTexture(GL_TEXTURE_2D, app->frames[0].depth);
+        set_uniformi(app->current_program, "camera_depth_texture", 2);
+      }
+
+      if (shader_has_uniform(app->current_program, "textureImage")) {
+        if (it->texture && it->texture != group->last_texture) {
+          glActiveTexture(GL_TEXTURE0 + 1);
+          glBindTexture(GL_TEXTURE_2D, it->texture->id);
+        }
+        set_uniformi(app->current_program, "textureImage", 1);
+      }
+
+      if (group->last_model != it->model_mesh) {
+        group->last_model = it->model_mesh;
+        use_model_mesh(app, it->model_mesh);
+      }
+
+      glDrawElements(GL_TRIANGLES, it->model_mesh->data.indices_count, GL_UNSIGNED_INT, 0);
     }
-
-    group->draw_calls += 1;
-
-    if (group->last_model != it->model_mesh) {
-      group->last_model = it->model_mesh;
-      group->model_change += 1;
-      use_model_mesh(app, it->model_mesh);
-    }
-
-    glDrawElements(GL_TRIANGLES, it->model_mesh->data.indices_count, GL_UNSIGNED_INT, 0);
   }
 }
 

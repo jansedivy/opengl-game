@@ -23,6 +23,7 @@ libraries="
 
   -I./libs/glm
   -I./libs/vcache
+  -I./libs/perlin
   -I./libs/stb
 
   -F./build/$app_name/Contents/Frameworks

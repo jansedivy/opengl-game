@@ -1,5 +1,22 @@
 #pragma once
 
-#define PROFILE(ID) u64 profile_cycle_count##ID = platform.get_performance_counter();
-#define PROFILE_END(ID) debug_global_memory->counters[DebugCycleCounter_##ID].cycle_count += (platform.get_performance_counter()) - profile_cycle_count##ID; ++debug_global_memory->counters[DebugCycleCounter_##ID].hit_count;
-#define PROFILE_END_COUNTED(ID, COUNT) debug_global_memory->counters[DebugCycleCounter_##ID].cycle_count += platform.get_performance_counter() - profile_cycle_count##ID; debug_global_memory->counters[DebugCycleCounter_##ID].hit_count += (COUNT);
+struct DebugProfileBlock {
+  u32 id;
+  u64 hit_count;
+
+  DebugProfileBlock(u32 init_id, char *name, u64 init_hit_count=1) {
+    id = init_id;
+    hit_count = init_hit_count;
+    global_counters[id].name = name;
+    global_counters[id].cycle_count -= platform.get_performance_counter();
+  }
+
+  ~DebugProfileBlock() {
+    global_counters[id].cycle_count += platform.get_performance_counter();
+    global_counters[id].hit_count += hit_count;
+  }
+};
+
+static u64 global_debug_counter = 0; // TODO(sedivy): remove
+
+#define PROFILE_BLOCK(NAME, ...) DebugProfileBlock debug_profile_block_##__LINE__(__COUNTER__, (char *)NAME, ## __VA_ARGS__)

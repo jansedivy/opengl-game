@@ -30,9 +30,9 @@ TerrainChunk *get_chunk_at(TerrainChunk *chunks, u32 count, u32 x, u32 y) {
       chunk->y = y;
       chunk->initialized = true;
       chunk->next = 0;
-      chunk->models[0].state = ModelDataState::EMPTY;
-      chunk->models[1].state = ModelDataState::EMPTY;
-      chunk->models[2].state = ModelDataState::EMPTY;
+      chunk->models[0].state = AssetState::EMPTY;
+      chunk->models[1].state = AssetState::EMPTY;
+      chunk->models[2].state = AssetState::EMPTY;
       break;
     }
 
@@ -43,6 +43,7 @@ TerrainChunk *get_chunk_at(TerrainChunk *chunks, u32 count, u32 x, u32 y) {
 }
 
 void generate_ground(Model *model, int chunk_x, int chunk_y, float detail) {
+ PROFILE_BLOCK("Generate Ground");
   int size_x = CHUNK_SIZE_X;
   int size_y = CHUNK_SIZE_Y;
 
@@ -77,7 +78,7 @@ void generate_ground(Model *model, int chunk_x, int chunk_y, float detail) {
       mesh.data.vertices[vertices_index++] = y_coord;
 
       // TODO(sedivy): calculate center
-      float distance = glm::length(glm::vec3(x_coord, value, y_coord));
+      float distance = glm::length(vec3(x_coord, value, y_coord));
       if (distance > radius) {
         radius = distance;
       }
@@ -105,19 +106,19 @@ void generate_ground(Model *model, int chunk_x, int chunk_y, float detail) {
     int indices_b = mesh.data.indices[i + 1] * 3;
     int indices_c = mesh.data.indices[i + 2] * 3;
 
-    glm::vec3 v0 = glm::vec3(mesh.data.vertices[indices_a + 0],
+    vec3 v0 = vec3(mesh.data.vertices[indices_a + 0],
                              mesh.data.vertices[indices_a + 1],
                              mesh.data.vertices[indices_a + 2]);
 
-    glm::vec3 v1 = glm::vec3(mesh.data.vertices[indices_b + 0],
+    vec3 v1 = vec3(mesh.data.vertices[indices_b + 0],
                              mesh.data.vertices[indices_b + 1],
                              mesh.data.vertices[indices_b + 2]);
 
-    glm::vec3 v2 = glm::vec3(mesh.data.vertices[indices_c + 0],
+    vec3 v2 = vec3(mesh.data.vertices[indices_c + 0],
                              mesh.data.vertices[indices_c + 1],
                              mesh.data.vertices[indices_c + 2]);
 
-    glm::vec3 normal = glm::normalize(glm::cross(v2 - v0, v1 - v0));
+    vec3 normal = glm::normalize(glm::cross(v2 - v0, v1 - v0));
 
     mesh.data.normals[indices_a + 0] = -normal.x;
     mesh.data.normals[indices_a + 1] = -normal.y;
@@ -137,7 +138,7 @@ void generate_ground(Model *model, int chunk_x, int chunk_y, float detail) {
     float y = mesh.data.normals[i + 1];
     float z = mesh.data.normals[i + 2];
 
-    glm::vec3 normal = glm::normalize(glm::vec3(x, y, z));
+    vec3 normal = glm::normalize(vec3(x, y, z));
 
     mesh.data.normals[i + 0] = normal.x;
     mesh.data.normals[i + 1] = normal.y;
@@ -145,7 +146,6 @@ void generate_ground(Model *model, int chunk_x, int chunk_y, float detail) {
   }
 
   model->id_name = allocate_string("chunk");
-  model->path = allocate_string("chunk");
   model->mesh = mesh;
   model->radius = radius;
 }
@@ -162,7 +162,7 @@ void generate_ground_work(void *data) {
 
   Model *model = chunk->models + work->detail_level;
 
-  if (platform.atomic_exchange(&model->state, ModelDataState::REGISTERED_TO_LOAD, ModelDataState::PROCESSING)) {
+  if (platform.atomic_exchange(&model->state, AssetState::EMPTY, AssetState::PROCESSING)) {
     float resolution = 0.0f;
     if (work->detail_level == 0) {
       resolution = 0.03f;
@@ -176,7 +176,7 @@ void generate_ground_work(void *data) {
 
     optimize_model(model);
 
-    model->state = ModelDataState::HAS_DATA;
+    model->state = AssetState::HAS_DATA;
   }
 
   free(work);
@@ -185,17 +185,17 @@ void generate_ground_work(void *data) {
 inline bool process_terrain(Memory *memory, TerrainChunk *chunk, int detail_level) {
   Model *model = chunk->models + detail_level;
 
-  if (model->state == ModelDataState::INITIALIZED) {
+  if (model->state == AssetState::INITIALIZED) {
     return false;
   }
 
-  if (model->state == ModelDataState::HAS_DATA) {
+  if (model->state == AssetState::HAS_DATA) {
     initialize_model(model);
     return true;
   }
 
   if (platform.queue_has_free_spot(memory->main_queue)) {
-    if (platform.atomic_exchange(&model->state, ModelDataState::EMPTY, ModelDataState::REGISTERED_TO_LOAD)) {
+    if (model->state == AssetState::EMPTY) {
       auto *work = static_cast<GenerateGrountWorkData*>(malloc(sizeof(GenerateGrountWorkData)));
       work->chunk = chunk;
       work->detail_level = detail_level;
@@ -214,7 +214,7 @@ Model *chunk_get_model(Memory *memory, TerrainChunk *chunk, int detail_level) {
   if (process_terrain(memory, chunk, detail_level)) {
     for (u32 i=0; i<array_count(chunk->models); i++) {
       Model *model = chunk->models + i;
-      if (model->state == ModelDataState::INITIALIZED) {
+      if (model->state == AssetState::INITIALIZED) {
         return model;
       }
     }
@@ -224,11 +224,11 @@ Model *chunk_get_model(Memory *memory, TerrainChunk *chunk, int detail_level) {
   return chunk->models + detail_level;
 }
 
-bool render_terrain_chunk(App *app, TerrainChunk *chunk, Model *model) {
-  glm::mat4 model_view;
-  model_view = glm::translate(model_view, glm::vec3(chunk->x * CHUNK_SIZE_X, 0.0f, chunk->y * CHUNK_SIZE_Y));
+void render_terrain_chunk(App *app, TerrainChunk *chunk, Model *model) {
+  mat4 model_view;
+  model_view = glm::translate(model_view, vec3(chunk->x * CHUNK_SIZE_X, 0.0f, chunk->y * CHUNK_SIZE_Y));
 
-  glm::mat3 normal = glm::inverseTranspose(glm::mat3(model_view));
+  mat3 normal = glm::inverseTranspose(mat3(model_view));
 
   if (shader_has_uniform(app->current_program, "uNMatrix")) {
     set_uniform(app->current_program, "uNMatrix", normal);
@@ -239,11 +239,17 @@ bool render_terrain_chunk(App *app, TerrainChunk *chunk, Model *model) {
   }
 
   if (shader_has_uniform(app->current_program, "in_color")) {
-    set_uniform(app->current_program, "in_color", glm::vec4(1.0f, 0.4f, 0.1f, 1.0f));
+    set_uniform(app->current_program, "in_color", vec4(1.0f, 0.4f, 0.1f, 1.0f));
   }
 
   use_model_mesh(app, &model->mesh);
   glDrawElements(GL_TRIANGLES, model->mesh.data.indices_count, GL_UNSIGNED_INT, 0);
+}
 
-  return true;
+void rebuild_chunks(App *app) {
+  PROFILE_BLOCK("Unload Chunk", app->chunk_cache_count);
+  for (u32 i=0; i<app->chunk_cache_count; i++) {
+    TerrainChunk *chunk = app->chunk_cache + i;
+    unload_chunk(chunk);
+  }
 }

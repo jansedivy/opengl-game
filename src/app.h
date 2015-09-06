@@ -23,6 +23,13 @@
 #include <glm/gtx/norm.hpp>
 #include <glm/gtc/noise.hpp>
 
+using glm::vec2;
+using glm::vec3;
+using glm::vec4;
+using glm::mat4;
+using glm::mat3;
+using glm::quat;
+
 #include <vcacheopt.h>
 
 #include <cstdio>
@@ -44,15 +51,18 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
+struct Memory *debug_global_memory;
+PlatformAPI platform;
+
 #include "font.h"
 #include "array.h"
 #include "random.h"
-#include <cstdio>
+
+#include "debug.h"
+
 
 #define CHUNK_SIZE_X 5000
 #define CHUNK_SIZE_Y 5000
-
-PlatformAPI platform;
 
 static float tau = glm::pi<float>() * 2.0f;
 static float pi = glm::pi<float>();
@@ -65,8 +75,8 @@ struct Shader {
 };
 
 struct Box {
-  glm::vec3 min;
-  glm::vec3 max;
+  vec3 min;
+  vec3 max;
 };
 
 struct ModelData {
@@ -95,13 +105,12 @@ struct Mesh {
   ModelData data;
 };
 
-namespace ModelDataState {
-  enum ModelDataState {
+namespace AssetState {
+  enum AssetState {
     EMPTY,
     INITIALIZED,
     HAS_DATA,
-    PROCESSING,
-    REGISTERED_TO_LOAD
+    PROCESSING
   };
 }
 
@@ -113,7 +122,7 @@ struct Model {
 
   float radius = 0.0f;
 
-  u32 state = ModelDataState::EMPTY;
+  u32 state = AssetState::EMPTY;
 };
 
 struct CubeMap {
@@ -150,9 +159,7 @@ struct Texture {
   u32 width = 0;
   u32 height = 0;
 
-  bool initialized = false;
-  bool is_being_loaded = false;
-  bool has_data = false;
+  u32 state = AssetState::EMPTY;
 };
 
 namespace EntityFlags {
@@ -171,7 +178,7 @@ namespace EntityFlags {
 
 struct RayMatchResult {
   bool hit;
-  glm::vec3 hit_position;
+  vec3 hit_position;
 };
 
 struct Entity {
@@ -181,28 +188,28 @@ struct Entity {
 
   Model *model = NULL;
 
-  glm::vec3 position;
+  vec3 position;
 
-  glm::vec3 rotation;
+  vec3 rotation;
 
-  glm::vec3 velocity;
-  glm::vec3 scale;
-  glm::vec4 color;
+  vec3 velocity;
+  vec3 scale;
+  vec4 color;
 
   EntityType type;
   Texture *texture = 0;
 
   // TODO(sedivy): Move planet specific stuff into union
-  std::vector<glm::vec2> positions;
+  std::vector<vec2> positions;
 };
 
 struct Ray {
-  glm::vec3 start;
-  glm::vec3 direction;
+  vec3 start;
+  vec3 direction;
 };
 
 struct Plane {
-  glm::vec3 normal;
+  vec3 normal;
   float distance;
 };
 
@@ -220,14 +227,14 @@ enum FrustumPlaneType {
 };
 
 struct Camera {
-  glm::mat4 view_matrix;
+  mat4 view_matrix;
 
-  glm::vec3 rotation;
-  glm::vec3 position;
+  vec3 rotation;
+  vec3 position;
   Frustum frustum;
 
   bool ortho = false;
-  glm::vec2 size;
+  vec2 size;
 
   float far;
   float near;
@@ -237,28 +244,8 @@ struct Camera {
 
 struct EditorHandleRenderCommand {
   float distance_from_camera;
-  glm::mat4 model_view;
-  glm::vec4 color;
-};
-
-namespace UICommandType {
-  enum UICommandType {
-    NONE = 0,
-    RECT,
-    TEXT
-  };
-}
-
-struct UICommand {
-  glm::vec4 color;
-  glm::vec4 image_color;
-  u32 vertices_count;
-  UICommandType::UICommandType type;
-};
-
-struct UICommandBuffer {
-  std::vector<GLfloat> vertices;
-  std::vector<UICommand> commands;
+  mat4 model_view;
+  vec4 color;
 };
 
 namespace EditorLeftState {
@@ -271,6 +258,8 @@ namespace EditorLeftState {
   };
 }
 
+#include "ui.h"
+
 struct Editor {
   bool holding_entity = false;
   bool hovering_entity = false;
@@ -278,7 +267,7 @@ struct Editor {
   u32 entity_id;
   u32 hover_entity;
   float distance_from_entity_offset;
-  glm::vec3 hold_offset;
+  vec3 hold_offset;
   float handle_size;
 
   bool show_left = true;
@@ -286,7 +275,8 @@ struct Editor {
 
   bool show_handles = true;
   bool show_performance = false;
-  bool show_state_changes = false;
+
+  bool experimental_terrain_entity_movement = false;
 
   float speed;
 
@@ -303,10 +293,6 @@ struct FrameBuffer {
   u32 height;
 };
 
-struct DebugDrawState {
-  float offset_top = 0;
-};
-
 #pragma pack(1)
 struct LoadedLevelHeader {
   u32 entity_count;
@@ -315,23 +301,23 @@ struct LoadedLevelHeader {
 struct EntitySave {
   u32 id;
   EntityType type;
-  glm::vec3 position;
-  glm::vec3 scale;
-  glm::vec3 rotation;
-  glm::vec4 color;
+  vec3 position;
+  vec3 scale;
+  vec3 rotation;
+  vec4 color;
   u32 flags;
   char model_name[128];
 };
-#pragma options align=reset
+/* #pragma options align=reset */
 
 struct LoadedLevel {
   std::vector<EntitySave> entities;
 };
 
 struct Particle {
-  glm::vec3 position;
-  glm::vec4 color;
-  glm::vec3 velocity;
+  vec3 position;
+  vec4 color;
+  vec3 velocity;
 
   float size;
   float gravity;
@@ -348,6 +334,7 @@ struct App {
   Shader debug_program;
   Shader ui_program;
   Shader solid_program;
+  Shader phong_program;
   Shader fullscreen_program;
   Shader fullscreen_merge_alpha;
   Shader fullscreen_fog_program;
@@ -371,7 +358,8 @@ struct App {
   GLuint vao;
 
   GLuint debug_buffer;
-  std::vector<glm::vec3> debug_lines;
+  GLuint debug_index_buffer;
+  std::vector<vec3> debug_lines;
 
   u32 read_frame;
   u32 write_frame;
@@ -397,6 +385,7 @@ struct App {
   CubeMap cubemap;
 
   Font font;
+  Font mono_font;
 
   Model cube_model;
   Model sphere_model;
@@ -445,7 +434,3 @@ struct App {
 
   GLuint particle_model;
 };
-
-Memory *debug_global_memory;
-
-#include "debug.h"

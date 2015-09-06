@@ -34,12 +34,12 @@ inline GLuint shader_get_uniform_location(Shader *shader, const char *name) {
   return shader->uniforms[name];
 }
 
-inline void set_uniform(Shader *shader, const char *name, glm::mat4 value) {
+inline void set_uniform(Shader *shader, const char *name, mat4 value) {
   GLint location = shader_get_uniform_location(shader, name);
   glUniformMatrix4fv(location, 1, false, glm::value_ptr(value));
 }
 
-inline void set_uniform(Shader *shader, const char *name, glm::mat3 value) {
+inline void set_uniform(Shader *shader, const char *name, mat3 value) {
   GLint location = shader_get_uniform_location(shader, name);
   glUniformMatrix3fv(location, 1, false, glm::value_ptr(value));
 }
@@ -54,17 +54,17 @@ inline void set_uniformf(Shader *shader, const char *name, float value) {
   glUniform1f(location, value);
 }
 
-inline void set_uniform(Shader *shader, const char *name, glm::vec3 value) {
+inline void set_uniform(Shader *shader, const char *name, vec3 value) {
   GLint location = shader_get_uniform_location(shader, name);
   glUniform3fv(location, 1, glm::value_ptr(value));
 }
 
-inline void set_uniform(Shader *shader, const char *name, glm::vec4 value) {
+inline void set_uniform(Shader *shader, const char *name, vec4 value) {
   GLint location = shader_get_uniform_location(shader, name);
   glUniform4fv(location, 1, glm::value_ptr(value));
 }
 
-inline void set_uniform(Shader *shader, const char *name, glm::vec2 value) {
+inline void set_uniform(Shader *shader, const char *name, vec2 value) {
   GLint location = shader_get_uniform_location(shader, name);
   glUniform2fv(location, 1, glm::value_ptr(value));
 }

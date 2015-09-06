@@ -1,10 +1,6 @@
-
 #include <stdio.h>
 
-#include "app.h"
-
 #include <SDL.h>
-#include "platform.h"
 
 #include <cstdio>
 
@@ -14,6 +10,8 @@
 
 #include <windows.h>
 #include <string>
+
+#include "app.h"
 
 struct AppCode {
   TickType* tick;
@@ -250,7 +248,8 @@ void close_file(PlatformFile file) {
   fclose(static_cast<FILE *>(file.platform));
 }
 
-void write_to_file(PlatformFile file, char *text) {
+void write_to_file(PlatformFile file, u64 len, void *value) {
+  fwrite(value, 1, len, static_cast<FILE *>(file.platform));
 }
 
 void create_directory(char *path) {

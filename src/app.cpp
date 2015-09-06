@@ -7,6 +7,7 @@ void normalize_plane(Plane *plane) {
 }
 
 inline Entity *get_entity_by_id(App *app, u32 id) {
+  PROFILE_BLOCK("Finding entity");
   for (u32 i=0; i<app->entity_count; i++) {
     Entity *entity = app->entities + i;
     if (entity->id == id) {
@@ -28,6 +29,7 @@ char *join_string(char *first, char *second) {
 
 void acquire_asset_file(char *path) {
 #if INTERNAL
+  PROFILE_BLOCK("Acquiring Asset");
   char *original_file_path = join_string(debug_global_memory->debug_assets_path, path);
   u64 original_time = platform.get_file_time(original_file_path);
   u64 used_time = platform.get_file_time(path);
@@ -47,7 +49,8 @@ void acquire_asset_file(char *path) {
 }
 
 void load_texture(Texture *texture, int type=0) {
-  if (!texture->initialized && !texture->has_data) {
+  if (platform.atomic_exchange(&texture->state, AssetState::EMPTY, AssetState::PROCESSING)) {
+    PROFILE_BLOCK("Loading Model");
     acquire_asset_file((char *)texture->path);
     int channels;
 
@@ -58,11 +61,11 @@ void load_texture(Texture *texture, int type=0) {
     texture->height = height;
 
     texture->data = image;
-    texture->has_data = true;
+    texture->state = AssetState::HAS_DATA;
   }
 }
 
-float distance_from_plane(Plane plane, glm::vec3 position) {
+float distance_from_plane(Plane plane, vec3 position) {
   return glm::dot(plane.normal, position) + plane.distance;
 }
 
@@ -72,14 +75,14 @@ const char *get_filename_ext(const char *filename) {
   return dot + 1;
 }
 
-glm::vec3 read_vector(char *start) {
-  glm::vec3 result;
+vec3 read_vector(char *start) {
+  vec3 result;
   sscanf(start, "%f,%f,%f", &result.x, &result.y, &result.z);
   return result;
 }
 
-glm::vec4 read_vector4(char *start) {
-  glm::vec4 result;
+vec4 read_vector4(char *start) {
+  vec4 result;
   sscanf(start, "%f,%f,%f,%f", &result.x, &result.y, &result.z, &result.w);
   return result;
 }
@@ -172,14 +175,16 @@ void deserialize_entity(App *app, EntitySave *src, Entity *dest) {
   }
 }
 
+#include <dirent.h>
 void load_debug_level(Memory *memory, App *app) {
 #if INTERNAL
-  PlatformDirectory directory = platform.open_directory(memory->debug_level_path);
-  if (directory.platform != NULL) {
+  {
+    PlatformDirectory dir = platform.open_directory(memory->debug_level_path);
+
     LoadedLevel loaded_level;
 
-    while (true) {
-      PlatformDirectoryEntry entry = platform.read_next_directory_entry(directory);
+    while (dir.platform != NULL) {
+      PlatformDirectoryEntry entry = platform.read_next_directory_entry(dir);
       if (entry.empty) { break; }
 
       if (platform.is_directory_entry_file(entry)) {
@@ -205,26 +210,26 @@ void load_debug_level(Memory *memory, App *app) {
 
               switch (line.contents[0]) {
                 case 'p': {
-                  entity.position = read_vector(start);
-                } break;
+                            entity.position = read_vector(start);
+                          } break;
                 case 't': {
-                  sscanf(start, "%d", &entity.type);
-                } break;
+                            sscanf(start, "%d", &entity.type);
+                          } break;
                 case 'm': {
-                  sscanf(start, "%s", entity.model_name);
-                } break;
+                            sscanf(start, "%s", entity.model_name);
+                          } break;
                 case 'c': {
-                  entity.color = read_vector4(start);
-                } break;
+                            entity.color = read_vector4(start);
+                          } break;
                 case 's': {
-                  entity.scale = read_vector(start);
-                } break;
+                            entity.scale = read_vector(start);
+                          } break;
                 case 'r': {
-                  entity.rotation = read_vector(start);
-                } break;
+                            entity.rotation = read_vector(start);
+                          } break;
                 case 'f': {
-                  sscanf(start, "%d", &entity.flags);
-                } break;
+                            sscanf(start, "%d", &entity.flags);
+                          } break;
               }
             }
 
@@ -236,28 +241,30 @@ void load_debug_level(Memory *memory, App *app) {
       }
     }
 
-    platform.close_directory(directory);
-
     save_binary_level_file(loaded_level);
+
+    platform.close_directory(dir);
   }
 #endif
 
-  LoadedLevel bin_loaded_level = load_binary_level_file();
+  {
+    LoadedLevel bin_loaded_level = load_binary_level_file();
 
-  for (auto it = bin_loaded_level.entities.begin(); it != bin_loaded_level.entities.end(); it++) {
-    Entity *entity = app->entities + app->entity_count++;
+    for (auto it = bin_loaded_level.entities.begin(); it != bin_loaded_level.entities.end(); it++) {
+      Entity *entity = app->entities + app->entity_count++;
 
-    deserialize_entity(app, &(*it), entity);
+      deserialize_entity(app, &(*it), entity);
 
-    if (entity->id > app->last_id) {
-      app->last_id = entity->id;
+      if (entity->id > app->last_id) {
+        app->last_id = entity->id;
+      }
     }
   }
 }
 
-RayMatchResult ray_match_sphere(Ray ray, glm::vec3 position, float radius) {
-  glm::vec3 result_position;
-  glm::vec3 result_normal;
+RayMatchResult ray_match_sphere(Ray ray, vec3 position, float radius) {
+  vec3 result_position;
+  vec3 result_normal;
 
   RayMatchResult result;
   result.hit = intersectRaySphere(ray.start, ray.direction, position, radius, result_position, result_normal);
@@ -268,22 +275,87 @@ RayMatchResult ray_match_sphere(Ray ray, glm::vec3 position, float radius) {
   return result;
 }
 
-glm::mat4 make_billboard_matrix(glm::vec3 position, glm::vec3 camera_position, glm::vec3 camera_up) {
-  glm::vec3 look = glm::normalize(camera_position - position);
-  glm::vec3 right = glm::cross(camera_up, look);
-  glm::vec3 up = glm::cross(look, right);
-  glm::mat4 transform;
-  transform[0] = glm::vec4(right, 0.0f);
-  transform[1] = glm::vec4(up, 0.0f);
-  transform[2] = glm::vec4(look, 0.0f);
-  /* transform[3] = glm::vec4(position, 1.0f); */
+mat4 make_billboard_matrix(vec3 position, vec3 camera_position, vec3 camera_up) {
+  vec3 look = glm::normalize(camera_position - position);
+  vec3 right = glm::cross(camera_up, look);
+  vec3 up = glm::cross(look, right);
+  mat4 transform;
+  transform[0] = vec4(right, 0.0f);
+  transform[1] = vec4(up, 0.0f);
+  transform[2] = vec4(look, 0.0f);
+  /* transform[3] = vec4(position, 1.0f); */
   return transform;
+}
+
+RayMatchResult ray_match_terrain(App *app, Ray ray) {
+  RayMatchResult result;
+
+  for (u32 i=0; i<app->chunk_cache_count; i++) {
+    TerrainChunk *chunk = app->chunk_cache + i;
+    if (chunk->initialized) {
+      Model *model = NULL;
+      for (u32 model_index=0; model_index<array_count(app->models); model_index++) {
+        Model *item = chunk->models + model_index;
+        if (item->state == AssetState::INITIALIZED) {
+          model = item;
+          break;
+        }
+      }
+
+      if (model && model->state == AssetState::INITIALIZED) {
+        RayMatchResult sphere = ray_match_sphere(ray, vec3(chunk->x * CHUNK_SIZE_X, 0.0f, chunk->y * CHUNK_SIZE_Y), model->radius);
+        if (!sphere.hit) {
+          continue;
+        }
+
+        mat4 model_view;
+        model_view = glm::translate(model_view, vec3(chunk->x * CHUNK_SIZE_X, 0.0f, chunk->y * CHUNK_SIZE_Y));
+        mat4 res = glm::inverse(model_view);
+
+        vec3 start = vec3(res * vec4(ray.start, 1.0f));
+        vec3 direction = vec3(res * vec4(ray.direction, 0.0f));
+
+        ModelData mesh = model->mesh.data;
+
+        for (u32 i=0; i<mesh.indices_count; i += 3) {
+          int indices_a = mesh.indices[i + 0] * 3;
+          int indices_b = mesh.indices[i + 1] * 3;
+          int indices_c = mesh.indices[i + 2] * 3;
+
+          vec3 a = vec3(mesh.vertices[indices_a + 0],
+              mesh.vertices[indices_a + 1],
+              mesh.vertices[indices_a + 2]);
+
+          vec3 b = vec3(mesh.vertices[indices_b + 0],
+              mesh.vertices[indices_b + 1],
+              mesh.vertices[indices_b + 2]);
+
+          vec3 c = vec3(mesh.vertices[indices_c + 0],
+              mesh.vertices[indices_c + 1],
+              mesh.vertices[indices_c + 2]);
+
+          vec3 result_position;
+
+          if (glm::intersectRayTriangle(start, direction, a, b, c, result_position)) {
+            result.hit_position = ray.start + ray.direction * result_position.z;
+            result.hit = true;
+            return result;
+          }
+        }
+
+        continue;
+      }
+    }
+  }
+
+  result.hit = false;
+  return result;
 }
 
 RayMatchResult ray_match_entity(App *app, Ray ray, Entity *entity) {
   RayMatchResult result;
 
-  if (entity->model->state != ModelDataState::INITIALIZED) {
+  if (entity->model->state != AssetState::INITIALIZED) {
     result.hit = false;
     return result;
   }
@@ -294,23 +366,23 @@ RayMatchResult ray_match_entity(App *app, Ray ray, Entity *entity) {
     return result;
   }
 
-  glm::mat4 model_view;
+  mat4 model_view;
   model_view = glm::translate(model_view, entity->position);
 
   if (entity->flags & EntityFlags::LOOK_AT_CAMERA) {
-    model_view *= make_billboard_matrix(entity->position, app->camera.position, glm::vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
+    model_view *= make_billboard_matrix(entity->position, app->camera.position, vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
   }
 
-  model_view = glm::rotate(model_view, entity->rotation.x, glm::vec3(1.0, 0.0, 0.0));
-  model_view = glm::rotate(model_view, entity->rotation.y, glm::vec3(0.0, 1.0, 0.0));
-  model_view = glm::rotate(model_view, entity->rotation.z, glm::vec3(0.0, 0.0, 1.0));
+  model_view = glm::rotate(model_view, entity->rotation.x, vec3(1.0, 0.0, 0.0));
+  model_view = glm::rotate(model_view, entity->rotation.y, vec3(0.0, 1.0, 0.0));
+  model_view = glm::rotate(model_view, entity->rotation.z, vec3(0.0, 0.0, 1.0));
 
   model_view = glm::scale(model_view, entity->scale);
 
-  glm::mat4 res = glm::inverse(model_view);
+  mat4 res = glm::inverse(model_view);
 
-  glm::vec3 start = glm::vec3(res * glm::vec4(ray.start, 1.0f));
-  glm::vec3 direction = glm::vec3(res * glm::vec4(ray.direction, 0.0f));
+  vec3 start = vec3(res * vec4(ray.start, 1.0f));
+  vec3 direction = vec3(res * vec4(ray.direction, 0.0f));
 
   ModelData mesh = entity->model->mesh.data;
 
@@ -319,19 +391,19 @@ RayMatchResult ray_match_entity(App *app, Ray ray, Entity *entity) {
     int indices_b = mesh.indices[i + 1] * 3;
     int indices_c = mesh.indices[i + 2] * 3;
 
-    glm::vec3 a = glm::vec3(mesh.vertices[indices_a + 0],
+    vec3 a = vec3(mesh.vertices[indices_a + 0],
                              mesh.vertices[indices_a + 1],
                              mesh.vertices[indices_a + 2]);
 
-    glm::vec3 b = glm::vec3(mesh.vertices[indices_b + 0],
+    vec3 b = vec3(mesh.vertices[indices_b + 0],
                              mesh.vertices[indices_b + 1],
                              mesh.vertices[indices_b + 2]);
 
-    glm::vec3 c = glm::vec3(mesh.vertices[indices_c + 0],
+    vec3 c = vec3(mesh.vertices[indices_c + 0],
                              mesh.vertices[indices_c + 1],
                              mesh.vertices[indices_c + 2]);
 
-    glm::vec3 result_position;
+    vec3 result_position;
 
     if (glm::intersectRayTriangle(start, direction, a, b, c, result_position)) {
       result.hit_position = ray.start + ray.direction * result_position.z;
@@ -344,7 +416,7 @@ RayMatchResult ray_match_entity(App *app, Ray ray, Entity *entity) {
   return result;
 }
 
-bool is_sphere_in_frustum(Frustum *frustum, glm::vec3 position, float radius) {
+bool is_sphere_in_frustum(Frustum *frustum, vec3 position, float radius) {
   for (int i=0; i<6; i++) {
     float distance = distance_from_plane(frustum->planes[i], position);
     if (distance + radius < 0) {
@@ -355,7 +427,7 @@ bool is_sphere_in_frustum(Frustum *frustum, glm::vec3 position, float radius) {
   return true;
 }
 
-void fill_frustum_with_matrix(Frustum *frustum, glm::mat4 matrix) {
+void fill_frustum_with_matrix(Frustum *frustum, mat4 matrix) {
   frustum->planes[LeftPlane].normal.x = matrix[0][3] + matrix[0][0];
   frustum->planes[LeftPlane].normal.y = matrix[1][3] + matrix[1][0];
   frustum->planes[LeftPlane].normal.z = matrix[2][3] + matrix[2][0];
@@ -392,20 +464,17 @@ void fill_frustum_with_matrix(Frustum *frustum, glm::mat4 matrix) {
 }
 
 void unload_texture(Texture *texture) {
-  if (texture->initialized) {
+  if (platform.atomic_exchange(&texture->state, AssetState::INITIALIZED, AssetState::PROCESSING)) {
     glDeleteTextures(1, &texture->id);
-  }
 
-  if (texture->has_data) {
     stbi_image_free(texture->data);
-    texture->initialized = false;
-    texture->has_data = false;
-    texture->is_being_loaded = false;
+
+    texture->state = AssetState::EMPTY;
   }
 };
 
 void unload_model(Model *model) {
-  if (platform.atomic_exchange(&model->state, ModelDataState::INITIALIZED, ModelDataState::PROCESSING)) {
+  if (platform.atomic_exchange(&model->state, AssetState::INITIALIZED, AssetState::PROCESSING)) {
     glDeleteBuffers(1, &model->mesh.vertices_id);
     glDeleteBuffers(1, &model->mesh.indices_id);
     glDeleteBuffers(1, &model->mesh.normals_id);
@@ -413,7 +482,7 @@ void unload_model(Model *model) {
 
     free(model->mesh.data.data);
 
-    model->state = ModelDataState::EMPTY;
+    model->state = AssetState::EMPTY;
   }
 }
 
@@ -421,7 +490,7 @@ float calculate_radius(Mesh *mesh) {
   float max_radius = 0.0f;
 
   for (u32 i=0; i<mesh->data.vertices_count; i += 3) {
-    float radius = glm::length(glm::vec3(mesh->data.vertices[i], mesh->data.vertices[i + 1], mesh->data.vertices[i + 2]));
+    float radius = glm::length(vec3(mesh->data.vertices[i], mesh->data.vertices[i + 1], mesh->data.vertices[i + 2]));
     if (radius > max_radius) {
       max_radius = radius;
     }
@@ -439,7 +508,7 @@ char *allocate_string(const char *string) {
 }
 
 void initialize_texture(Texture *texture, GLenum interal_type=GL_RGB, GLenum type=GL_RGB, bool mipmap=true, GLenum wrap_type=GL_REPEAT) {
-  if (!texture->initialized) {
+  if (platform.atomic_exchange(&texture->state, AssetState::HAS_DATA, AssetState::PROCESSING)) {
     glGenTextures(1, &texture->id);
 
     glBindTexture(GL_TEXTURE_2D, texture->id);
@@ -462,7 +531,7 @@ void initialize_texture(Texture *texture, GLenum interal_type=GL_RGB, GLenum typ
 
     glBindTexture(GL_TEXTURE_2D, 0);
 
-    texture->initialized = true;
+    texture->state = AssetState::INITIALIZED;
   }
 }
 
@@ -501,7 +570,7 @@ void initialize_model(Model *model) {
   model->mesh.normals_id = normals_id;
   model->mesh.uv_id = uv_id;
 
-  model->state = ModelDataState::INITIALIZED; // TODO(sedivy): atomic
+  model->state = AssetState::INITIALIZED; // TODO(sedivy): atomic
 }
 
 void allocate_mesh(Mesh *mesh, u32 vertices_count, u32 normals_count, u32 indices_count, u32 uv_count) {
@@ -537,10 +606,10 @@ u32 next_entity_id(App *app) {
   return ++app->last_id;
 }
 
-u32 generate_blue_noise(glm::vec2 *positions, u32 position_count, float min_radius, float radius) {
+u32 generate_blue_noise(vec2 *positions, u32 position_count, float min_radius, float radius) {
   u32 noise_count = 0;
 
-  positions[0] = glm::vec2(20000.0, 20000.0);
+  positions[0] = vec2(20000.0, 20000.0);
   noise_count += 1;
 
   bool full = false;
@@ -549,13 +618,13 @@ u32 generate_blue_noise(glm::vec2 *positions, u32 position_count, float min_radi
       break;
     }
 
-    glm::vec2 record = positions[i];
+    vec2 record = positions[i];
 
     for (u32 k=0; k<10; k++) {
       float angle = get_random_float_between(0.0f, tau);
       float random_distance = get_random_float_between(min_radius + radius, min_radius + radius);
 
-      glm::vec2 new_position = record + glm::vec2(glm::cos(angle) * random_distance, glm::sin(angle) * random_distance);
+      vec2 new_position = record + vec2(glm::cos(angle) * random_distance, glm::sin(angle) * random_distance);
 
       if (new_position.x < 0.0f || new_position.y < 0.0f || new_position.x > 40000.0f || new_position.y > 40000.0f) {
         continue;
@@ -564,7 +633,7 @@ u32 generate_blue_noise(glm::vec2 *positions, u32 position_count, float min_radi
       bool hit = false;
 
       for (u32 l=0; l<noise_count; l++) {
-        glm::vec2 check_record = positions[l];
+        vec2 check_record = positions[l];
 
         float distance = glm::distance(new_position, check_record);
         if (distance < min_radius) {
@@ -588,7 +657,7 @@ u32 generate_blue_noise(glm::vec2 *positions, u32 position_count, float min_radi
 }
 
 void generate_trees(App *app) {
-  glm::vec2 noise_records[200];
+  vec2 noise_records[200];
   u32 size = generate_blue_noise(noise_records, array_count(noise_records), 500.0f, 400.0f);
 
   Random random = create_random_sequence();
@@ -601,10 +670,10 @@ void generate_trees(App *app) {
     entity->position.x = noise_records[i].x;
     entity->position.z = noise_records[i].y;
     mount_entity_to_terrain(entity);
-    entity->scale = glm::vec3(1.0f);
+    entity->scale = vec3(1.0f);
     entity->model = get_model_by_name(app, (char *)"tree_001");
-    entity->color = glm::vec4(0.7f, 0.3f, 0.2f, 1.0f);
-    entity->rotation = glm::vec3(0.0f, get_next_float(&random) * glm::pi<float>(), 0.0f);
+    entity->color = vec4(0.7f, 0.3f, 0.2f, 1.0f);
+    entity->rotation = vec3(0.0f, get_next_float(&random) * glm::pi<float>(), 0.0f);
     entity->flags = EntityFlags::PERMANENT_FLAG | EntityFlags::MOUNT_TO_TERRAIN;
   }
 }
@@ -641,6 +710,7 @@ void setup_all_shaders(App *app) {
   create_shader(&app->transparent_program, "assets/shaders/transparent.vert", "assets/shaders/transparent.frag");
   create_shader(&app->water_program, "assets/shaders/water.vert", "assets/shaders/water.frag");
   create_shader(&app->solid_program, "assets/shaders/solid.vert", "assets/shaders/solid.frag");
+  create_shader(&app->phong_program, "assets/shaders/phong.vert", "assets/shaders/phong.frag");
   create_shader(&app->terrain_program, "assets/shaders/terrain.vert", "assets/shaders/terrain.frag");
   create_shader(&app->textured_program, "assets/shaders/textured.vert", "assets/shaders/textured.frag");
   create_shader(&app->controls_program, "assets/shaders/controls.vert", "assets/shaders/controls.frag");
@@ -696,12 +766,12 @@ void init(Memory *memory) {
   app->camera.ortho = false;
   app->camera.near = 0.5f;
   app->camera.far = 50000.0f;
-  app->camera.size = glm::vec2((float)memory->width, (float)memory->height);
+  app->camera.size = vec2((float)memory->width, (float)memory->height);
 
   app->shadow_camera.ortho = true;
   app->shadow_camera.near = 100.0f;
   app->shadow_camera.far = 6000.0f;
-  app->shadow_camera.size = glm::vec2(4096.0f, 4096.0f) / 2.0f;
+  app->shadow_camera.size = vec2(4096.0f, 4096.0f) / 2.0f;
 
   glGenVertexArrays(1, &app->vao);
   glBindVertexArray(app->vao);
@@ -774,10 +844,9 @@ void init(Memory *memory) {
       }
 
       app->sphere_model.mesh = mesh;
-      app->sphere_model.path = allocate_string("sphere");
       app->sphere_model.id_name = allocate_string("sphere");
       app->sphere_model.radius = radius;
-      app->sphere_model.state = ModelDataState::HAS_DATA;
+      app->sphere_model.state = AssetState::HAS_DATA;
       app->models[app->sphere_model.id_name] = &app->sphere_model;
     }
 
@@ -851,11 +920,10 @@ void init(Memory *memory) {
       memcpy(mesh.data.normals, &normals, sizeof(normals));
       memcpy(mesh.data.indices, &indices, sizeof(indices));
 
-      app->cube_model.path = allocate_string("cube");
       app->cube_model.id_name = allocate_string("cube");
       app->cube_model.radius = calculate_radius(&mesh);
       app->cube_model.mesh = mesh;
-      app->cube_model.state = ModelDataState::HAS_DATA;
+      app->cube_model.state = AssetState::HAS_DATA;
       initialize_model(&app->cube_model);
       app->models[app->cube_model.id_name] = &app->cube_model;
     }
@@ -884,11 +952,10 @@ void init(Memory *memory) {
       memcpy(mesh.data.indices, &indices, sizeof(indices));
       memcpy(mesh.data.uv, &uvs, sizeof(uvs));
 
-      app->quad_model.path = allocate_string("quad");
       app->quad_model.id_name = allocate_string("quad");
       app->quad_model.radius = calculate_radius(&mesh);
       app->quad_model.mesh = mesh;
-      app->quad_model.state = ModelDataState::HAS_DATA;
+      app->quad_model.state = AssetState::HAS_DATA;
       initialize_model(&app->quad_model);
       app->models[app->quad_model.id_name] = &app->quad_model;
     }
@@ -921,9 +988,9 @@ void init(Memory *memory) {
 
   for (u32 i=0; i<app->chunk_cache_count; i++) {
     TerrainChunk *chunk = app->chunk_cache + i;
-    chunk->models[0].state = ModelDataState::EMPTY;
-    chunk->models[1].state = ModelDataState::EMPTY;
-    chunk->models[2].state = ModelDataState::EMPTY;
+    chunk->models[0].state = AssetState::EMPTY;
+    chunk->models[1].state = AssetState::EMPTY;
+    chunk->models[2].state = AssetState::EMPTY;
     chunk->initialized = false;
   }
 
@@ -977,10 +1044,19 @@ void init(Memory *memory) {
     app->debug_transparent_texture.data = NULL;
   }
 
-  acquire_asset_file((char *)"assets/font.ttf");
-  DebugReadFileResult font_file = platform.debug_read_entire_file("assets/font.ttf");
-  app->font = create_font(font_file.contents, 16.0f);
-  platform.debug_free_file(font_file);
+  {
+    acquire_asset_file((char *)"assets/font.ttf");
+    DebugReadFileResult font_file = platform.debug_read_entire_file("assets/font.ttf");
+    app->font = create_font(font_file.contents, 16.0f);
+    platform.debug_free_file(font_file);
+  }
+
+  {
+    acquire_asset_file((char *)"assets/mono_font.ttf");
+    DebugReadFileResult font_file = platform.debug_read_entire_file("assets/mono_font.ttf");
+    app->mono_font = create_font(font_file.contents, 16.0f);
+    platform.debug_free_file(font_file);
+  }
 
   const char* faces[] = {
     "assets/textures/right.png", "assets/textures/left.png",
@@ -1143,7 +1219,7 @@ void init(Memory *memory) {
     entity->position.x = 0.0f;
     entity->position.y = 0.0f;
     entity->position.z = 0.0f;
-    entity->color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+    entity->color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
     entity->model = &app->sphere_model;
 
     app->entity_count += 1;
@@ -1162,7 +1238,7 @@ void init(Memory *memory) {
 #if 0
     Random random = create_random_sequence();
 
-    glm::vec2 rock_noise[200];
+    vec2 rock_noise[200];
     u32 size = generate_blue_noise(rock_noise, array_count(rock_noise), 100.0f, 5000.0f);
 
     for (u32 i=0; i<size; i++) {
@@ -1174,10 +1250,10 @@ void init(Memory *memory) {
       entity->position.z = rock_noise[i].y;
       mount_entity_to_terrain(entity);
       entity->flags = EntityFlags::PERMANENT_FLAG;
-      entity->scale = 100.0f * glm::vec3(0.8f + get_next_float(&random) / 2.0f, 0.8f + get_next_float(&random) / 2.0f, 0.8f + get_next_float(&random) / 2.0f);
+      entity->scale = 100.0f * vec3(0.8f + get_next_float(&random) / 2.0f, 0.8f + get_next_float(&random) / 2.0f, 0.8f + get_next_float(&random) / 2.0f);
       entity->model = &app->rock_model;
-      entity->color = glm::vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
-      entity->rotation = glm::vec3(get_next_float(&random) * 0.5f - 0.25f, get_next_float(&random) * glm::pi<float>(), get_next_float(&random) * 0.5f - 0.25f);
+      entity->color = vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
+      entity->rotation = vec3(get_next_float(&random) * 0.5f - 0.25f, get_next_float(&random) * glm::pi<float>(), get_next_float(&random) * 0.5f - 0.25f);
       app->entity_count += 1;
     }
 #endif
@@ -1216,9 +1292,10 @@ struct LoadModelWork {
 };
 
 void load_model_work(void *data) {
+  PROFILE_BLOCK("Loading Model");
   LoadModelWork *work = static_cast<LoadModelWork *>(data);
 
-  if (platform.atomic_exchange(&work->model->state, ModelDataState::REGISTERED_TO_LOAD, ModelDataState::PROCESSING)) {
+  if (platform.atomic_exchange(&work->model->state, AssetState::EMPTY, AssetState::PROCESSING)) {
     acquire_asset_file((char *)work->model->path);
 
     DebugReadFileResult result = platform.debug_read_entire_file(work->model->path);
@@ -1274,7 +1351,7 @@ void load_model_work(void *data) {
           mesh.data.vertices[vertices_index++] = mesh_data->mVertices[l].y;
           mesh.data.vertices[vertices_index++] = mesh_data->mVertices[l].z;
 
-          float new_distance = glm::length(glm::vec3(mesh_data->mVertices[l].x, mesh_data->mVertices[l].y, mesh_data->mVertices[l].z));
+          float new_distance = glm::length(vec3(mesh_data->mVertices[l].x, mesh_data->mVertices[l].y, mesh_data->mVertices[l].z));
           if (new_distance > max_distance) {
             max_distance = new_distance;
           }
@@ -1308,7 +1385,7 @@ void load_model_work(void *data) {
     optimize_model(model);
 
     model->radius = max_distance;
-    model->state = ModelDataState::HAS_DATA; // TODO(sedivy): atomic
+    model->state = AssetState::HAS_DATA; // TODO(sedivy): atomic
   }
 
   free(work);
@@ -1319,30 +1396,33 @@ void load_texture_work(void *data) {
 }
 
 inline bool process_texture(Memory *memory, Texture *texture) {
-  if (!texture->initialized && !texture->has_data && !texture->is_being_loaded) {
-    if (platform.queue_has_free_spot(memory->low_queue)) {
-      platform.add_work(memory->low_queue, load_texture_work, texture);
-
-      texture->is_being_loaded = true;
-    }
-    return true;
-  }
-
-  if (!texture->initialized && texture->has_data) {
-    initialize_texture(texture);
-    return true;
-  }
-
-  return false;
-}
-
-inline bool process_model(Memory *memory, Model *model) {
-  if (model->state == ModelDataState::INITIALIZED) {
+  if (texture->state == AssetState::INITIALIZED) {
     return false;
   }
 
   if (platform.queue_has_free_spot(memory->low_queue)) {
-    if (platform.atomic_exchange(&model->state, ModelDataState::EMPTY, ModelDataState::REGISTERED_TO_LOAD)) {
+    if (texture->state == AssetState::EMPTY) {
+      platform.add_work(memory->low_queue, load_texture_work, texture);
+
+      return true;
+    }
+  }
+
+  if (texture->state == AssetState::HAS_DATA) {
+    initialize_texture(texture);
+    return false;
+  }
+
+  return true;
+}
+
+inline bool process_model(Memory *memory, Model *model) {
+  if (model->state == AssetState::INITIALIZED) {
+    return false;
+  }
+
+  if (platform.queue_has_free_spot(memory->low_queue)) {
+    if (model->state == AssetState::EMPTY) {
       LoadModelWork *work = static_cast<LoadModelWork *>(malloc(sizeof(LoadModelWork)));
       work->model = model;
 
@@ -1352,7 +1432,7 @@ inline bool process_model(Memory *memory, Model *model) {
     }
   }
 
-  if (model->state == ModelDataState::HAS_DATA) {
+  if (model->state == AssetState::HAS_DATA) {
     initialize_model(model);
     return false;
   }
@@ -1384,152 +1464,13 @@ inline void use_model_mesh(App *app, Mesh *mesh) {
 
 #include "chunk.h"
 
-void debug_render_rect(UICommandBuffer *command_buffer, float x, float y, float width, float height, glm::vec4 color, glm::vec4 image_color=glm::vec4(0.0f), u32 x_index=0, u32 y_index=0) {
-  float scale = 1.0f / 4.0f;
-
-  command_buffer->vertices.push_back(x);
-  command_buffer->vertices.push_back(y);
-
-  command_buffer->vertices.push_back(scale * x_index + 0.0f * scale);
-  command_buffer->vertices.push_back(scale * y_index + 0.0f * scale);
-
-  command_buffer->vertices.push_back(x + width);
-  command_buffer->vertices.push_back(y);
-
-  command_buffer->vertices.push_back(scale * x_index + 1.0f * scale);
-  command_buffer->vertices.push_back(scale * y_index + 0.0f * scale);
-
-  command_buffer->vertices.push_back(x);
-  command_buffer->vertices.push_back(y + height);
-
-  command_buffer->vertices.push_back(scale * x_index + 0.0f * scale);
-  command_buffer->vertices.push_back(scale * y_index + 1.0f * scale);
-
-  command_buffer->vertices.push_back(x + width);
-  command_buffer->vertices.push_back(y);
-
-  command_buffer->vertices.push_back(scale * x_index + 1.0f * scale);
-  command_buffer->vertices.push_back(scale * y_index + 0.0f * scale);
-
-  command_buffer->vertices.push_back(x + width);
-  command_buffer->vertices.push_back(y + height);
-
-  command_buffer->vertices.push_back(scale * x_index + 1.0f * scale);
-  command_buffer->vertices.push_back(scale * y_index + 1.0f * scale);
-
-  command_buffer->vertices.push_back(x);
-  command_buffer->vertices.push_back(y + height);
-
-  command_buffer->vertices.push_back(scale * x_index + 0.0f * scale);
-  command_buffer->vertices.push_back(scale * y_index + 1.0f * scale);
-
-  UICommand command;
-  command.vertices_count = 6;
-  command.color = color;
-  command.image_color = image_color;
-  command.type = UICommandType::RECT;
-
-  command_buffer->commands.push_back(command);
+vec4 shade_color(vec4 color, float percent) {
+  return vec4(vec3(color) * (1 + percent), color.a);
 }
 
-void draw_string(UICommandBuffer *command_buffer, Font *font, float x, float y, char *text, glm::vec3 color=glm::vec3(1.0f, 1.0f, 1.0f)) {
-  y = glm::round(y);
-  x = glm::round(x);
-
-  float font_x = 0, font_y = font->size;
-  stbtt_aligned_quad q;
-
-  UICommand command;
-  command.type = UICommandType::TEXT;
-  command.vertices_count = 0;
-  command.color = glm::vec4(color, 1.0f);
-
-  while (*text != '\0') {
-    font_get_quad(font, *text++, &font_x, &font_y, &q);
-
-    GLfloat vertices_data[] = {
-      x + q.x0, y + q.y0, // top left
-      q.s0, q.t0,
-
-      x + q.x0, y + q.y1, // bottom left
-      q.s0, q.t1,
-
-      x + q.x1, y + q.y0, // top right
-      q.s1, q.t0,
-
-      x + q.x1, y + q.y0, // top right
-      q.s1, q.t0,
-
-      x + q.x0, y + q.y1, // bottom left
-      q.s0, q.t1,
-
-      x + q.x1, y + q.y1, // bottom right
-      q.s1, q.t1
-    };
-
-    for (u32 i=0; i<array_count(vertices_data); i++) {
-      command_buffer->vertices.push_back(vertices_data[i]);
-    }
-    command.vertices_count += 6;
-  }
-
-  command_buffer->commands.push_back(command);
-}
-
-glm::vec4 shade_color(glm::vec4 color, float percent) {
-  return glm::vec4(glm::vec3(color) * (1 + percent), color.a);
-}
-
-bool push_debug_button(Input &input,
-                       App *app,
-                       DebugDrawState *state,
-                       UICommandBuffer *command_buffer,
-                       float x, float height,
-                       char *text,
-                       glm::vec3 color,
-                       glm::vec4 background_color) {
-  float min_x = x;
-  float min_y = state->offset_top;;
-  float max_x = min_x + 175.0f;
-  float max_y = min_y + height;
-
-  bool clicked = false;
-
-  if (!input.is_mouse_locked) {
-    if (input.original_mouse_down_x > min_x && input.original_mouse_down_y > min_y && input.original_mouse_down_x < max_x && input.original_mouse_down_y < max_y &&
-        input.mouse_x > min_x && input.mouse_y > min_y && input.mouse_x < max_x && input.mouse_y < max_y) {
-      if (input.left_mouse_down) {
-        background_color = shade_color(background_color, -0.3f);
-        input.mouse_click = false;
-      }
-
-      if (input.mouse_up) {
-        clicked = true;
-        input.mouse_click = false;
-        input.mouse_up = false;
-      }
-    } else {
-      if (input.mouse_x > min_x && input.mouse_y > min_y && input.mouse_x < max_x && input.mouse_y < max_y) {
-        background_color = shade_color(background_color, 0.3f);
-      }
-    }
-  }
-
-  debug_render_rect(command_buffer, x, state->offset_top, 175.0f, height, background_color);
-  draw_string(command_buffer, &app->font, x + 5, state->offset_top + (height - 23.0f) / 2.0f, text, color);
-  state->offset_top += height;
-
-  return clicked;
-}
-
-void push_debug_text(App *app, DebugDrawState *state, UICommandBuffer *command_buffer, float x, char *text, glm::vec3 color, glm::vec4 background_color) {
-  debug_render_rect(command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color);
-  draw_string(command_buffer, &app->font, x + 5, state->offset_top, text, color);
-  state->offset_top += 25.0f;
-}
-
-glm::mat4 get_camera_projection(Camera *camera) {
-  glm::mat4 projection;
+mat4 get_camera_projection(Camera *camera) {
+  PROFILE_BLOCK("Camera proj");
+  mat4 projection;
 
   if (camera->ortho) {
     projection = glm::ortho(camera->size.x / -2.0f, camera->size.y / 2.0f, camera->size.x / 2.0f, camera->size.y / -2.0f, camera->near, camera->far);
@@ -1541,19 +1482,20 @@ glm::mat4 get_camera_projection(Camera *camera) {
 }
 
 Ray get_mouse_ray(App *app, Input input, Memory *memory) {
-  glm::vec3 from = glm::unProject(
-      glm::vec3(input.mouse_x, memory->height - input.mouse_y, 0.0f),
-      glm::mat4(),
+  PROFILE_BLOCK("Mouse Ray");
+  vec3 from = glm::unProject(
+      vec3(input.mouse_x, memory->height - input.mouse_y, 0.0f),
+      mat4(),
       app->camera.view_matrix,
-      glm::vec4(0.0f, 0.0f, memory->width, memory->height));
+      vec4(0.0f, 0.0f, memory->width, memory->height));
 
-  glm::vec3 to = glm::unProject(
-      glm::vec3(input.mouse_x, memory->height - input.mouse_y, 1.0f),
-      glm::mat4(),
+  vec3 to = glm::unProject(
+      vec3(input.mouse_x, memory->height - input.mouse_y, 1.0f),
+      mat4(),
       app->camera.view_matrix,
-      glm::vec4(0.0f, 0.0f, memory->width, memory->height));
+      vec4(0.0f, 0.0f, memory->width, memory->height));
 
-  glm::vec3 direction = glm::normalize(to - from);
+  vec3 direction = glm::normalize(to - from);
 
   Ray ray;
   ray.start = from;
@@ -1563,139 +1505,7 @@ Ray get_mouse_ray(App *app, Input input, Memory *memory) {
 }
 
 #include "render_group.cpp"
-
-void debug_render_range(Input &input, UICommandBuffer *command_buffer, float x, float y, float width, float height, glm::vec4 background_color, float *value, float min, float max) {
-  float scale = *value / (max - min);
-
-  glm::vec4 bg_color = glm::vec4(0.5f, 1.0f, 0.2f, 1.0f);
-
-  float min_x = x;
-  float min_y = y;
-  float max_x = min_x + width;
-  float max_y = min_y + height;
-
-  if (!input.is_mouse_locked) {
-    if (input.mouse_x > min_x && input.mouse_y > min_y && input.mouse_x < max_x && input.mouse_y < max_y) {
-      bg_color = shade_color(bg_color, -0.2f);
-      background_color = shade_color(background_color, -0.4f);
-    }
-  }
-
-  debug_render_rect(command_buffer, x, y, width, height, background_color);
-  debug_render_rect(command_buffer, x, y, width * scale, height, bg_color);
-
-  if (input.left_mouse_down && input.original_mouse_down_x > min_x && input.original_mouse_down_y > min_y && input.original_mouse_down_x < max_x && input.original_mouse_down_y < max_y) {
-    *value = glm::clamp((input.mouse_x - min_x) / width * (max - min), min, max);
-    input.mouse_click = false;
-  }
-}
-
-void push_debug_editable_vector(Input &input, DebugDrawState *state, Font *font, UICommandBuffer *command_buffer, float x, const char *name, glm::vec3 *vector, glm::vec4 background_color, float min, float max) {
-  char text[256];
-
-  debug_render_rect(command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color);
-
-  sprintf(text, "%s", name);
-  draw_string(command_buffer, font, x + 5.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-
-  sprintf(text, "%f", vector->x);
-  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->x, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-
-  sprintf(text, "%f", vector->y);
-  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->y, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-
-  sprintf(text, "%f", vector->z);
-  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->z, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-}
-
-void push_debug_editable_vector(Input &input, DebugDrawState *state, Font *font, UICommandBuffer *command_buffer, float x, const char *name, glm::vec4 *vector, glm::vec4 background_color, float min, float max) {
-  char text[256];
-
-  debug_render_rect(command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color);
-
-  sprintf(text, "%s", name);
-  draw_string(command_buffer, font, x + 5.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-
-  sprintf(text, "%f", vector->x);
-  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->x, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-
-  sprintf(text, "%f", vector->y);
-  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->y, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-
-  sprintf(text, "%f", vector->z);
-  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->z, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-
-  sprintf(text, "%f", vector->w);
-  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->w, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-}
-
-void push_debug_editable_quat(Input &input, DebugDrawState *state, Font *font, UICommandBuffer *command_buffer, float x, const char *name, glm::quat *vector, glm::vec4 background_color, float min, float max) {
-  char text[256];
-
-  debug_render_rect(command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color);
-
-  sprintf(text, "%s", name);
-  draw_string(command_buffer, font, x + 5.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-
-  sprintf(text, "%f", vector->x);
-  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->x, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-
-  sprintf(text, "%f", vector->y);
-  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->y, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-
-  sprintf(text, "%f", vector->z);
-  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->z, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-
-  sprintf(text, "%f", vector->w);
-  debug_render_range(input, command_buffer, x, state->offset_top, 175.0f, 25.0f, background_color, &vector->w, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-}
-
-void push_debug_vector(DebugDrawState *state, Font *font, UICommandBuffer *command_buffer, float x, const char *name, glm::vec3 vector, glm::vec4 background_color) {
-  char text[256];
-
-  debug_render_rect(command_buffer, x, state->offset_top, 175.0f, 25.0f * 4.0f, background_color);
-
-  sprintf(text, "%s", name);
-  draw_string(command_buffer, font, x + 5.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-
-  sprintf(text, "%f", vector.x);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-
-  sprintf(text, "%f", vector.y);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-
-  sprintf(text, "%f", vector.z);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, glm::vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-}
+#include "ui.cpp"
 
 bool sort_by_distance(const EditorHandleRenderCommand &a, const EditorHandleRenderCommand &b) {
   return a.distance_from_camera > b.distance_from_camera;
@@ -1706,6 +1516,7 @@ bool sort_particles_by_distance(const Particle &a, const Particle &b) {
 }
 
 void draw_3d_debug_info(Input &input, App *app) {
+  PROFILE_BLOCK("Draw 3D Debug");
   use_program(app, &app->controls_program);
 
   glEnable(GL_BLEND);
@@ -1734,24 +1545,24 @@ void draw_3d_debug_info(Input &input, App *app) {
         continue;
       }
 
-      glm::mat4 model_view;
+      mat4 model_view;
       model_view = glm::translate(model_view, entity->position);
-      model_view = glm::scale(model_view, glm::vec3(app->editor.handle_size));
-      model_view *= make_billboard_matrix(entity->position, app->camera.position, glm::vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
+      model_view = glm::scale(model_view, vec3(app->editor.handle_size));
+      model_view *= make_billboard_matrix(entity->position, app->camera.position, vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
 
       EditorHandleRenderCommand command;
       command.distance_from_camera = glm::distance2(app->camera.position, entity->position);
       command.model_view = model_view;
       if (entity->type == EntityParticleEmitter) {
-        command.color = glm::vec4(0.0, 1.0, 1.0, 0.7);
+        command.color = vec4(0.0, 1.0, 1.0, 0.7);
       } else if (entity->type == EntityPlanet) {
-        command.color = glm::vec4(1.0, 1.0, 0.0, 0.7);
+        command.color = vec4(1.0, 1.0, 0.0, 0.7);
       } else {
-        command.color = glm::vec4(0.0, 1.0, 0.0, 0.7);
+        command.color = vec4(0.0, 1.0, 0.0, 0.7);
       }
 
       if (!input.is_mouse_locked && app->editor.hovering_entity && app->editor.hover_entity == entity->id) {
-        command.color *= glm::vec4(0.6, 0.6, 0.6, 1.0);
+        command.color *= vec4(0.6, 0.6, 0.6, 1.0);
       }
 
       render_commands.push_back(command);
@@ -1771,25 +1582,22 @@ void draw_3d_debug_info(Input &input, App *app) {
 }
 
 void flush_2d_render(App *app, Memory *memory) {
-  glm::mat4 projection = glm::ortho(0.0f, float(memory->width), float(memory->height), 0.0f);
-
-  UICommandBuffer *command_buffer = &app->editor.command_buffer;
+  PROFILE_BLOCK("Draw UI Flush");
+  mat4 projection = glm::ortho(0.0f, float(memory->width), float(memory->height), 0.0f);
 
   glDisable(GL_DEPTH_TEST);
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  glActiveTexture(GL_TEXTURE0);
 
   use_program(app, &app->ui_program);
 
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, app->font.texture);
-
-  glActiveTexture(GL_TEXTURE0 + 1);
-  glBindTexture(GL_TEXTURE_2D, app->editor_texture.id);
-
   set_uniform(app->current_program, "uPMatrix", projection);
+  set_uniformi(app->current_program, "textureImage", 0);
 
   u32 vertices_index = 0;
+
+  UICommandBuffer *command_buffer = &app->editor.command_buffer;
 
   glBindBuffer(GL_ARRAY_BUFFER, app->debug_buffer);
   glBufferData(GL_ARRAY_BUFFER, command_buffer->vertices.size() * sizeof(GLfloat), NULL, GL_STREAM_DRAW);
@@ -1799,21 +1607,9 @@ void flush_2d_render(App *app, Memory *memory) {
   glVertexAttribPointer(shader_get_attribute_location(app->current_program, "uv"), 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void *)(2 * sizeof(GLfloat)));
 
   for (auto it = command_buffer->commands.begin(); it != command_buffer->commands.end(); it++) {
-    switch (it->type) {
-      case UICommandType::NONE:
-        break;
-      case UICommandType::RECT:
-        set_uniformi(app->current_program, "textureImage", 1);
-        set_uniform(app->current_program, "background_color", it->color);
-        set_uniform(app->current_program, "image_color", it->image_color);
-        break;
-      case UICommandType::TEXT:
-        set_uniformi(app->current_program, "textureImage", 0);
-        set_uniform(app->current_program, "background_color", glm::vec4(0.0f));
-        set_uniform(app->current_program, "image_color", it->color);
-        break;
-    }
-
+    glBindTexture(GL_TEXTURE_2D, it->texture_id);
+    set_uniform(app->current_program, "background_color", it->color);
+    set_uniform(app->current_program, "image_color", it->image_color);
     glDrawArrays(GL_TRIANGLES, vertices_index, it->vertices_count);
     vertices_index += it->vertices_count;
   }
@@ -1822,118 +1618,76 @@ void flush_2d_render(App *app, Memory *memory) {
   glEnable(GL_DEPTH_TEST);
 }
 
-void push_toggle_button(App *app, Input &input, DebugDrawState *draw_state, UICommandBuffer *command_buffer, float x, bool *value, glm::vec4 background_color) {
-  u32 toggl_button_x_index;
-  u32 toggl_button_y_index;
-
-  if (*value) {
-    toggl_button_x_index = 0;
-    toggl_button_y_index = 0;
-  } else {
-    toggl_button_x_index = 1;
-    toggl_button_y_index = 0;
-  }
-
-  float image_height = 30.0f;
-  if (push_debug_button(input, app, draw_state, command_buffer, x, image_height, (char *)"", glm::vec3(0.0f), background_color)) {
-    *value = !(*value);
-  }
-
-  debug_render_rect(command_buffer, x, draw_state->offset_top - image_height, image_height, image_height, glm::vec4(0.0f, 0.0f, 0.0f, 0.0f), glm::vec4(0.4f, 0.0f, 0.0f, 1.0f), toggl_button_x_index, toggl_button_y_index);
-}
-
-void rebuild_chunks(App *app) {
-  for (u32 i=0; i<app->chunk_cache_count; i++) {
-    TerrainChunk *chunk = app->chunk_cache + i;
-    unload_chunk(chunk);
-  }
-}
-
 void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
+  PROFILE_BLOCK("Settup UI");
   UICommandBuffer *command_buffer = &app->editor.command_buffer;
   command_buffer->vertices.clear();
   command_buffer->commands.clear();
 
   DebugDrawState draw_state;
   draw_state.offset_top = 25.0f;
+  draw_state.width = 175.0f;
 
-  glm::vec4 button_background_color = glm::vec4(0.5f, 0.6f, 0.9f, 0.9f);
-  glm::vec4 default_background_color = glm::vec4(0.2f, 0.4f, 0.9f, 0.9f);
+  vec4 button_background_color = vec4(0.5f, 0.6f, 0.9f, 0.9f);
+  vec4 default_background_color = vec4(0.2f, 0.4f, 0.9f, 0.9f);
 
   char text[256];
 
-  push_toggle_button(app, input, &draw_state, command_buffer, 10.0f, &app->editor.show_left, glm::vec4(1.0f, 0.16f, 0.15f, 0.9f));
+  push_toggle_button(app, input, &draw_state, command_buffer, 10.0f, &app->editor.show_left, vec4(1.0f, 0.16f, 0.15f, 0.9f));
 
   if (app->editor.show_left) {
     sprintf(text, "performance: %d\n", app->editor.show_performance);
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
       app->editor.show_performance = !app->editor.show_performance;
     }
 
     if (app->editor.show_performance) {
-      for (u32 i=0; i<array_count(memory->last_frame_counters); i++) {
-        DebugCounter *counter = memory->last_frame_counters + i;
+      for (u32 i=0; i<array_count(global_last_frame_counters); i++) {
+        DebugCounter *counter = global_last_frame_counters + i;
 
         if (counter->hit_count) {
           float time = (float)(counter->cycle_count * 1000) / (float)platform.get_performance_frequency();
 
-          if (counter->hit_count > 1) {
-            sprintf(text, "%d: %.2fms %llu %.2fms\n", i, time, counter->hit_count, time / (float)counter->hit_count);
-          } else {
-            sprintf(text, "%d: %.2fms", i, time);
-          }
+          sprintf(text, "%17s: %6.3fms %4llu %6.3fms\n", counter->name, time, counter->hit_count, time / (float)counter->hit_count);
 
-          push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.0f, 0.1f, 0.6f, 0.9f));
+          float original_width = draw_state.width;
+          draw_state.width = 350.0f;
+          push_debug_text(app, &app->mono_font, &draw_state, command_buffer, 10.0f, text, vec3(1.0f, 1.0f, 1.0f), vec4(0.0f, 0.1f, 0.6f, 0.9f));
+          draw_state.width = original_width;
         }
       }
     }
 
-    sprintf(text, "state changes: %d\n", app->editor.show_state_changes);
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-      app->editor.show_state_changes = !app->editor.show_state_changes;
-    }
-
-    if (app->editor.show_state_changes) {
-      sprintf(text, "model_change: %d\n", app->render_group.model_change);
-      push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.0f, 0.1f, 0.6f, 0.9f));
-
-      sprintf(text, "shader_change: %d\n", app->render_group.shader_change);
-      push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.0f, 0.1f, 0.6f, 0.9f));
-
-      sprintf(text, "draw_calls: %d\n", app->render_group.draw_calls);
-      push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), glm::vec4(0.0f, 0.1f, 0.6f, 0.9f));
-    }
-
     sprintf(text, "fps: %d\n", (u32)app->fps);
-    push_debug_text(app, &draw_state, command_buffer, 10.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), default_background_color);
+    push_debug_text(app, &draw_state, command_buffer, 10.0f, text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
     draw_state.offset_top += 10.0f;
 
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 40.0f, (char *)"save!", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 40.0f, (char *)"save!", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
       save_level(memory, app);
     }
 
     draw_state.offset_top += 10.0f;
 
-    glm::vec4 selected_button_background_color = glm::vec4(0.5f, 0.8f, 1.0f, 0.9f);
+    vec4 selected_button_background_color = vec4(0.5f, 0.8f, 1.0f, 0.9f);
 
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Modeling", glm::vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::MODELING ? selected_button_background_color : button_background_color)) {
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Modeling", vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::MODELING ? selected_button_background_color : button_background_color)) {
       app->editor.left_state = EditorLeftState::MODELING;
     }
 
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Terrain", glm::vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::TERRAIN ? selected_button_background_color : button_background_color)) {
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Terrain", vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::TERRAIN ? selected_button_background_color : button_background_color)) {
       app->editor.left_state = EditorLeftState::TERRAIN;
     }
 
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Light", glm::vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::LIGHT ? selected_button_background_color : button_background_color)) {
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Light", vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::LIGHT ? selected_button_background_color : button_background_color)) {
       app->editor.left_state = EditorLeftState::LIGHT;
     }
 
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Post Processing", glm::vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::POST_PROCESSING ? selected_button_background_color : button_background_color)) {
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Post Processing", vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::POST_PROCESSING ? selected_button_background_color : button_background_color)) {
       app->editor.left_state = EditorLeftState::POST_PROCESSING;
     }
 
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Editor settings", glm::vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::EDITOR_SETTINGS ? selected_button_background_color : button_background_color)) {
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Editor settings", vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::EDITOR_SETTINGS ? selected_button_background_color : button_background_color)) {
       app->editor.left_state = EditorLeftState::EDITOR_SETTINGS;
     }
 
@@ -1942,22 +1696,27 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
     switch (app->editor.left_state) {
       {
         case EditorLeftState::MODELING:
-          const char *types[] = {
-            "tree_001",
-            "tree_002",
-            "tree_003",
-            "rock",
-            "cube",
-            "sphere",
-            "quad"
+          struct Something {
+            const char *id_name;
+            const char *display_name;
+          };
+
+          Something types[] = {
+            {"tree_001", "Tree 1"},
+            {"tree_002", "Tree 2"},
+            {"tree_003", "Tree 3"},
+            {"rock", "Rock"},
+            {"cube", "Cube"},
+            {"sphere", "Sphere"},
+            {"quad", "Quad"},
           };
 
           for (u32 i=0; i<array_count(types); i++) {
-            if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)types[i], glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+            if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)types[i].display_name, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
 
               Entity *entity = app->entities + app->entity_count++;
 
-              glm::vec3 forward;
+              vec3 forward;
               forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
               forward.y = -glm::sin(app->camera.rotation[0]);
               forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
@@ -1965,19 +1724,12 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
               entity->id = next_entity_id(app);
               entity->type = EntityBlock;
               entity->position = app->camera.position + forward * 400.0f;
-              entity->scale = glm::vec3(1.0f);
-              entity->model = get_model_by_name(app, (char *)types[i]);
-              entity->color = glm::vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
+              entity->scale = vec3(100.f);
+              entity->model = get_model_by_name(app, (char *)types[i].id_name);
+              entity->color = vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
               entity->flags = EntityFlags::CASTS_SHADOW | EntityFlags::PERMANENT_FLAG;
 
-              if (strcmp(types[i], "cube") == 0 ||
-                  strcmp(types[i], "sphere") == 0 ||
-                  strcmp(types[i], "quad") == 0 ||
-                  strcmp(types[i], "rock") == 0) {
-                entity->scale = glm::vec3(100.f);
-              }
-
-              if (strcmp(types[i], "quad") == 0) {
+              if (strcmp(types[i].id_name, "quad") == 0) {
                 entity->flags |= EntityFlags::LOOK_AT_CAMERA;
               }
             }
@@ -1985,10 +1737,10 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
           draw_state.offset_top += 10.0f;
 
-          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"particle emitter", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"particle emitter", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             Entity *entity = app->entities + app->entity_count++;
 
-            glm::vec3 forward;
+            vec3 forward;
             forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
             forward.y = -glm::sin(app->camera.rotation[0]);
             forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
@@ -1996,16 +1748,16 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             entity->id = next_entity_id(app);
             entity->type = EntityParticleEmitter;
             entity->position = app->camera.position + forward * 400.0f;
-            entity->scale = glm::vec3(40.0f, 0.0f, 0.0f);
+            entity->scale = vec3(40.0f, 0.0f, 0.0f);
             entity->model = get_model_by_name(app, (char *)"sphere");
-            entity->color = glm::vec4(1.0f);
+            entity->color = vec4(1.0f);
             entity->flags = EntityFlags::RENDER_HIDDEN | EntityFlags::PERMANENT_FLAG;
           }
 
-          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Planet", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Planet", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             Entity *entity = app->entities + app->entity_count++;
 
-            glm::vec3 forward;
+            vec3 forward;
             forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
             forward.y = -glm::sin(app->camera.rotation[0]);
             forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
@@ -2014,18 +1766,18 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             entity->id = next_entity_id(app);
             entity->type = EntityPlanet;
             entity->position = app->camera.position + forward * 400.0f;
-            entity->scale = glm::vec3(100.0f);
+            entity->scale = vec3(100.0f);
             entity->model = get_model_by_name(app, (char *)"sphere");
-            entity->color = glm::vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
+            entity->color = vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
             entity->flags = EntityFlags::CASTS_SHADOW | EntityFlags::PERMANENT_FLAG;
-            entity->positions.push_back(glm::vec2(50.0833f, 14.4167f));
-            entity->positions.push_back(glm::vec2(37.7833f, 122.4167f));
+            entity->positions.push_back(vec2(50.0833f, 14.4167f));
+            entity->positions.push_back(vec2(37.7833f, 122.4167f));
           }
 
-          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Water", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Water", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             Entity *entity = app->entities + app->entity_count++;
 
-            glm::vec3 forward;
+            vec3 forward;
             forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
             forward.y = -glm::sin(app->camera.rotation[0]);
             forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
@@ -2033,16 +1785,33 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             entity->id = next_entity_id(app);
             entity->type = EntityWater;
             entity->position = app->camera.position + forward * 400.0f;
-            entity->scale = glm::vec3(100.0f);
+            entity->scale = vec3(100.0f);
             entity->model = get_model_by_name(app, (char *)"quad");
-            entity->color = glm::vec4(0.2f, 0.45f, 0.5f, 0.5f);
+            entity->color = vec4(0.2f, 0.45f, 0.5f, 0.5f);
+            entity->flags = EntityFlags::PERMANENT_FLAG;
+          }
+
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Phong", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+            Entity *entity = app->entities + app->entity_count++;
+
+            vec3 forward;
+            forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
+            forward.y = -glm::sin(app->camera.rotation[0]);
+            forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
+
+            entity->id = next_entity_id(app);
+            entity->type = EntityBlock;
+            entity->position = app->camera.position + forward * 400.0f;
+            entity->scale = vec3(100.0f);
+            entity->model = get_model_by_name(app, (char *)"sphere");
+            entity->color = vec4(0.2f, 0.45f, 0.5f, 1.0f);
             entity->flags = EntityFlags::PERMANENT_FLAG;
           }
           break;
       }
       {
         case EditorLeftState::TERRAIN:
-          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"rebuild chunks", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"rebuild chunks", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             rebuild_chunks(app);
           }
           break;
@@ -2055,47 +1824,52 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
       {
         case EditorLeftState::EDITOR_SETTINGS:
           sprintf(text, "Show handles %d\n", app->editor.show_handles);
-          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             app->editor.show_handles = !app->editor.show_handles;
           }
 
-          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"slow speed", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"slow speed", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             app->editor.speed = 10000.0f;
           }
 
-          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"medium speed", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"medium speed", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             app->editor.speed = 40000.0f;
           }
 
-          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"fast speed", glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"fast speed", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             app->editor.speed = 60000.0f;
+          }
+
+          sprintf(text, "Experimenal editing: %d\n", app->editor.experimental_terrain_entity_movement);
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+            app->editor.experimental_terrain_entity_movement = !app->editor.experimental_terrain_entity_movement;
           }
           break;
       }
       {
         case EditorLeftState::POST_PROCESSING:
           sprintf(text, "AA: %d\n", app->antialiasing);
-          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             app->antialiasing = !app->antialiasing;
           }
 
           sprintf(text, "Color correction: %d\n", app->color_correction);
-          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             app->color_correction = !app->color_correction;
           }
 
           sprintf(text, "HDR (wip): %d\n", app->hdr);
-          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             app->hdr = !app->hdr;
           }
 
           sprintf(text, "Bloom (wip): %d\n", app->bloom);
-          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             app->bloom = !app->bloom;
           }
 
           sprintf(text, "Lens flare (wip): %d\n", app->lens_flare);
-          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             app->lens_flare = !app->lens_flare;
           }
           break;
@@ -2105,30 +1879,34 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
   if (app->editor.inspect_entity) {
     draw_state.offset_top = 25.0f;
+    draw_state.width = 275.0f;
 
-    push_toggle_button(app, input, &draw_state, command_buffer, memory->width - 200.0f, &app->editor.show_right, glm::vec4(1.0f, 0.16f, 0.15f, 0.9f));
+    push_toggle_button(app, input, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), &app->editor.show_right, vec4(1.0f, 0.16f, 0.15f, 0.9f));
 
     if (app->editor.show_right) {
       Entity *entity = get_entity_by_id(app, app->editor.entity_id);
       if (entity) {
 
         sprintf(text, "id: %d\n", entity->id);
-        push_debug_text(app, &draw_state, command_buffer, memory->width - 200, text, glm::vec3(1.0f, 1.0f, 1.0f), default_background_color);
+        push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
         sprintf(text, "model: %s\n", entity->model->id_name);
-        push_debug_text(app, &draw_state, command_buffer, memory->width - 200, text, glm::vec3(1.0f, 1.0f, 1.0f), default_background_color);
+        push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
-        push_debug_vector(&draw_state, &app->font, command_buffer, memory->width - 200, "position", entity->position, default_background_color);
-        push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - 200, "rotation", &entity->rotation, default_background_color, 0.0f, pi * 2);
-        push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - 200, "scale", &entity->scale, default_background_color, 0.0f, 200.0f);
+        sprintf(text, "type: %d\n", entity->type);
+        push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
+
+        push_debug_vector(&draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "position", entity->position, default_background_color);
+        push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "rotation", &entity->rotation, default_background_color, 0.0f, pi * 2);
+        push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "scale", &entity->scale, default_background_color, 0.0f, 200.0f);
 
         float start = draw_state.offset_top;
-        push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - 200, "color", &entity->color, default_background_color, 0.0f, 1.0f);
-        debug_render_rect(command_buffer, memory->width - 151.0f, start + 1.0f, 22.0f, 22.0f, glm::vec4(0.0f, 0.0f, 0.0f, 0.5f));
+        push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "color", &entity->color, default_background_color, 0.0f, 1.0f);
+        debug_render_rect(command_buffer, memory->width - 151.0f, start + 1.0f, 22.0f, 22.0f, vec4(0.0f, 0.0f, 0.0f, 0.5f));
         debug_render_rect(command_buffer, memory->width - 150.0f, start + 2.0f, 20.0f, 20.0f, entity->color);
 
         sprintf(text, "ground mounted: %d\n", (entity->flags & EntityFlags::MOUNT_TO_TERRAIN) != 0);
-        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
           entity->flags = entity->flags ^ EntityFlags::MOUNT_TO_TERRAIN;
 
           if (entity->flags & EntityFlags::MOUNT_TO_TERRAIN) {
@@ -2137,17 +1915,17 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
         }
 
         sprintf(text, "casts shadow: %d\n", (entity->flags & EntityFlags::CASTS_SHADOW) != 0);
-        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
           entity->flags = entity->flags ^ EntityFlags::CASTS_SHADOW;
         }
 
         sprintf(text, "look at camera: %d\n", (entity->flags & EntityFlags::LOOK_AT_CAMERA) != 0);
-        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
           entity->flags = entity->flags ^ EntityFlags::LOOK_AT_CAMERA;
         }
 
         sprintf(text, "save to file: %d\n", (entity->flags & EntityFlags::PERMANENT_FLAG) != 0);
-        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - 200.0f, 25.0f, text, glm::vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
           entity->flags = entity->flags ^ EntityFlags::PERMANENT_FLAG;
         }
       }
@@ -2156,18 +1934,18 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 }
 
 void render_skybox(App *app) {
-  PROFILE(render_skybox);
+  PROFILE_BLOCK("Draw Skybox");
   glDisable(GL_CULL_FACE);
   glDisable(GL_DEPTH_TEST);
   glDepthMask(GL_FALSE);
 
   use_program(app, &app->skybox_program);
 
-  glm::mat4 projection = get_camera_projection(&app->camera);
+  mat4 projection = get_camera_projection(&app->camera);
 
-  projection = glm::rotate(projection, app->camera.rotation.x, glm::vec3(1.0, 0.0, 0.0));
-  projection = glm::rotate(projection, app->camera.rotation.y, glm::vec3(0.0, 1.0, 0.0));
-  projection = glm::rotate(projection, app->camera.rotation.z, glm::vec3(0.0, 0.0, 1.0));
+  projection = glm::rotate(projection, app->camera.rotation.x, vec3(1.0, 0.0, 0.0));
+  projection = glm::rotate(projection, app->camera.rotation.y, vec3(0.0, 1.0, 0.0));
+  projection = glm::rotate(projection, app->camera.rotation.z, vec3(0.0, 0.0, 1.0));
 
   set_uniform(app->current_program, "projection", projection);
 
@@ -2181,10 +1959,10 @@ void render_skybox(App *app) {
   glDepthMask(GL_TRUE);
   glEnable(GL_DEPTH_TEST);
   glEnable(GL_CULL_FACE);
-  PROFILE_END(render_skybox);
 }
 
 void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shader=NULL, bool shadow_pass=false) {
+  PROFILE_BLOCK("Draw Scene");
   start_render_group(&app->transparent_render_group);
   app->transparent_render_group.camera = camera;
   app->transparent_render_group.transparent_pass = true;
@@ -2197,7 +1975,6 @@ void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shade
   app->render_group.force_shader = forced_shader;
   app->render_group.shadow_pass = shadow_pass;
 
-  PROFILE(render_entities);
   for (u32 i=0; i<app->entity_count; i++) {
     Entity *entity = app->entities + i;
 
@@ -2216,21 +1993,21 @@ void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shade
       continue;
     }
 
-    glm::mat4 model_view;
+    mat4 model_view;
 
     model_view = glm::translate(model_view, entity->position);
 
     if (entity->flags & EntityFlags::LOOK_AT_CAMERA) {
-      model_view *= make_billboard_matrix(entity->position, app->camera.position, glm::vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
+      model_view *= make_billboard_matrix(entity->position, app->camera.position, vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
     }
 
-    model_view = glm::rotate(model_view, entity->rotation.x, glm::vec3(1.0, 0.0, 0.0));
-    model_view = glm::rotate(model_view, entity->rotation.y, glm::vec3(0.0, 1.0, 0.0));
-    model_view = glm::rotate(model_view, entity->rotation.z, glm::vec3(0.0, 0.0, 1.0));
+    model_view = glm::rotate(model_view, entity->rotation.x, vec3(1.0, 0.0, 0.0));
+    model_view = glm::rotate(model_view, entity->rotation.y, vec3(0.0, 1.0, 0.0));
+    model_view = glm::rotate(model_view, entity->rotation.z, vec3(0.0, 0.0, 1.0));
 
     model_view = glm::scale(model_view, entity->scale);
 
-    glm::mat3 normal = glm::inverseTranspose(glm::mat3(model_view));
+    mat3 normal = glm::inverseTranspose(mat3(model_view));
 
     RenderCommand command;
 
@@ -2251,7 +2028,7 @@ void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shade
       command.shader = &app->textured_program;
 
       for (auto it = entity->positions.begin(); it != entity->positions.end(); it++) {
-        glm::mat4 child_view;
+        mat4 child_view;
         child_view = glm::translate(child_view, entity->position);
         float radius = entity->scale.x;
 
@@ -2273,18 +2050,17 @@ void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shade
         float y = radius * glm::cos(ls) * glm::sin(lon) + glm::sin(lon);
         float z = radius * glm::sin(ls);
 
-        glm::vec3 position = glm::vec3(x, z, y);
+        vec3 position = vec3(x, z, y);
 
         child_view = glm::translate(child_view, position);
-        child_view = glm::scale(child_view, glm::vec3(1.0f));
-        glm::mat3 normal = glm::inverseTranspose(glm::mat3(child_view));
+        child_view = glm::scale(child_view, vec3(1.0f));
+        mat3 normal = glm::inverseTranspose(mat3(child_view));
 
         RenderCommand child_command;
-        child_command.shader = &app->solid_program;
         child_command.model_view = child_view;
         child_command.flags = entity->flags;
         child_command.normal = normal;
-        child_command.color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+        child_command.color = vec4(1.0f, 0.0f, 0.0f, 1.0f);
         child_command.cull_type = GL_BACK;
         child_command.model_mesh = &entity->model->mesh;
         add_command_to_render_group(&app->render_group, child_command);
@@ -2292,7 +2068,7 @@ void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shade
     }
 
     bool transparent = command.texture != NULL || command.color.a < 1.0f; // TODO(sedivy): remove when there is way to tell if the object is transparent
-    if (transparent) {
+    if (false) { // TODO(sedivy): replace with transparent variable
       command.distance_from_camera = glm::distance2(app->camera.position, entity->position);
       command.shader = &app->transparent_program;
       add_command_to_render_group(&app->transparent_render_group, command);
@@ -2332,11 +2108,10 @@ void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shade
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 #endif
   }
-
-  PROFILE_END_COUNTED(render_entities, app->entity_count);
 }
 
 void render_terrain(Memory *memory, App *app) {
+  PROFILE_BLOCK("Draw Terrain");
   use_program(app, &app->terrain_program);
 
   glCullFace(GL_BACK);
@@ -2347,670 +2122,672 @@ void render_terrain(Memory *memory, App *app) {
   glBindTexture(GL_TEXTURE_2D, app->shadow_depth_texture);
   set_uniformi(app->current_program, "uShadow", 0);
   set_uniform(app->current_program, "shadow_matrix", app->shadow_camera.view_matrix);
-  set_uniform(app->current_program, "texmapscale", glm::vec2(1.0f / app->shadow_width, 1.0f / app->shadow_height));
+  set_uniform(app->current_program, "texmapscale", vec2(1.0f / app->shadow_width, 1.0f / app->shadow_height));
 
   int x_coord = static_cast<int>(app->camera.position.x / CHUNK_SIZE_X);
   int y_coord = static_cast<int>(app->camera.position.z / CHUNK_SIZE_Y);
 
-  u32 chunk_count = 0;
+  {
+    PROFILE_BLOCK("Terrain render", 17*17);
+    for (int y=-8 + y_coord; y<=8 + y_coord; y++) {
+      for (int x=-8 + x_coord; x<=8 + x_coord; x++) {
+        if (x < 0 || y < 0 ) { continue; }
 
-  PROFILE(render_chunks);
-  for (int y=-8 + y_coord; y<=8 + y_coord; y++) {
-    for (int x=-8 + x_coord; x<=8 + x_coord; x++) {
-      if (x < 0 || y < 0 ) { continue; }
+        TerrainChunk *chunk = get_chunk_at(app->chunk_cache, app->chunk_cache_count, x, y);
 
-      TerrainChunk *chunk = get_chunk_at(app->chunk_cache, app->chunk_cache_count, x, y);
+        int dx = chunk->x - x_coord;
+        int dy = chunk->y - y_coord;
 
-      int dx = chunk->x - x_coord;
-      int dy = chunk->y - y_coord;
+        float distance = glm::length2(vec2(dx, dy));
 
-      float distance = glm::length2(glm::vec2(dx, dy));
+        int detail_level = 2;
+        if (distance < 16.0f) { detail_level = 1; }
+        if (distance < 4.0f) { detail_level = 0; }
 
-      int detail_level = 2;
-      if (distance < 16.0f) { detail_level = 1; }
-      if (distance < 4.0f) { detail_level = 0; }
+        Model *model = chunk_get_model(memory, chunk, detail_level);
 
-      Model *model = chunk_get_model(memory, chunk, detail_level);
+        if (model) {
+          if (!is_sphere_in_frustum(&app->camera.frustum, vec3(chunk->x * CHUNK_SIZE_X, 0.0f, chunk->y * CHUNK_SIZE_Y), model->radius)) {
+            continue;
+          }
 
-      if (model) {
-        if (!is_sphere_in_frustum(&app->camera.frustum, glm::vec3(chunk->x * CHUNK_SIZE_X, 0.0f, chunk->y * CHUNK_SIZE_Y), model->radius)) {
-          continue;
-        }
-
-        if (render_terrain_chunk(app, chunk, model)) {
-          chunk_count += 1;
+          render_terrain_chunk(app, chunk, model);
         }
       }
     }
   }
-
-  PROFILE_END_COUNTED(render_chunks, chunk_count);
 }
 
 void tick(Memory *memory, Input input) {
   debug_global_memory = memory;
   platform = memory->platform;
-
-  PROFILE(frame);
-
   App *app = memory->app;
 
-  if (memory->should_reload) {
-    memory->should_reload = false;
-
-    glewExperimental = GL_TRUE;
-    glewInit();
-  }
-
-  if (app->editing_mode) {
-    PROFILE(render_ui);
-    draw_2d_debug_info(app, memory, input);
-    PROFILE_END(render_ui);
-  }
-
-  // NOTE(sedivy): update
-  PROFILE(update);
-
-  app->camera.size = glm::vec2((float)memory->width, (float)memory->height);
-
-  Entity *follow_entity = get_entity_by_id(app, app->camera_follow);
   {
-    if (input.once.key_r) {
-      setup_all_shaders(app);
+    PROFILE_BLOCK("Tick");
 
-      unload_texture(&app->gradient_texture);
-      load_texture(&app->gradient_texture, STBI_rgb_alpha);
-      initialize_texture(&app->gradient_texture, GL_RGBA, GL_RGBA, false);
-      stbi_image_free(app->gradient_texture.data);
-      app->gradient_texture.data = NULL;
+    if (memory->should_reload) {
+      memory->should_reload = false;
 
-      unload_texture(&app->color_correction_texture);
-      load_texture(&app->color_correction_texture, STBI_rgb_alpha);
-      initialize_texture(&app->color_correction_texture, GL_RGB8, GL_RGBA, false);
-      stbi_image_free(app->color_correction_texture.data);
-      app->color_correction_texture.data = NULL;
-
-      unload_texture(&app->circle_texture);
-      load_texture(&app->circle_texture, STBI_rgb_alpha);
-      initialize_texture(&app->circle_texture, GL_RGBA, GL_RGBA, true);
-
-      {
-        unload_texture(&app->debug_transparent_texture);
-        load_texture(&app->debug_transparent_texture, STBI_rgb_alpha);
-        initialize_texture(&app->debug_transparent_texture, GL_RGBA, GL_RGBA, true);
-        stbi_image_free(app->debug_transparent_texture.data);
-        app->debug_transparent_texture.data = NULL;
-      }
-    }
-
-    if (input.once.key_p) {
-      app->editing_mode = !app->editing_mode;
-      if (!app->editing_mode) {
-        platform.lock_mouse();
-      }
-    }
-
-    if (input.is_mouse_locked) {
-      follow_entity->rotation.y += static_cast<float>(input.rel_mouse_x)/200.0f;
-      follow_entity->rotation.x += static_cast<float>(input.rel_mouse_y)/200.0f;
-    }
-
-    static float halfpi = glm::half_pi<float>();
-
-    if (follow_entity->rotation[0] > halfpi - 0.001f) {
-      follow_entity->rotation[0] = halfpi - 0.001f;
-    }
-
-    if (follow_entity->rotation[0] < -halfpi + 0.001f) {
-      follow_entity->rotation[0] = -halfpi + 0.001f;
-    }
-
-    glm::vec3 rotation = follow_entity->rotation;
-
-    glm::vec3 forward;
-    forward.x = glm::sin(rotation[1]) * glm::cos(rotation[0]);
-    forward.y = -glm::sin(rotation[0]);
-    forward.z = -glm::cos(rotation[1]) * glm::cos(rotation[0]);
-
-    glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0, 1.0, 0.0)));
-
-    glm::vec3 movement;
-
-    if (input.up) {
-      movement += forward;
-    }
-
-    if (input.down) {
-      movement -= forward;
-    }
-
-    if (input.left) {
-      movement -= right;
-    }
-
-    if (input.right) {
-      movement += right;
-    }
-
-    float speed = 1000.3f;
-
-    if (input.alt && input.once.enter) {
-      platform.toggle_fullscreen();
+      glewExperimental = GL_TRUE;
+      glewInit();
     }
 
     if (app->editing_mode) {
-      speed = app->editor.speed;
-    } else {
-      if (input.shift) {
-        speed = 10000.0f;
-      }
-      movement.y = 0;
+      draw_2d_debug_info(app, memory, input);
     }
 
-    if (glm::length(movement) > 0.0f) {
-      movement = glm::normalize(movement);
-    }
+    // NOTE(sedivy): update
+    {
+      PROFILE_BLOCK("Update");
 
-    follow_entity->velocity += movement * speed * input.delta_time;
+      app->camera.size = vec2((float)memory->width, (float)memory->height);
 
-    for (u32 i=0; i<app->entity_count; i++) {
-      Entity *entity = app->entities + i;
+      Entity *follow_entity = get_entity_by_id(app, app->camera_follow);
+      {
+        if (input.once.key_r) {
+          setup_all_shaders(app);
 
-      if (entity->type == EntityParticleEmitter) {
-        Particle *particle = app->particles + app->next_particle++;
-        if (app->next_particle >= array_count(app->particles)) {
-          app->next_particle = 0;
+          unload_texture(&app->gradient_texture);
+          load_texture(&app->gradient_texture, STBI_rgb_alpha);
+          initialize_texture(&app->gradient_texture, GL_RGBA, GL_RGBA, false);
+          stbi_image_free(app->gradient_texture.data);
+          app->gradient_texture.data = NULL;
+
+          unload_texture(&app->color_correction_texture);
+          load_texture(&app->color_correction_texture, STBI_rgb_alpha);
+          initialize_texture(&app->color_correction_texture, GL_RGB8, GL_RGBA, false);
+          stbi_image_free(app->color_correction_texture.data);
+          app->color_correction_texture.data = NULL;
+
+          unload_texture(&app->circle_texture);
+          load_texture(&app->circle_texture, STBI_rgb_alpha);
+          initialize_texture(&app->circle_texture, GL_RGBA, GL_RGBA, true);
+
+          for (auto it = app->models.begin(); it != app->models.end(); it++) {
+            if (it->second->path != NULL) { // NOTE(sedivy): If it has path it should be reloadable
+              unload_model(it->second);
+            }
+          }
+
+          {
+            unload_texture(&app->debug_transparent_texture);
+            load_texture(&app->debug_transparent_texture, STBI_rgb_alpha);
+            initialize_texture(&app->debug_transparent_texture, GL_RGBA, GL_RGBA, true);
+            stbi_image_free(app->debug_transparent_texture.data);
+            app->debug_transparent_texture.data = NULL;
+          }
         }
 
-        particle->position = entity->position;
-        particle->color = entity->color;
-        particle->size = entity->scale.x;
-        particle->velocity = glm::vec3(get_random_float_between(-500.0f, 500.0f), get_random_float_between(0.0f, 1000.0f), get_random_float_between(-500.0f, 500.0f));
-        particle->gravity = 500.0f;
-      } else if (entity->type == EntityPlayer) {
-        entity->position += entity->velocity * input.delta_time;
-        entity->velocity = glm::mix(entity->velocity, glm::vec3(0.0f), input.delta_time * 10.0f);
-      }
-    }
+        if (input.once.key_p) {
+          app->editing_mode = !app->editing_mode;
+          if (!app->editing_mode) {
+            platform.lock_mouse();
+          }
+        }
 
-    for (u32 i=0; i<array_count(app->particles); i++) {
-      Particle *particle = app->particles + i;
+        if (input.is_mouse_locked) {
+          follow_entity->rotation.y += static_cast<float>(input.rel_mouse_x)/200.0f;
+          follow_entity->rotation.x += static_cast<float>(input.rel_mouse_y)/200.0f;
+        }
 
-      particle->velocity.y += particle->gravity * input.delta_time;
-      particle->position += particle->velocity * input.delta_time;
-      particle->size = std::max(particle->size - 60.0f * input.delta_time, 0.0f);
-      particle->velocity = glm::mix(particle->velocity, glm::vec3(0.0f), input.delta_time);
-      particle->color.a = glm::mix(particle->color.a, 0.0f, input.delta_time * 4.0f);
+        static float halfpi = glm::half_pi<float>();
 
-      particle->distance_from_camera = glm::distance2(app->camera.position, particle->position);
-    }
+        if (follow_entity->rotation[0] > halfpi - 0.001f) {
+          follow_entity->rotation[0] = halfpi - 0.001f;
+        }
 
-    std::sort(app->particles, app->particles + array_count(app->particles), sort_particles_by_distance);
+        if (follow_entity->rotation[0] < -halfpi + 0.001f) {
+          follow_entity->rotation[0] = -halfpi + 0.001f;
+        }
 
-    for (u32 i=0; i<array_count(app->particles); i++) {
-      Particle *particle = app->particles + i;
+        vec3 rotation = follow_entity->rotation;
 
-      app->particle_positions[4 * i + 0] = particle->position.x;
-      app->particle_positions[4 * i + 1] = particle->position.y;
-      app->particle_positions[4 * i + 2] = particle->position.z;
-      app->particle_positions[4 * i + 3] = particle->size;
+        vec3 forward;
+        forward.x = glm::sin(rotation[1]) * glm::cos(rotation[0]);
+        forward.y = -glm::sin(rotation[0]);
+        forward.z = -glm::cos(rotation[1]) * glm::cos(rotation[0]);
 
-      app->particle_colors[4 * i + 0] = particle->color.x;
-      app->particle_colors[4 * i + 1] = particle->color.y;
-      app->particle_colors[4 * i + 2] = particle->color.z;
-      app->particle_colors[4 * i + 3] = particle->color.w;
-    }
+        vec3 right = glm::normalize(glm::cross(forward, vec3(0.0, 1.0, 0.0)));
 
-    if (follow_entity->position.x < 0) { follow_entity->position.x = 0; }
-    if (follow_entity->position.z < 0) { follow_entity->position.z = 0; }
+        vec3 movement;
 
-    if (!app->editing_mode) {
-      follow_entity->position.y = get_terrain_height_at(follow_entity->position.x, follow_entity->position.z);
-    } else {
-      float terrain = get_terrain_height_at(follow_entity->position.x, follow_entity->position.z);
-      if (follow_entity->position.y < terrain) {
-        follow_entity->position.y = terrain;
-      }
-    }
-    /* printf("position: %f %f %f\n", follow_entity->position.x, follow_entity->position.y, follow_entity->position.z); */
-    /* printf("rotation: %f %f %f\n\n", follow_entity->rotation.x, follow_entity->rotation.y, follow_entity->rotation.z); */
+        if (input.up) {
+          movement += forward;
+        }
 
-    app->camera.rotation = follow_entity->rotation;
-    app->camera.position = follow_entity->position + glm::vec3(0.0f, 70.0f, 0.0f);
-    app->camera.view_matrix = get_camera_projection(&app->camera);
-    app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.x, glm::vec3(1.0, 0.0, 0.0));
-    app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.y, glm::vec3(0.0, 1.0, 0.0));
-    app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.z, glm::vec3(0.0, 0.0, 1.0));
-    app->camera.view_matrix = glm::translate(app->camera.view_matrix, (app->camera.position * -1.0f));
-    fill_frustum_with_matrix(&app->camera.frustum, app->camera.view_matrix);
+        if (input.down) {
+          movement -= forward;
+        }
 
-    Ray ray = get_mouse_ray(app, input, memory);
+        if (input.left) {
+          movement -= right;
+        }
 
-    Entity *closest_entity = NULL;
-    float closest_distance = FLT_MAX;
-    glm::vec3 hit_position;
+        if (input.right) {
+          movement += right;
+        }
 
-    for (u32 i=0; i<app->entity_count; i++) {
-      Entity *entity = app->entities + i;
+        float speed = 1000.3f;
 
-      if (!(entity->flags & EntityFlags::HIDE_IN_EDITOR)) {
-        RayMatchResult hit;
-        hit.hit = false;
+        if (input.alt && input.once.enter) {
+          platform.toggle_fullscreen();
+        }
 
-        if (entity->type == EntityBlock) {
-          hit = ray_match_entity(app, ray, entity);
+        if (app->editing_mode) {
+          speed = app->editor.speed;
         } else {
-          hit = ray_match_sphere(ray, entity->position, app->editor.handle_size);
+          if (input.shift) {
+            speed = 10000.0f;
+          }
+          movement.y = 0;
         }
 
-        if (hit.hit) {
-          float distance = glm::distance(hit.hit_position, ray.start);
-          if (distance < closest_distance) {
-            closest_distance = distance;
-            closest_entity = entity;
-            hit_position = hit.hit_position;
+        if (glm::length(movement) > 0.0f) {
+          movement = glm::normalize(movement);
+        }
+
+        follow_entity->velocity += movement * speed * input.delta_time;
+
+        for (u32 i=0; i<app->entity_count; i++) {
+          Entity *entity = app->entities + i;
+
+          if (entity->type == EntityParticleEmitter) {
+            Particle *particle = app->particles + app->next_particle++;
+            if (app->next_particle >= array_count(app->particles)) {
+              app->next_particle = 0;
+            }
+
+            particle->position = entity->position;
+            particle->color = entity->color;
+            particle->size = entity->scale.x;
+            particle->velocity = vec3(get_random_float_between(-500.0f, 500.0f), get_random_float_between(0.0f, 1000.0f), get_random_float_between(-500.0f, 500.0f));
+            particle->gravity = 500.0f;
+          } else if (entity->type == EntityPlayer) {
+            entity->position += entity->velocity * input.delta_time;
+            entity->velocity = glm::mix(entity->velocity, vec3(0.0f), input.delta_time * 10.0f);
+          }
+        }
+
+        for (u32 i=0; i<array_count(app->particles); i++) {
+          Particle *particle = app->particles + i;
+
+          particle->velocity.y += particle->gravity * input.delta_time;
+          particle->position += particle->velocity * input.delta_time;
+          particle->size = std::max(particle->size - 60.0f * input.delta_time, 0.0f);
+          particle->velocity = glm::mix(particle->velocity, vec3(0.0f), input.delta_time);
+          particle->color.a = glm::mix(particle->color.a, 0.0f, input.delta_time * 4.0f);
+
+          particle->distance_from_camera = glm::distance2(app->camera.position, particle->position);
+        }
+
+        std::sort(app->particles, app->particles + array_count(app->particles), sort_particles_by_distance);
+
+        for (u32 i=0; i<array_count(app->particles); i++) {
+          Particle *particle = app->particles + i;
+
+          app->particle_positions[4 * i + 0] = particle->position.x;
+          app->particle_positions[4 * i + 1] = particle->position.y;
+          app->particle_positions[4 * i + 2] = particle->position.z;
+          app->particle_positions[4 * i + 3] = particle->size;
+
+          app->particle_colors[4 * i + 0] = particle->color.x;
+          app->particle_colors[4 * i + 1] = particle->color.y;
+          app->particle_colors[4 * i + 2] = particle->color.z;
+          app->particle_colors[4 * i + 3] = particle->color.w;
+        }
+
+        if (follow_entity->position.x < 0) { follow_entity->position.x = 0; }
+        if (follow_entity->position.z < 0) { follow_entity->position.z = 0; }
+
+        if (!app->editing_mode) {
+          follow_entity->position.y = get_terrain_height_at(follow_entity->position.x, follow_entity->position.z);
+        } else {
+          float terrain = get_terrain_height_at(follow_entity->position.x, follow_entity->position.z);
+          if (follow_entity->position.y < terrain) {
+            follow_entity->position.y = terrain;
+          }
+        }
+        /* printf("position: %f %f %f\n", follow_entity->position.x, follow_entity->position.y, follow_entity->position.z); */
+        /* printf("rotation: %f %f %f\n\n", follow_entity->rotation.x, follow_entity->rotation.y, follow_entity->rotation.z); */
+
+        app->camera.rotation = follow_entity->rotation;
+        app->camera.position = follow_entity->position + vec3(0.0f, 70.0f, 0.0f);
+        app->camera.view_matrix = get_camera_projection(&app->camera);
+        app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.x, vec3(1.0, 0.0, 0.0));
+        app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.y, vec3(0.0, 1.0, 0.0));
+        app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.z, vec3(0.0, 0.0, 1.0));
+        app->camera.view_matrix = glm::translate(app->camera.view_matrix, (app->camera.position * -1.0f));
+        fill_frustum_with_matrix(&app->camera.frustum, app->camera.view_matrix);
+
+        Ray ray = get_mouse_ray(app, input, memory);
+
+        Entity *closest_entity = NULL;
+        float closest_distance = FLT_MAX;
+        vec3 hit_position;
+
+        for (u32 i=0; i<app->entity_count; i++) {
+          Entity *entity = app->entities + i;
+
+          if (!(entity->flags & EntityFlags::HIDE_IN_EDITOR)) {
+            RayMatchResult hit;
+            hit.hit = false;
+
+            if (entity->type == EntityBlock) {
+              hit = ray_match_entity(app, ray, entity);
+            } else {
+              hit = ray_match_sphere(ray, entity->position, app->editor.handle_size);
+            }
+
+            if (hit.hit) {
+              float distance = glm::distance(hit.hit_position, ray.start);
+              if (distance < closest_distance) {
+                closest_distance = distance;
+                closest_entity = entity;
+                hit_position = hit.hit_position;
+              }
+            }
+          }
+        }
+
+        if (closest_entity) {
+          app->editor.hover_entity = closest_entity->id;
+          app->editor.hovering_entity = true;
+        } else {
+          app->editor.hovering_entity = false;
+        }
+
+        if (app->editing_mode && input.mouse_click) {
+          if (closest_entity) {
+            if (input.shift) {
+              Entity *new_entity = app->entities + app->entity_count++;
+              *new_entity = *closest_entity;
+              new_entity->id = next_entity_id(app);
+              closest_entity = new_entity;
+            }
+
+            app->editor.entity_id = closest_entity->id;
+            app->editor.holding_entity = true;
+            app->editor.distance_from_entity_offset = closest_distance;
+            app->editor.hold_offset = hit_position - closest_entity->position;
+            app->editor.inspect_entity = true;
+          } else {
+            app->editor.inspect_entity = false;
+          }
+        }
+
+
+        {
+          /* app->shadow_camera.position = vec3(20000.0, 4000.0, 20000.0); */
+          app->shadow_camera.position = app->camera.position + vec3(0.0, 4000.0, 0.0);
+          /* app->shadow_camera.rotation = vec3(1.229797, -1.170025, 0.0f); */
+          app->shadow_camera.rotation = vec3(pi / 2.0f, 0.0f, 0.0f);
+          app->shadow_camera.view_matrix = get_camera_projection(&app->shadow_camera);
+          app->shadow_camera.view_matrix = glm::rotate(app->shadow_camera.view_matrix, app->shadow_camera.rotation.x, vec3(1.0, 0.0, 0.0));
+          app->shadow_camera.view_matrix = glm::rotate(app->shadow_camera.view_matrix, app->shadow_camera.rotation.y, vec3(0.0, 1.0, 0.0));
+          app->shadow_camera.view_matrix = glm::rotate(app->shadow_camera.view_matrix, app->shadow_camera.rotation.z, vec3(0.0, 0.0, 1.0));
+          app->shadow_camera.view_matrix = glm::translate(app->shadow_camera.view_matrix, (app->shadow_camera.position * -1.0f));
+
+          fill_frustum_with_matrix(&app->shadow_camera.frustum, app->shadow_camera.view_matrix);
+
+#if 0
+          vec3 forward;
+          forward.x = glm::sin(app->shadow_camera.rotation[1]) * glm::cos(app->shadow_camera.rotation[0]);
+          forward.y = -glm::sin(app->shadow_camera.rotation[0]);
+          forward.z = -glm::cos(app->shadow_camera.rotation[1]) * glm::cos(app->shadow_camera.rotation[0]);
+          forward = glm::normalize(forward);
+
+          vec3 up = vec3(0.0, 1.0, 0.0);
+
+          vec3 fc = app->shadow_camera.position + forward * app->shadow_camera.far;
+
+          vec3 right = glm::normalize(glm::cross(forward, vec3(0.0, 1.0, 0.0)));
+
+          vec3 ftl = fc + (up * app->shadow_camera.size.x/2.0f) - (right * app->shadow_camera.size.y * app->shadow_camera.far/2.0f);
+          vec3 ftr = fc + (up * app->shadow_camera.size.x/2.0f) + (right * app->shadow_camera.size.y * app->shadow_camera.far/2.0f);
+          vec3 fbl = fc - (up * app->shadow_camera.size.x/2.0f) - (right * app->shadow_camera.size.y * app->shadow_camera.far/2.0f);
+          vec3 fbr = fc - (up * app->shadow_camera.size.x/2.0f) + (right * app->shadow_camera.size.y * app->shadow_camera.far/2.0f);
+
+          vec3 nc = app->shadow_camera.position + forward * app->shadow_camera.near;
+
+          vec3 ntl = nc + (up * app->shadow_camera.size.x/2.0f) - (right * app->shadow_camera.size.y * app->shadow_camera.near/2.0f);
+          vec3 ntr = nc + (up * app->shadow_camera.size.x/2.0f) + (right * app->shadow_camera.size.y * app->shadow_camera.near/2.0f);
+          vec3 nbl = nc - (up * app->shadow_camera.size.x/2.0f) - (right * app->shadow_camera.size.y * app->shadow_camera.near/2.0f);
+          vec3 nbr = nc - (up * app->shadow_camera.size.x/2.0f) + (right * app->shadow_camera.size.y * app->shadow_camera.near/2.0f);
+
+          {
+            app->debug_lines.push_back(ftl);
+            app->debug_lines.push_back(ftr);
+
+            app->debug_lines.push_back(ftl);
+            app->debug_lines.push_back(fbl);
+
+            app->debug_lines.push_back(fbl);
+            app->debug_lines.push_back(fbr);
+
+            app->debug_lines.push_back(fbr);
+            app->debug_lines.push_back(fbl);
+          }
+
+          {
+            app->debug_lines.push_back(ntl);
+            app->debug_lines.push_back(ntr);
+
+            app->debug_lines.push_back(ntl);
+            app->debug_lines.push_back(nbl);
+
+            app->debug_lines.push_back(nbl);
+            app->debug_lines.push_back(nbr);
+
+            app->debug_lines.push_back(nbr);
+            app->debug_lines.push_back(nbl);
+          }
+#endif
+        }
+
+        if (app->editing_mode) {
+          if (input.right_mouse_down) {
+            if (!input.is_mouse_locked) {
+              platform.lock_mouse();
+            }
+          } else {
+            if (input.is_mouse_locked) {
+              platform.unlock_mouse();
+            }
+          }
+
+          if (!input.left_mouse_down) {
+            app->editor.holding_entity = false;
+          }
+
+          if (app->editor.holding_entity) {
+            Entity *entity = get_entity_by_id(app, app->editor.entity_id);
+
+            Ray ray = get_mouse_ray(app, input, memory);
+
+            if ((entity->flags & EntityFlags::MOUNT_TO_TERRAIN) != 0) {
+              if (app->editor.experimental_terrain_entity_movement) {
+                RayMatchResult hit = ray_match_terrain(app, ray);
+                if (hit.hit) {
+                  entity->position = hit.hit_position;
+                }
+              } else {
+                entity->position = (ray.start + ray.direction * app->editor.distance_from_entity_offset) - app->editor.hold_offset;
+              }
+              mount_entity_to_terrain(entity);
+            } else {
+              entity->position = (ray.start + ray.direction * app->editor.distance_from_entity_offset) - app->editor.hold_offset;
+            }
+          }
+        } else {
+          if (input.mouse_click) {
+            platform.lock_mouse();
+          }
+
+          if (input.escape) {
+            platform.unlock_mouse();
           }
         }
       }
     }
 
-    if (closest_entity) {
-      app->editor.hover_entity = closest_entity->id;
-      app->editor.hovering_entity = true;
-    } else {
-      app->editor.hovering_entity = false;
-    }
-
-    if (app->editing_mode && input.mouse_click) {
-      if (closest_entity) {
-        if (input.shift) {
-          Entity *new_entity = app->entities + app->entity_count++;
-          *new_entity = *closest_entity;
-          new_entity->id = next_entity_id(app);
-          closest_entity = new_entity;
-        }
-
-        app->editor.entity_id = closest_entity->id;
-        app->editor.holding_entity = true;
-        app->editor.distance_from_entity_offset = closest_distance;
-        app->editor.hold_offset = hit_position - closest_entity->position;
-        app->editor.inspect_entity = true;
-      } else {
-        app->editor.inspect_entity = false;
-      }
-    }
-
-
+    // NOTE(sedivy): render
     {
-      /* app->shadow_camera.position = glm::vec3(20000.0, 4000.0, 20000.0); */
-      app->shadow_camera.position = app->camera.position + glm::vec3(0.0, 4000.0, 0.0);
-      /* app->shadow_camera.rotation = glm::vec3(1.229797, -1.170025, 0.0f); */
-      app->shadow_camera.rotation = glm::vec3(pi / 2.0f, 0.0f, 0.0f);
-      app->shadow_camera.view_matrix = get_camera_projection(&app->shadow_camera);
-      app->shadow_camera.view_matrix = glm::rotate(app->shadow_camera.view_matrix, app->shadow_camera.rotation.x, glm::vec3(1.0, 0.0, 0.0));
-      app->shadow_camera.view_matrix = glm::rotate(app->shadow_camera.view_matrix, app->shadow_camera.rotation.y, glm::vec3(0.0, 1.0, 0.0));
-      app->shadow_camera.view_matrix = glm::rotate(app->shadow_camera.view_matrix, app->shadow_camera.rotation.z, glm::vec3(0.0, 0.0, 1.0));
-      app->shadow_camera.view_matrix = glm::translate(app->shadow_camera.view_matrix, (app->shadow_camera.position * -1.0f));
-
-      fill_frustum_with_matrix(&app->shadow_camera.frustum, app->shadow_camera.view_matrix);
-
-    #if 0
-      glm::vec3 forward;
-      forward.x = glm::sin(app->shadow_camera.rotation[1]) * glm::cos(app->shadow_camera.rotation[0]);
-      forward.y = -glm::sin(app->shadow_camera.rotation[0]);
-      forward.z = -glm::cos(app->shadow_camera.rotation[1]) * glm::cos(app->shadow_camera.rotation[0]);
-      forward = glm::normalize(forward);
-
-      glm::vec3 up = glm::vec3(0.0, 1.0, 0.0);
-
-      glm::vec3 fc = app->shadow_camera.position + forward * app->shadow_camera.far;
-
-      glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0, 1.0, 0.0)));
-
-      glm::vec3 ftl = fc + (up * app->shadow_camera.size.x/2.0f) - (right * app->shadow_camera.size.y * app->shadow_camera.far/2.0f);
-      glm::vec3 ftr = fc + (up * app->shadow_camera.size.x/2.0f) + (right * app->shadow_camera.size.y * app->shadow_camera.far/2.0f);
-      glm::vec3 fbl = fc - (up * app->shadow_camera.size.x/2.0f) - (right * app->shadow_camera.size.y * app->shadow_camera.far/2.0f);
-      glm::vec3 fbr = fc - (up * app->shadow_camera.size.x/2.0f) + (right * app->shadow_camera.size.y * app->shadow_camera.far/2.0f);
-
-      glm::vec3 nc = app->shadow_camera.position + forward * app->shadow_camera.near;
-
-      glm::vec3 ntl = nc + (up * app->shadow_camera.size.x/2.0f) - (right * app->shadow_camera.size.y * app->shadow_camera.near/2.0f);
-      glm::vec3 ntr = nc + (up * app->shadow_camera.size.x/2.0f) + (right * app->shadow_camera.size.y * app->shadow_camera.near/2.0f);
-      glm::vec3 nbl = nc - (up * app->shadow_camera.size.x/2.0f) - (right * app->shadow_camera.size.y * app->shadow_camera.near/2.0f);
-      glm::vec3 nbr = nc - (up * app->shadow_camera.size.x/2.0f) + (right * app->shadow_camera.size.y * app->shadow_camera.near/2.0f);
-
       {
-        app->debug_lines.push_back(ftl);
-        app->debug_lines.push_back(ftr);
+        PROFILE_BLOCK("Draw");
 
-        app->debug_lines.push_back(ftl);
-        app->debug_lines.push_back(fbl);
+        {
+          PROFILE_BLOCK("Draw Shadows");
+          glBindFramebuffer(GL_FRAMEBUFFER, app->shadow_buffer);
+          glViewport(0, 0, app->shadow_width, app->shadow_height);
+          glClear(GL_DEPTH_BUFFER_BIT);
 
-        app->debug_lines.push_back(fbl);
-        app->debug_lines.push_back(fbr);
+          glEnable(GL_DEPTH_TEST);
 
-        app->debug_lines.push_back(fbr);
-        app->debug_lines.push_back(fbl);
-      }
+          render_scene(memory, app, &app->shadow_camera, &app->solid_program, true);
 
-      {
-        app->debug_lines.push_back(ntl);
-        app->debug_lines.push_back(ntr);
-
-        app->debug_lines.push_back(ntl);
-        app->debug_lines.push_back(nbl);
-
-        app->debug_lines.push_back(nbl);
-        app->debug_lines.push_back(nbr);
-
-        app->debug_lines.push_back(nbr);
-        app->debug_lines.push_back(nbl);
-      }
-#endif
-    }
-
-    if (app->editing_mode) {
-
-      if (input.right_mouse_down) {
-        if (!input.is_mouse_locked) {
-          platform.lock_mouse();
+          glBindFramebuffer(GL_FRAMEBUFFER, 0);
         }
-      } else {
-        if (input.is_mouse_locked) {
-          platform.unlock_mouse();
+
+        glBindFramebuffer(GL_FRAMEBUFFER, app->frames[0].id);
+        glViewport(0, 0, app->frames[0].width, app->frames[0].height);
+        glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        render_skybox(app);
+
+        {
+          PROFILE_BLOCK("Draw Main");
+
+          render_terrain(memory, app);
+          render_scene(memory, app, &app->camera);
+          glBindFramebuffer(GL_FRAMEBUFFER, app->frames[0].id);
+
+          // NOTE(sedivy): particles
+          {
+            PROFILE_BLOCK("Draw Particles");
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+            glDepthMask(GL_FALSE);
+
+            glEnable(GL_DEPTH_TEST);
+            glEnable(GL_CULL_FACE);
+            glCullFace(GL_BACK);
+
+            use_program(app, &app->particle_program);
+
+            set_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
+            set_uniform(app->current_program, "camera_up", vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
+            set_uniform(app->current_program, "camera_right", vec3(app->camera.view_matrix[0][0], app->camera.view_matrix[1][0], app->camera.view_matrix[2][0]));
+
+            glBindBuffer(GL_ARRAY_BUFFER, app->particle_buffer);
+            glBufferData(GL_ARRAY_BUFFER, array_count(app->particles) * 4 * sizeof(GLfloat), NULL, GL_STREAM_DRAW);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, array_count(app->particles) * 4 * sizeof(GLfloat), &app->particle_positions);
+            glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 4, GL_FLOAT, GL_FALSE, 0, 0);
+
+            glBindBuffer(GL_ARRAY_BUFFER, app->particle_color_buffer);
+            glBufferData(GL_ARRAY_BUFFER, array_count(app->particles) * 4 * sizeof(GLfloat), NULL, GL_STREAM_DRAW);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, array_count(app->particles) * 4 * sizeof(GLfloat), &app->particle_colors);
+            glVertexAttribPointer(shader_get_attribute_location(app->current_program, "color"), 4, GL_FLOAT, GL_FALSE, 0, 0);
+
+            glBindBuffer(GL_ARRAY_BUFFER, app->particle_model);
+            glVertexAttribPointer(shader_get_attribute_location(app->current_program, "data"), 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+            glVertexAttribDivisor(0, 0);
+            glVertexAttribDivisor(1, 1);
+            glVertexAttribDivisor(2, 1);
+
+            glDrawArraysInstanced(GL_TRIANGLES, 0, 6, array_count(app->particles));
+
+            glVertexAttribDivisor(0, 0);
+            glVertexAttribDivisor(1, 0);
+            glVertexAttribDivisor(2, 0);
+
+            glDisable(GL_BLEND);
+            glDisable(GL_CULL_FACE);
+            glDepthMask(GL_TRUE);
+          }
+
+          {
+            if (app->debug_lines.size() > 0) {
+              PROFILE_BLOCK("Draw Debug Lines");
+              use_program(app, &app->debug_program);
+              glBindBuffer(GL_ARRAY_BUFFER, app->debug_buffer);
+              glBufferData(GL_ARRAY_BUFFER, app->debug_lines.size() * sizeof(GLfloat)*3*2, NULL, GL_STREAM_DRAW);
+              glBufferSubData(GL_ARRAY_BUFFER, 0, app->debug_lines.size() * sizeof(GLfloat)*3*2, &app->debug_lines[0]);
+              set_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
+              glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+              glDrawArrays(GL_LINES, 0, app->debug_lines.size()*2);
+              app->debug_lines.clear();
+            }
+          }
+
+          if (app->editing_mode) {
+            draw_3d_debug_info(input, app);
+          }
         }
-      }
 
-      if (!input.left_mouse_down) {
-        app->editor.holding_entity = false;
-      }
+        {
+          PROFILE_BLOCK("Draw Final");
+          glViewport(0, 0, app->frames[0].width, app->frames[0].height);
+          glDisable(GL_DEPTH_TEST);
+          glDisable(GL_CULL_FACE);
 
-      if (app->editor.holding_entity) {
-        Entity *entity = get_entity_by_id(app, app->editor.entity_id);
+          app->read_frame = 0;
+          app->write_frame = 1;
 
-        Ray ray = get_mouse_ray(app, input, memory);
-        entity->position = (ray.start + ray.direction * app->editor.distance_from_entity_offset) - app->editor.hold_offset;
+          glActiveTexture(GL_TEXTURE0 + 0);
+          glBindTexture(GL_TEXTURE_2D, app->frames[app->read_frame].texture);
 
-        if ((entity->flags & EntityFlags::MOUNT_TO_TERRAIN) != 0) {
-          mount_entity_to_terrain(entity);
+          glActiveTexture(GL_TEXTURE0 + 1);
+          glBindTexture(GL_TEXTURE_2D, app->frames[app->write_frame].texture);
+
+          {
+            glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
+            use_program(app, &app->fullscreen_program);
+
+            glActiveTexture(GL_TEXTURE0 + 2);
+            glBindTexture(GL_TEXTURE_2D, app->color_correction_texture.id);
+
+            set_uniformi(app->current_program, "uSampler", app->read_frame);
+
+            glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+            glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+
+            std::swap(app->write_frame, app->read_frame);
+          }
+
+          if (0)
+          {
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, app->frames[app->write_frame].id);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, app->transparent_buffer);
+            glReadBuffer(GL_COLOR_ATTACHMENT0);
+
+            use_program(app, &app->fullscreen_merge_alpha);
+
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA);
+
+            glActiveTexture(GL_TEXTURE0 + 3);
+            glBindTexture(GL_TEXTURE_2D, app->transparent_color_texture);
+            set_uniformi(app->current_program, "color_texture", 3);
+
+            glActiveTexture(GL_TEXTURE0 + 4);
+            glBindTexture(GL_TEXTURE_2D, app->transparent_alpha_texture);
+            set_uniformi(app->current_program, "transparent_color_texture", 4);
+
+            glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+            glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            glDisable(GL_BLEND);
+
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+
+            std::swap(app->write_frame, app->read_frame);
+          }
+
+          if (app->color_correction) {
+            glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
+            use_program(app, &app->fullscreen_color_program);
+
+            glActiveTexture(GL_TEXTURE0 + 2);
+            glBindTexture(GL_TEXTURE_2D, app->color_correction_texture.id);
+
+            set_uniformi(app->current_program, "uSampler", app->read_frame);
+            set_uniformi(app->current_program, "color_correction_texture", 2);
+            set_uniformf(app->current_program, "lut_size", 16.0f);
+
+            glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+            glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+
+            std::swap(app->write_frame, app->read_frame);
+          }
+
+          if (app->antialiasing) {
+            glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
+            use_program(app, &app->fullscreen_fxaa_program);
+
+            set_uniformi(app->current_program, "uSampler", app->read_frame);
+            set_uniform(app->current_program, "texture_size", vec2(app->frames[0].width, app->frames[0].height));
+
+            glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+            glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+
+            std::swap(app->write_frame, app->read_frame);
+          }
+
+          if (app->bloom) {
+            glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
+            use_program(app, &app->fullscreen_bloom_program);
+
+            set_uniformi(app->current_program, "uSampler", app->read_frame);
+
+            glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+            glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            std::swap(app->write_frame, app->read_frame);
+          }
+
+          if (app->hdr) {
+            glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
+            use_program(app, &app->fullscreen_hdr_program);
+
+            set_uniformi(app->current_program, "uSampler", app->read_frame);
+
+            glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+            glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            std::swap(app->write_frame, app->read_frame);
+          }
+
+          if (app->lens_flare) {
+            glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
+            use_program(app, &app->fullscreen_lens_program);
+
+            set_uniformi(app->current_program, "uSampler", app->read_frame);
+
+            glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+            glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            std::swap(app->write_frame, app->read_frame);
+          }
+
+          {
+            glViewport(0, 0, memory->width, memory->height);
+
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            use_program(app, &app->fullscreen_program);
+
+            set_uniformi(app->current_program, "uSampler", app->read_frame);
+
+            glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+            glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+          }
         }
-      }
-    } else {
-      if (input.mouse_click) {
-        platform.lock_mouse();
-      }
-
-      if (input.escape) {
-        platform.unlock_mouse();
-      }
-    }
-  }
-  PROFILE_END(update);
-
-  // NOTE(sedivy): render
-  {
-    PROFILE(render);
-
-    {
-      PROFILE(render_shadows);
-      glBindFramebuffer(GL_FRAMEBUFFER, app->shadow_buffer);
-      glViewport(0, 0, app->shadow_width, app->shadow_height);
-      glClear(GL_DEPTH_BUFFER_BIT);
-
-      glEnable(GL_DEPTH_TEST);
-
-      render_scene(memory, app, &app->shadow_camera, &app->solid_program, true);
-
-      glBindFramebuffer(GL_FRAMEBUFFER, 0);
-      PROFILE_END(render_shadows);
-    }
-
-    glBindFramebuffer(GL_FRAMEBUFFER, app->frames[0].id);
-    glViewport(0, 0, app->frames[0].width, app->frames[0].height);
-    glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    render_skybox(app);
-
-    {
-      PROFILE(render_main);
-
-      render_terrain(memory, app);
-      render_scene(memory, app, &app->camera);
-      glBindFramebuffer(GL_FRAMEBUFFER, app->frames[0].id);
-
-      // NOTE(sedivy): particles
-      {
-        PROFILE(render_particles);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-        glDepthMask(GL_FALSE);
-
-        glEnable(GL_DEPTH_TEST);
-        glEnable(GL_CULL_FACE);
-        glCullFace(GL_BACK);
-
-        use_program(app, &app->particle_program);
-
-        set_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
-        set_uniform(app->current_program, "camera_up", glm::vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
-        set_uniform(app->current_program, "camera_right", glm::vec3(app->camera.view_matrix[0][0], app->camera.view_matrix[1][0], app->camera.view_matrix[2][0]));
-
-        glBindBuffer(GL_ARRAY_BUFFER, app->particle_buffer);
-        glBufferData(GL_ARRAY_BUFFER, array_count(app->particles) * 4 * sizeof(GLfloat), NULL, GL_STREAM_DRAW);
-        glBufferSubData(GL_ARRAY_BUFFER, 0, array_count(app->particles) * 4 * sizeof(GLfloat), &app->particle_positions);
-        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 4, GL_FLOAT, GL_FALSE, 0, 0);
-
-        glBindBuffer(GL_ARRAY_BUFFER, app->particle_color_buffer);
-        glBufferData(GL_ARRAY_BUFFER, array_count(app->particles) * 4 * sizeof(GLfloat), NULL, GL_STREAM_DRAW);
-        glBufferSubData(GL_ARRAY_BUFFER, 0, array_count(app->particles) * 4 * sizeof(GLfloat), &app->particle_colors);
-        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "color"), 4, GL_FLOAT, GL_FALSE, 0, 0);
-
-        glBindBuffer(GL_ARRAY_BUFFER, app->particle_model);
-        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "data"), 3, GL_FLOAT, GL_FALSE, 0, 0);
-
-        glVertexAttribDivisor(0, 0);
-        glVertexAttribDivisor(1, 1);
-        glVertexAttribDivisor(2, 1);
-
-        glDrawArraysInstanced(GL_TRIANGLES, 0, 6, array_count(app->particles));
-
-        glVertexAttribDivisor(0, 0);
-        glVertexAttribDivisor(1, 0);
-        glVertexAttribDivisor(2, 0);
-
-        glDisable(GL_BLEND);
-        glDisable(GL_CULL_FACE);
-        glDepthMask(GL_TRUE);
-        PROFILE_END(render_particles);
-      }
-
-      {
-        PROFILE(render_debug);
-        if (app->debug_lines.size() > 0) {
-          use_program(app, &app->debug_program);
-          glBindBuffer(GL_ARRAY_BUFFER, app->debug_buffer);
-          glBufferData(GL_ARRAY_BUFFER, app->debug_lines.size() * sizeof(GLfloat)*3*2, NULL, GL_STREAM_DRAW);
-          glBufferSubData(GL_ARRAY_BUFFER, 0, app->debug_lines.size() * sizeof(GLfloat)*3*2, &app->debug_lines[0]);
-          set_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
-          glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
-          glDrawArrays(GL_LINES, 0, app->debug_lines.size()*2);
-          app->debug_lines.clear();
-        }
-        PROFILE_END(render_debug);
       }
 
       if (app->editing_mode) {
-        draw_3d_debug_info(input, app);
+        flush_2d_render(app, memory);
       }
-
-      PROFILE_END(render_main);
-    }
-
-    {
-      PROFILE(render_final);
-      glViewport(0, 0, app->frames[0].width, app->frames[0].height);
-      glDisable(GL_DEPTH_TEST);
-      glDisable(GL_CULL_FACE);
-
-      app->read_frame = 0;
-      app->write_frame = 1;
-
-      glActiveTexture(GL_TEXTURE0 + 0);
-      glBindTexture(GL_TEXTURE_2D, app->frames[app->read_frame].texture);
-
-      glActiveTexture(GL_TEXTURE0 + 1);
-      glBindTexture(GL_TEXTURE_2D, app->frames[app->write_frame].texture);
-
-      {
-        glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
-        use_program(app, &app->fullscreen_program);
-
-        glActiveTexture(GL_TEXTURE0 + 2);
-        glBindTexture(GL_TEXTURE_2D, app->color_correction_texture.id);
-
-        set_uniformi(app->current_program, "uSampler", app->read_frame);
-
-        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
-        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-
-        std::swap(app->write_frame, app->read_frame);
-      }
-
-      if (0)
-      {
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, app->frames[app->write_frame].id);
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, app->transparent_buffer);
-        glReadBuffer(GL_COLOR_ATTACHMENT0);
-
-        use_program(app, &app->fullscreen_merge_alpha);
-
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA);
-
-        glActiveTexture(GL_TEXTURE0 + 3);
-        glBindTexture(GL_TEXTURE_2D, app->transparent_color_texture);
-        set_uniformi(app->current_program, "color_texture", 3);
-
-        glActiveTexture(GL_TEXTURE0 + 4);
-        glBindTexture(GL_TEXTURE_2D, app->transparent_alpha_texture);
-        set_uniformi(app->current_program, "transparent_color_texture", 4);
-
-        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
-        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        glDisable(GL_BLEND);
-
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-
-        std::swap(app->write_frame, app->read_frame);
-      }
-
-      if (app->color_correction) {
-        glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
-        use_program(app, &app->fullscreen_color_program);
-
-        glActiveTexture(GL_TEXTURE0 + 2);
-        glBindTexture(GL_TEXTURE_2D, app->color_correction_texture.id);
-
-        set_uniformi(app->current_program, "uSampler", app->read_frame);
-        set_uniformi(app->current_program, "color_correction_texture", 2);
-        set_uniformf(app->current_program, "lut_size", 16.0f);
-
-        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
-        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-
-        std::swap(app->write_frame, app->read_frame);
-      }
-
-      if (app->antialiasing) {
-        glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
-        use_program(app, &app->fullscreen_fxaa_program);
-
-        set_uniformi(app->current_program, "uSampler", app->read_frame);
-        set_uniform(app->current_program, "texture_size", glm::vec2(app->frames[0].width, app->frames[0].height));
-
-        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
-        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-
-        std::swap(app->write_frame, app->read_frame);
-      }
-
-      if (app->bloom) {
-        glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
-        use_program(app, &app->fullscreen_bloom_program);
-
-        set_uniformi(app->current_program, "uSampler", app->read_frame);
-
-        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
-        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        std::swap(app->write_frame, app->read_frame);
-      }
-
-      if (app->hdr) {
-        glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
-        use_program(app, &app->fullscreen_hdr_program);
-
-        set_uniformi(app->current_program, "uSampler", app->read_frame);
-
-        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
-        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        std::swap(app->write_frame, app->read_frame);
-      }
-
-      if (app->lens_flare) {
-        glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
-        use_program(app, &app->fullscreen_lens_program);
-
-        set_uniformi(app->current_program, "uSampler", app->read_frame);
-
-        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
-        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        std::swap(app->write_frame, app->read_frame);
-      }
-
-      {
-        glViewport(0, 0, memory->width, memory->height);
-
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        use_program(app, &app->fullscreen_program);
-
-        set_uniformi(app->current_program, "uSampler", app->read_frame);
-
-        glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
-        glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-      }
-
-      PROFILE_END(render_final);
-    }
-
-    PROFILE_END(render);
-
-    if (app->editing_mode) {
-      PROFILE(render_ui_flush);
-      flush_2d_render(app, memory);
-      PROFILE_END(render_ui_flush);
     }
   }
 
-  memcpy(memory->last_frame_counters, memory->counters, sizeof(memory->counters));
-  for (u32 i=0; i<array_count(memory->counters); i++) {
-    DebugCounter *counter = memory->counters + i;
+  memcpy(global_last_frame_counters, global_counters, sizeof(global_counters));
+  for (u32 i=0; i<array_count(global_counters); i++) {
+    DebugCounter *counter = global_counters + i;
 
     if (counter->hit_count) {
       counter->cycle_count = 0;
       counter->hit_count = 0;
     }
   }
+  global_debug_counter = 0;
 
   u64 diff = platform.get_time();
   if (diff >= app->frametimelast + 1000) {
@@ -3020,6 +2797,4 @@ void tick(Memory *memory, Input input) {
   } else {
     app->framecount += 1;
   }
-
-  PROFILE_END(frame);
 }

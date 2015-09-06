@@ -113,30 +113,7 @@ extern "C" {
   typedef u64 get_file_time_type(char *path);
   typedef void message_box_type(const char *title, const char *format, ...);
   typedef void toggle_fullscreen_type();
-  typedef bool atomic_exchange_type(u32 *atomic, u32 old_value, u32 new_value);
-
-  enum {
-    /* 0  */DebugCycleCounter_update,
-    /* 1  */DebugCycleCounter_render,
-    /* 2  */DebugCycleCounter_render_shadows,
-    /* 3  */DebugCycleCounter_render_skybox,
-    /* 4  */DebugCycleCounter_render_debug,
-    /* 5  */DebugCycleCounter_render_final,
-    /* 6  */DebugCycleCounter_render_main,
-    /* 7  */DebugCycleCounter_render_entities,
-    /* 8  */DebugCycleCounter_render_chunks,
-    /* 9  */DebugCycleCounter_render_ui,
-    /* 10 */DebugCycleCounter_render_ui_flush,
-    /* 11 */DebugCycleCounter_render_particles,
-    /* 12 */DebugCycleCounter_frame,
-    /* 13 */DebugCycleCounter_tick,
-    /* 14 */DebugCycleCounter_count
-  };
-
-  struct DebugCounter {
-    u64 cycle_count;
-    u64 hit_count;
-  };
+  typedef bool atomic_exchange_type(u32 volatile *atomic, u32 old_value, u32 new_value);
 
   struct PlatformAPI {
     add_work_type *add_work;
@@ -166,6 +143,12 @@ extern "C" {
     close_directory_type *close_directory;
   };
 
+  struct DebugCounter {
+    u64 cycle_count;
+    u64 hit_count;
+    char *name;
+  };
+
   struct Memory {
     bool should_reload;
 
@@ -179,14 +162,14 @@ extern "C" {
 
     PlatformAPI platform;
 
-    DebugCounter last_frame_counters[DebugCycleCounter_count];
-    DebugCounter counters[DebugCycleCounter_count];
-
 #if INTERNAL
-    char *debug_assets_path; 
+    char *debug_assets_path;
     char *debug_level_path;
 #endif
   };
+
+  DebugCounter global_last_frame_counters[512];
+  DebugCounter global_counters[512];
 
   void tick(Memory *memory, Input input);
   typedef void TickType(Memory *memory, Input input);

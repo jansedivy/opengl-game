@@ -4,8 +4,6 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
-#include "app.h"
-
 #include <fcntl.h>
 #include <ctype.h>
 
@@ -13,7 +11,6 @@
 #include <sys/stat.h>
 
 #include <SDL2/SDL.h>
-#include "platform.h"
 
 #include <dirent.h>
 #include <cstdio>
@@ -235,7 +232,7 @@ void unlock_mouse() {
 PlatformDirectory open_directory(const char *path) {
   PlatformDirectory result;
 
-  result.platform = opendir(path);
+  result.platform = (void *)opendir(path);
 
   return result;
 }
@@ -243,8 +240,9 @@ PlatformDirectory open_directory(const char *path) {
 PlatformDirectoryEntry read_next_directory_entry(PlatformDirectory directory) {
   PlatformDirectoryEntry result;
 
-  if (directory.platform != NULL) {
-    dirent *entry = readdir(static_cast<DIR *>(directory.platform));
+  DIR *handle = (DIR *)directory.platform;
+  if (handle) {
+    dirent *entry = readdir(handle);
     result.platform = entry;
     if (entry) {
       result.name = entry->d_name;
@@ -291,7 +289,7 @@ inline void format_string(char* buf, int buf_size, const char* fmt, va_list args
   }
 }
 
-bool atomic_exchange(u32 *atomic, u32 old_value, u32 new_value) {
+bool atomic_exchange(u32 volatile *atomic, u32 old_value, u32 new_value) {
   return (bool)SDL_AtomicCAS((SDL_atomic_t *)atomic, old_value, new_value);
 }
 
@@ -416,8 +414,8 @@ int main() {
 
   SDL_GL_CreateContext(window);
 
-  /* SDL_GL_SetSwapInterval(-1); */
-  SDL_GL_SetSwapInterval(0);
+  SDL_GL_SetSwapInterval(-1);
+  /* SDL_GL_SetSwapInterval(0); */
 
   glClear(GL_COLOR_BUFFER_BIT);
 
@@ -435,8 +433,6 @@ int main() {
   u32 last_time = get_time();
 
   while (running) {
-    PROFILE(tick);
-
     u32 now = get_time();
     float delta = (now - last_time) / 1000.0f;
     last_time = now;
@@ -524,7 +520,6 @@ int main() {
     code.tick(&memory, input);
 
     SDL_GL_SwapWindow(window);
-    PROFILE_END(tick);
   }
 
   code.quit(&memory);
