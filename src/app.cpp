@@ -263,6 +263,7 @@ void load_debug_level(Memory *memory, App *app) {
 }
 
 RayMatchResult ray_match_sphere(Ray ray, vec3 position, float radius) {
+  PROFILE_BLOCK("Ray Sphere");
   vec3 result_position;
   vec3 result_normal;
 
@@ -288,6 +289,7 @@ mat4 make_billboard_matrix(vec3 position, vec3 camera_position, vec3 camera_up) 
 }
 
 RayMatchResult ray_match_terrain(App *app, Ray ray) {
+  PROFILE_BLOCK("Ray Terrain");
   RayMatchResult result;
 
   for (u32 i=0; i<app->chunk_cache_count; i++) {
@@ -365,6 +367,7 @@ RayMatchResult ray_match_entity(App *app, Ray ray, Entity *entity) {
     result.hit = false;
     return result;
   }
+  PROFILE_BLOCK("Ray Entity");
 
   mat4 model_view;
   model_view = glm::translate(model_view, entity->position);
