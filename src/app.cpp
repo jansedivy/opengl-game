@@ -10,12 +10,25 @@ inline Entity *get_entity_by_id(App *app, u32 id) {
   PROFILE_BLOCK("Finding entity");
   for (u32 i=0; i<app->entity_count; i++) {
     Entity *entity = app->entities + i;
-    if (entity->id == id) {
+    if (entity->header.id == id) {
       return entity;
     }
   }
 
   return NULL;
+}
+
+char *mprintf(const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  size_t size = snprintf(NULL, 0, format, args);
+
+  char *data = (char *)malloc(size);
+  vsprintf(data, format, args);
+
+  va_end(args);
+
+  return data;
 }
 
 char *join_string(char *first, char *second) {
@@ -101,164 +114,26 @@ float get_terrain_height_at(float x, float y) {
   );
 }
 
-void mount_entity_to_terrain(Entity *entity) {
-  entity->position.y = get_terrain_height_at(entity->position.x, entity->position.z);
-}
-
-void save_binary_level_file(LoadedLevel loaded_level) {
-  LoadedLevelHeader header;
-  header.entity_count = loaded_level.entities.size();
-
-  PlatformFile file = platform.open_file((char *)"assets/level.level", "w");
-  platform.write_to_file(file, sizeof(header), &header);
-  for (auto it = loaded_level.entities.begin(); it != loaded_level.entities.end(); it++) {
-    platform.write_to_file(file, sizeof(EntitySave), &(*it));
-  }
-  platform.close_file(file);
-}
-
-void save_text_level_file(Memory *memory, LoadedLevel level) {
-#if INTERNAL
-  platform.create_directory(memory->debug_level_path);
-
-  for (auto it = level.entities.begin(); it != level.entities.end(); it++) {
-    char full_path[256];
-    sprintf(full_path, "%s/%d.entity", memory->debug_level_path, it->id);
-
-    PlatformFile file = platform.open_file(full_path, "w");
-
-    // TODO(sedivy): replace fprintf
-    fprintf((FILE *)file.platform, "%d\n", it->id);
-    fprintf((FILE *)file.platform, "t: %d\n", it->type);
-    fprintf((FILE *)file.platform, "p: %f, %f, %f\n", it->position.x, it->position.y, it->position.z);
-    fprintf((FILE *)file.platform, "s: %f, %f, %f\n", it->scale.x, it->scale.y, it->scale.z);
-    fprintf((FILE *)file.platform, "r: %f, %f, %f\n", it->rotation.x, it->rotation.y, it->rotation.z);
-    fprintf((FILE *)file.platform, "c: %f, %f, %f, %f\n", it->color.x, it->color.y, it->color.z, it->color.w);
-    fprintf((FILE *)file.platform, "f: %d\n", it->flags);
-    fprintf((FILE *)file.platform, "m: %s\n", it->model_name);
-
-    platform.close_file(file);
-  }
-#endif
-}
-
-LoadedLevel load_binary_level_file() {
-  LoadedLevel result;
-
-  DebugReadFileResult file = platform.debug_read_entire_file("assets/level.level");
-
-  LoadedLevelHeader *header = static_cast<LoadedLevelHeader *>((void *)file.contents);
-
-  for (u32 i=0; i<header->entity_count; i++) {
-    EntitySave *entity = (EntitySave *)((char *)header + sizeof(LoadedLevelHeader) + sizeof(EntitySave) * i);
-
-    result.entities.push_back(*entity);
-  }
-
-  platform.debug_free_file(file);
-
-  return result;
+template<typename T>
+void mount_entity_to_terrain(T *entity) {
+  entity->header.position.y = get_terrain_height_at(entity->header.position.x, entity->header.position.z);
 }
 
 void deserialize_entity(App *app, EntitySave *src, Entity *dest) {
-  dest->id = src->id;
-  dest->type = src->type;
-  dest->position = src->position;
-  dest->scale = src->scale;
-  dest->rotation = src->rotation;
-  dest->color = src->color;
-  dest->flags = src->flags;
-  dest->model = get_model_by_name(app, src->model_name);
+  dest->header.id = src->id;
+  dest->header.type = src->type;
+  dest->header.position = src->position;
+  dest->header.flags = src->flags;
 
-  if (dest->flags & EntityFlags::MOUNT_TO_TERRAIN) {
+  dest->header.texture = NULL;
+
+  dest->header.scale = src->scale;
+  dest->header.rotation = src->rotation;
+  dest->header.color = src->color;
+  dest->header.model = get_model_by_name(app, src->model_name);
+
+  if (dest->header.flags & EntityFlags::MOUNT_TO_TERRAIN) {
     mount_entity_to_terrain(dest);
-  }
-}
-
-#include <dirent.h>
-void load_debug_level(Memory *memory, App *app) {
-#if INTERNAL
-  {
-    PlatformDirectory dir = platform.open_directory(memory->debug_level_path);
-
-    LoadedLevel loaded_level;
-
-    while (dir.platform != NULL) {
-      PlatformDirectoryEntry entry = platform.read_next_directory_entry(dir);
-      if (entry.empty) { break; }
-
-      if (platform.is_directory_entry_file(entry)) {
-        char *full_path = (char *)alloca(sizeof(memory->debug_level_path) + sizeof(entry.name));
-        sprintf(full_path, "%s/%s", memory->debug_level_path, entry.name);
-
-        if (strcmp(get_filename_ext(full_path), "entity") == 0) {
-          PlatformFile file = platform.open_file(full_path, "r");
-          if (!file.error) {
-
-            EntitySave entity = {};
-
-            PlatformFileLine line = platform.read_file_line(file);
-            if (!line.empty) {
-              sscanf(line.contents, "%d", &entity.id);
-            }
-
-            while (true) {
-              PlatformFileLine line = platform.read_file_line(file);
-              if (line.empty) { break; }
-
-              char *start = (char *)((u8*)line.contents + 2);
-
-              switch (line.contents[0]) {
-                case 'p': {
-                            entity.position = read_vector(start);
-                          } break;
-                case 't': {
-                            sscanf(start, "%d", &entity.type);
-                          } break;
-                case 'm': {
-                            sscanf(start, "%s", entity.model_name);
-                          } break;
-                case 'c': {
-                            entity.color = read_vector4(start);
-                          } break;
-                case 's': {
-                            entity.scale = read_vector(start);
-                          } break;
-                case 'r': {
-                            entity.rotation = read_vector(start);
-                          } break;
-                case 'f': {
-                            sscanf(start, "%d", &entity.flags);
-                          } break;
-              }
-            }
-
-            loaded_level.entities.push_back(entity);
-
-            platform.close_file(file);
-          }
-        }
-      }
-    }
-
-    save_binary_level_file(loaded_level);
-
-    platform.close_directory(dir);
-  }
-#endif
-
-  {
-    LoadedLevel bin_loaded_level = load_binary_level_file();
-
-    for (auto it = bin_loaded_level.entities.begin(); it != bin_loaded_level.entities.end(); it++) {
-      Entity *entity = app->entities + app->entity_count++;
-
-      deserialize_entity(app, &(*it), entity);
-
-      if (entity->id > app->last_id) {
-        app->last_id = entity->id;
-      }
-    }
   }
 }
 
@@ -357,12 +232,12 @@ RayMatchResult ray_match_terrain(App *app, Ray ray) {
 RayMatchResult ray_match_entity(App *app, Ray ray, Entity *entity) {
   RayMatchResult result;
 
-  if (entity->model->state != AssetState::INITIALIZED) {
+  if (entity->header.model == NULL || entity->header.model->state != AssetState::INITIALIZED) {
     result.hit = false;
     return result;
   }
 
-  RayMatchResult sphere = ray_match_sphere(ray, entity->position, entity->model->radius * glm::compMax(entity->scale));
+  RayMatchResult sphere = ray_match_sphere(ray, entity->header.position, entity->header.model->radius * glm::compMax(entity->header.scale));
   if (!sphere.hit) {
     result.hit = false;
     return result;
@@ -370,24 +245,24 @@ RayMatchResult ray_match_entity(App *app, Ray ray, Entity *entity) {
   PROFILE_BLOCK("Ray Entity");
 
   mat4 model_view;
-  model_view = glm::translate(model_view, entity->position);
+  model_view = glm::translate(model_view, entity->header.position);
 
-  if (entity->flags & EntityFlags::LOOK_AT_CAMERA) {
-    model_view *= make_billboard_matrix(entity->position, app->camera.position, vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
+  if (entity->header.flags & EntityFlags::LOOK_AT_CAMERA) {
+    model_view *= make_billboard_matrix(entity->header.position, app->camera.position, vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
   }
 
-  model_view = glm::rotate(model_view, entity->rotation.x, vec3(1.0, 0.0, 0.0));
-  model_view = glm::rotate(model_view, entity->rotation.y, vec3(0.0, 1.0, 0.0));
-  model_view = glm::rotate(model_view, entity->rotation.z, vec3(0.0, 0.0, 1.0));
+  model_view = glm::rotate(model_view, entity->header.rotation.x, vec3(1.0, 0.0, 0.0));
+  model_view = glm::rotate(model_view, entity->header.rotation.y, vec3(0.0, 1.0, 0.0));
+  model_view = glm::rotate(model_view, entity->header.rotation.z, vec3(0.0, 0.0, 1.0));
 
-  model_view = glm::scale(model_view, entity->scale);
+  model_view = glm::scale(model_view, entity->header.scale);
 
   mat4 res = glm::inverse(model_view);
 
   vec3 start = vec3(res * vec4(ray.start, 1.0f));
   vec3 direction = vec3(res * vec4(ray.direction, 0.0f));
 
-  ModelData mesh = entity->model->mesh.data;
+  ModelData mesh = entity->header.model->mesh.data;
 
   for (u32 i=0; i<mesh.indices_count; i += 3) {
     int indices_a = mesh.indices[i + 0] * 3;
@@ -666,51 +541,28 @@ void generate_trees(App *app) {
   Random random = create_random_sequence();
 
   for (u32 i=0; i<size; i++) {
-    Entity *entity = app->entities + app->entity_count++;
+    EntityBlock *entity = (EntityBlock *)(app->entities + app->entity_count++);
 
-    entity->id = next_entity_id(app);
-    entity->type = EntityBlock;
-    entity->position.x = noise_records[i].x;
-    entity->position.z = noise_records[i].y;
+    entity->header.id = next_entity_id(app);
+    entity->header.type = EntityType::EntityBlock;
+    entity->header.position.x = noise_records[i].x;
+    entity->header.position.z = noise_records[i].y;
     mount_entity_to_terrain(entity);
-    entity->scale = vec3(1.0f);
-    entity->model = get_model_by_name(app, (char *)"tree_001");
-    entity->color = vec4(0.7f, 0.3f, 0.2f, 1.0f);
-    entity->rotation = vec3(0.0f, get_next_float(&random) * glm::pi<float>(), 0.0f);
-    entity->flags = EntityFlags::PERMANENT_FLAG | EntityFlags::MOUNT_TO_TERRAIN;
+    entity->header.scale = vec3(1.0f);
+    entity->header.model = get_model_by_name(app, (char *)"tree_001");
+    entity->header.color = vec4(0.7f, 0.3f, 0.2f, 1.0f);
+    entity->header.rotation = vec3(0.0f, get_next_float(&random) * glm::pi<float>(), 0.0f);
+    entity->header.flags = EntityFlags::PERMANENT_FLAG | EntityFlags::MOUNT_TO_TERRAIN;
   }
 }
 
-void save_level(Memory *memory, App *app) {
-  LoadedLevel level;
-
-  for (u32 i=0; i<app->entity_count; i++) {
-    Entity *entity = app->entities + i;
-
-    if (entity->flags & EntityFlags::PERMANENT_FLAG) {
-      EntitySave save_entity = {};
-      save_entity.id = entity->id;
-      save_entity.type = entity->type;
-      save_entity.position = entity->position;
-      save_entity.scale = entity->scale;
-      save_entity.rotation = entity->rotation;
-      save_entity.color = entity->color;
-      save_entity.flags = entity->flags;
-      strcpy(save_entity.model_name, entity->model->id_name);
-      level.entities.push_back(save_entity);
-    }
-  }
-
-  save_binary_level_file(level);
-  save_text_level_file(memory, level);
-}
+#include "level.cpp"
 
 void quit(Memory *memory) {
 }
 
 void setup_all_shaders(App *app) {
   create_shader(&app->main_object_program, "assets/shaders/object.vert", "assets/shaders/object.frag");
-  create_shader(&app->transparent_program, "assets/shaders/transparent.vert", "assets/shaders/transparent.frag");
   create_shader(&app->water_program, "assets/shaders/water.vert", "assets/shaders/water.frag");
   create_shader(&app->solid_program, "assets/shaders/solid.vert", "assets/shaders/solid.frag");
   create_shader(&app->phong_program, "assets/shaders/phong.vert", "assets/shaders/phong.frag");
@@ -762,6 +614,8 @@ void init(Memory *memory) {
   debug_global_memory = memory;
 
   platform = memory->platform;
+
+  app->entities = (Entity *)malloc(sizeof(Entity) * 10000);
 
   app->entity_count = 0;
   app->last_id = 0;
@@ -1153,35 +1007,6 @@ void init(Memory *memory) {
   }
 
   {
-    glGenFramebuffers(1, &app->transparent_buffer);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, app->transparent_buffer);
-
-    glGenTextures(1, &app->transparent_color_texture);
-    glBindTexture(GL_TEXTURE_2D, app->transparent_color_texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, app->frames[0].width, app->frames[0].height, 0, GL_RGBA, GL_FLOAT, NULL);
-    /* glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, app->frames[0].width, app->frames[0].height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL); */
-    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, app->transparent_color_texture, 0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    glGenTextures(1, &app->transparent_alpha_texture);
-    glBindTexture(GL_TEXTURE_2D, app->transparent_alpha_texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, app->frames[0].width, app->frames[0].height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-    /* glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, app->frames[0].width, app->frames[0].height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL); */
-    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, app->transparent_alpha_texture, 0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    app->transparent_buffers[0] = GL_COLOR_ATTACHMENT0;
-    app->transparent_buffers[1] = GL_COLOR_ATTACHMENT1;
-  }
-
-
-  {
     app->shadow_width = 4096;
     app->shadow_height = 4096;
 
@@ -1216,24 +1041,24 @@ void init(Memory *memory) {
 
   {
     Entity *entity = app->entities + app->entity_count;
-    entity->id = next_entity_id(app);
-    entity->type = EntityPlayer;
-    entity->flags = EntityFlags::RENDER_HIDDEN | EntityFlags::HIDE_IN_EDITOR;
-    entity->position.x = 0.0f;
-    entity->position.y = 0.0f;
-    entity->position.z = 0.0f;
-    entity->color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
-    entity->model = &app->sphere_model;
+    entity->header.id = next_entity_id(app);
+    entity->header.type = EntityType::EntityPlayer;
+    entity->header.flags = EntityFlags::RENDER_HIDDEN | EntityFlags::HIDE_IN_EDITOR;
+    entity->header.position.x = 0.0f;
+    entity->header.position.y = 0.0f;
+    entity->header.position.z = 0.0f;
+    entity->header.color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+    entity->header.model = &app->sphere_model;
 
     app->entity_count += 1;
 
-    app->camera_follow = entity->id;
+    app->camera_follow = entity->header.id;
   }
 
   Entity *follow_entity = get_entity_by_id(app, app->camera_follow);
-  follow_entity->rotation.y = 2.5f;
-  follow_entity->position.x = 20000.0f;
-  follow_entity->position.z = 20000.0f;
+  follow_entity->header.rotation.y = 2.5f;
+  follow_entity->header.position.x = 20000.0f;
+  follow_entity->header.position.z = 20000.0f;
 
   {
     /* generate_trees(app); */
@@ -1540,31 +1365,29 @@ void draw_3d_debug_info(Input &input, App *app) {
     for (u32 i=0; i<app->entity_count; i++) {
       Entity *entity = app->entities + i;
 
-      if (entity->type == EntityBlock) { continue; }
+      if (entity->header.type == EntityType::EntityBlock) { continue; }
 
-      if (entity->flags & EntityFlags::HIDE_IN_EDITOR) { continue; }
+      if (entity->header.flags & EntityFlags::HIDE_IN_EDITOR) { continue; }
 
-      if (!is_sphere_in_frustum(&app->camera.frustum, entity->position, app->editor.handle_size)) {
+      if (!is_sphere_in_frustum(&app->camera.frustum, entity->header.position, app->editor.handle_size)) {
         continue;
       }
 
       mat4 model_view;
-      model_view = glm::translate(model_view, entity->position);
+      model_view = glm::translate(model_view, entity->header.position);
       model_view = glm::scale(model_view, vec3(app->editor.handle_size));
-      model_view *= make_billboard_matrix(entity->position, app->camera.position, vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
+      model_view *= make_billboard_matrix(entity->header.position, app->camera.position, vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
 
       EditorHandleRenderCommand command;
-      command.distance_from_camera = glm::distance2(app->camera.position, entity->position);
+      command.distance_from_camera = glm::distance2(app->camera.position, entity->header.position);
       command.model_view = model_view;
-      if (entity->type == EntityParticleEmitter) {
+      if (entity->header.type == EntityType::EntityParticleEmitter) {
         command.color = vec4(0.0, 1.0, 1.0, 0.7);
-      } else if (entity->type == EntityPlanet) {
-        command.color = vec4(1.0, 1.0, 0.0, 0.7);
       } else {
         command.color = vec4(0.0, 1.0, 0.0, 0.7);
       }
 
-      if (!input.is_mouse_locked && app->editor.hovering_entity && app->editor.hover_entity == entity->id) {
+      if (!input.is_mouse_locked && app->editor.hovering_entity && app->editor.hover_entity == entity->header.id) {
         command.color *= vec4(0.6, 0.6, 0.6, 1.0);
       }
 
@@ -1717,23 +1540,23 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           for (u32 i=0; i<array_count(types); i++) {
             if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)types[i].display_name, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
 
-              Entity *entity = app->entities + app->entity_count++;
+              EntityBlock *entity = (EntityBlock *)(app->entities + app->entity_count++);
 
               vec3 forward;
               forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
               forward.y = -glm::sin(app->camera.rotation[0]);
               forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
 
-              entity->id = next_entity_id(app);
-              entity->type = EntityBlock;
-              entity->position = app->camera.position + forward * 400.0f;
-              entity->scale = vec3(100.f);
-              entity->model = get_model_by_name(app, (char *)types[i].id_name);
-              entity->color = vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
-              entity->flags = EntityFlags::CASTS_SHADOW | EntityFlags::PERMANENT_FLAG;
+              entity->header.id = next_entity_id(app);
+              entity->header.type = EntityType::EntityBlock;
+              entity->header.position = app->camera.position + forward * 400.0f;
+              entity->header.scale = vec3(100.f);
+              entity->header.model = get_model_by_name(app, (char *)types[i].id_name);
+              entity->header.color = vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
+              entity->header.flags = EntityFlags::CASTS_SHADOW | EntityFlags::PERMANENT_FLAG;
 
               if (strcmp(types[i].id_name, "quad") == 0) {
-                entity->flags |= EntityFlags::LOOK_AT_CAMERA;
+                entity->header.flags |= EntityFlags::LOOK_AT_CAMERA;
               }
             }
           }
@@ -1741,74 +1564,54 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           draw_state.offset_top += 10.0f;
 
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"particle emitter", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-            Entity *entity = app->entities + app->entity_count++;
+            EntityParticleEmitter *entity = (EntityParticleEmitter *)(app->entities + app->entity_count++);
 
             vec3 forward;
             forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
             forward.y = -glm::sin(app->camera.rotation[0]);
             forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
 
-            entity->id = next_entity_id(app);
-            entity->type = EntityParticleEmitter;
-            entity->position = app->camera.position + forward * 400.0f;
-            entity->scale = vec3(40.0f, 0.0f, 0.0f);
-            entity->model = get_model_by_name(app, (char *)"sphere");
-            entity->color = vec4(1.0f);
-            entity->flags = EntityFlags::RENDER_HIDDEN | EntityFlags::PERMANENT_FLAG;
-          }
-
-          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Planet", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-            Entity *entity = app->entities + app->entity_count++;
-
-            vec3 forward;
-            forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
-            forward.y = -glm::sin(app->camera.rotation[0]);
-            forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
-
-
-            entity->id = next_entity_id(app);
-            entity->type = EntityPlanet;
-            entity->position = app->camera.position + forward * 400.0f;
-            entity->scale = vec3(100.0f);
-            entity->model = get_model_by_name(app, (char *)"sphere");
-            entity->color = vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
-            entity->flags = EntityFlags::CASTS_SHADOW | EntityFlags::PERMANENT_FLAG;
-            entity->positions.push_back(vec2(50.0833f, 14.4167f));
-            entity->positions.push_back(vec2(37.7833f, 122.4167f));
+            entity->header.id = next_entity_id(app);
+            entity->header.type = EntityType::EntityParticleEmitter;
+            entity->header.position = app->camera.position + forward * 400.0f;
+            entity->header.model = NULL;
+            entity->header.flags = EntityFlags::RENDER_HIDDEN | EntityFlags::PERMANENT_FLAG;
+            entity->particle_size = 40.0f;
+            entity->initial_color = vec4(1.0f);
           }
 
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Water", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-            Entity *entity = app->entities + app->entity_count++;
+            EntityWater *entity = (EntityWater *)(app->entities + app->entity_count++);
 
             vec3 forward;
             forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
             forward.y = -glm::sin(app->camera.rotation[0]);
             forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
 
-            entity->id = next_entity_id(app);
-            entity->type = EntityWater;
-            entity->position = app->camera.position + forward * 400.0f;
-            entity->scale = vec3(100.0f);
-            entity->model = get_model_by_name(app, (char *)"quad");
-            entity->color = vec4(0.2f, 0.45f, 0.5f, 0.5f);
-            entity->flags = EntityFlags::PERMANENT_FLAG;
+            entity->header.id = next_entity_id(app);
+            entity->header.type = EntityType::EntityWater;
+            entity->header.position = app->camera.position + forward * 400.0f;
+            entity->header.scale = vec3(100.0f);
+            entity->header.model = get_model_by_name(app, (char *)"quad");
+            entity->header.color = vec4(0.2f, 0.45f, 0.5f, 0.5f);
+            entity->header.flags = EntityFlags::PERMANENT_FLAG;
           }
 
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Phong", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-            Entity *entity = app->entities + app->entity_count++;
+            EntityBlock *entity = (EntityBlock *)(app->entities + app->entity_count++);
 
             vec3 forward;
             forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
             forward.y = -glm::sin(app->camera.rotation[0]);
             forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
 
-            entity->id = next_entity_id(app);
-            entity->type = EntityBlock;
-            entity->position = app->camera.position + forward * 400.0f;
-            entity->scale = vec3(100.0f);
-            entity->model = get_model_by_name(app, (char *)"sphere");
-            entity->color = vec4(0.2f, 0.45f, 0.5f, 1.0f);
-            entity->flags = EntityFlags::PERMANENT_FLAG;
+            entity->header.id = next_entity_id(app);
+            entity->header.type = EntityType::EntityBlock;
+            entity->header.position = app->camera.position + forward * 400.0f;
+            entity->header.scale = vec3(100.0f);
+            entity->header.model = get_model_by_name(app, (char *)"sphere");
+            entity->header.color = vec4(0.2f, 0.45f, 0.5f, 1.0f);
+            entity->header.flags = EntityFlags::PERMANENT_FLAG;
           }
           break;
       }
@@ -1888,48 +1691,110 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
     if (app->editor.show_right) {
       Entity *entity = get_entity_by_id(app, app->editor.entity_id);
+
+      vec4 selected_button_background_color = vec4(0.5f, 0.8f, 1.0f, 0.9f);
+
+      debug_layout_set(&draw_state, 2);
+
+      if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), 25.0f, (char *)"Common", vec3(1.0f, 1.0f, 1.0f), app->editor.right_state == EditorRightState::COMMON ? selected_button_background_color : button_background_color)) {
+        app->editor.right_state = EditorRightState::COMMON;
+      }
+
+      if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), 25.0f, (char *)"Specific", vec3(1.0f, 1.0f, 1.0f), app->editor.right_state == EditorRightState::SPECIFIC ? selected_button_background_color : button_background_color)) {
+        app->editor.right_state = EditorRightState::SPECIFIC;
+      }
+
+      debug_layout_reset(&draw_state);
+
+      draw_state.offset_top += 25.0f;
+
+
       if (entity) {
+        switch (app->editor.right_state) {
+          case EditorRightState::COMMON:
+          {
+            sprintf(text, "id: %d\n", entity->header.id);
+            push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
-        sprintf(text, "id: %d\n", entity->id);
-        push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
+            if (entity->header.model) {
+              sprintf(text, "model: %s\n", entity->header.model->id_name);
+              push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
+            }
 
-        sprintf(text, "model: %s\n", entity->model->id_name);
-        push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
+            sprintf(text, "type: %d\n", entity->header.type);
+            push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
-        sprintf(text, "type: %d\n", entity->type);
-        push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
+            push_debug_vector(&draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "position", entity->header.position, default_background_color);
+            push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "rotation", &entity->header.rotation, default_background_color, 0.0f, pi * 2);
+            push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "scale", &entity->header.scale, default_background_color, 0.0f, 200.0f);
 
-        push_debug_vector(&draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "position", entity->position, default_background_color);
-        push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "rotation", &entity->rotation, default_background_color, 0.0f, pi * 2);
-        push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "scale", &entity->scale, default_background_color, 0.0f, 200.0f);
+            float start = draw_state.offset_top;
+            push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "color", &entity->header.color, default_background_color, 0.0f, 1.0f);
+            debug_render_rect(command_buffer, memory->width - 151.0f, start + 1.0f, 22.0f, 22.0f, vec4(0.0f, 0.0f, 0.0f, 0.5f));
+            debug_render_rect(command_buffer, memory->width - 150.0f, start + 2.0f, 20.0f, 20.0f, entity->header.color);
 
-        float start = draw_state.offset_top;
-        push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "color", &entity->color, default_background_color, 0.0f, 1.0f);
-        debug_render_rect(command_buffer, memory->width - 151.0f, start + 1.0f, 22.0f, 22.0f, vec4(0.0f, 0.0f, 0.0f, 0.5f));
-        debug_render_rect(command_buffer, memory->width - 150.0f, start + 2.0f, 20.0f, 20.0f, entity->color);
+            sprintf(text, "ground mounted: %d\n", (entity->header.flags & EntityFlags::MOUNT_TO_TERRAIN) != 0);
+            if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+              entity->header.flags = entity->header.flags ^ EntityFlags::MOUNT_TO_TERRAIN;
 
-        sprintf(text, "ground mounted: %d\n", (entity->flags & EntityFlags::MOUNT_TO_TERRAIN) != 0);
-        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-          entity->flags = entity->flags ^ EntityFlags::MOUNT_TO_TERRAIN;
+              if (entity->header.flags & EntityFlags::MOUNT_TO_TERRAIN) {
+                mount_entity_to_terrain(entity);
+              }
+            }
 
-          if (entity->flags & EntityFlags::MOUNT_TO_TERRAIN) {
-            mount_entity_to_terrain(entity);
-          }
-        }
+            sprintf(text, "casts shadow: %d\n", (entity->header.flags & EntityFlags::CASTS_SHADOW) != 0);
+            if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+              entity->header.flags = entity->header.flags ^ EntityFlags::CASTS_SHADOW;
+            }
 
-        sprintf(text, "casts shadow: %d\n", (entity->flags & EntityFlags::CASTS_SHADOW) != 0);
-        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-          entity->flags = entity->flags ^ EntityFlags::CASTS_SHADOW;
-        }
+            sprintf(text, "look at camera: %d\n", (entity->header.flags & EntityFlags::LOOK_AT_CAMERA) != 0);
+            if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+              entity->header.flags = entity->header.flags ^ EntityFlags::LOOK_AT_CAMERA;
+            }
 
-        sprintf(text, "look at camera: %d\n", (entity->flags & EntityFlags::LOOK_AT_CAMERA) != 0);
-        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-          entity->flags = entity->flags ^ EntityFlags::LOOK_AT_CAMERA;
-        }
+            sprintf(text, "save to file: %d\n", (entity->header.flags & EntityFlags::PERMANENT_FLAG) != 0);
+            if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+              entity->header.flags = entity->header.flags ^ EntityFlags::PERMANENT_FLAG;
+            }
+          } break;
+          case EditorRightState::SPECIFIC:
+          {
 
-        sprintf(text, "save to file: %d\n", (entity->flags & EntityFlags::PERMANENT_FLAG) != 0);
-        if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-          entity->flags = entity->flags ^ EntityFlags::PERMANENT_FLAG;
+            if (entity->header.type == EntityType::EntityParticleEmitter) {
+              EntityParticleEmitter *emitter = (EntityParticleEmitter *)entity;
+
+              float start = draw_state.offset_top;
+              push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "initial_color", &emitter->initial_color, default_background_color, 0.0f, 1.0f);
+              debug_render_rect(command_buffer, memory->width - 151.0f, start + 1.0f, 22.0f, 22.0f, vec4(0.0f, 0.0f, 0.0f, 0.5f));
+              debug_render_rect(command_buffer, memory->width - 150.0f, start + 2.0f, 20.0f, 20.0f, emitter->initial_color);
+
+              float x = memory->width - (draw_state.width + 25.0f);
+
+              debug_render_rect(command_buffer, x, draw_state.offset_top, draw_state.width, 25.0f, default_background_color);
+              sprintf(text, "%s", (char *)"particle_size");
+              draw_string(command_buffer, &app->font, x + 5.0f, draw_state.offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+              draw_state.offset_top += 25.0f;
+              sprintf(text, "%f", emitter->particle_size);
+              debug_render_range(input, command_buffer, x, draw_state.offset_top, draw_state.width, 25.0f, default_background_color, &emitter->particle_size, 0.0f, 100.0f);
+              draw_string(command_buffer, &app->font, x + 25.0f, draw_state.offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+              draw_state.offset_top += 25.0f;
+
+              debug_render_rect(command_buffer, x, draw_state.offset_top, draw_state.width, 25.0f, default_background_color);
+              sprintf(text, "%s", (char *)"gravity");
+              draw_string(command_buffer, &app->font, x + 5.0f, draw_state.offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+              draw_state.offset_top += 25.0f;
+              sprintf(text, "%f", emitter->gravity);
+              debug_render_range(input, command_buffer, x, draw_state.offset_top, draw_state.width, 25.0f, default_background_color, &emitter->gravity, -1000.0f, 1000.0f);
+              draw_string(command_buffer, &app->font, x + 25.0f, draw_state.offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+              draw_state.offset_top += 25.0f;
+
+              push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), (char *)"", vec3(1.0f, 1.0f, 1.0f), default_background_color);
+              push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), (char *)"this is going to be type specific", vec3(1.0f, 1.0f, 1.0f), default_background_color);
+              push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), (char *)"like particle emitter editing buttons", vec3(1.0f, 1.0f, 1.0f), default_background_color);
+              push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), (char *)"", vec3(1.0f, 1.0f, 1.0f), default_background_color);
+            }
+
+          } break;
         }
       }
     }
@@ -1978,139 +1843,78 @@ void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shade
   app->render_group.force_shader = forced_shader;
   app->render_group.shadow_pass = shadow_pass;
 
+  RenderGroup second_render_group;
+  start_render_group(&second_render_group);
+  second_render_group.camera = camera;
+  second_render_group.transparent_pass = false;
+  second_render_group.force_shader = NULL;
+  second_render_group.shadow_pass = false;
+
   for (u32 i=0; i<app->entity_count; i++) {
     Entity *entity = app->entities + i;
 
-    if (entity->flags & EntityFlags::RENDER_HIDDEN) { continue; }
+    if (entity->header.model == NULL || entity->header.flags & EntityFlags::RENDER_HIDDEN) { continue; }
 
-    bool model_wait = process_model(memory, entity->model);
+    if (shadow_pass && !(entity->header.flags & EntityFlags::CASTS_SHADOW)) {
+      continue;
+    }
+
+    bool model_wait = process_model(memory, entity->header.model);
     bool texture_wait = false;
 
-    if (entity->texture) {
-      texture_wait = process_texture(memory, entity->texture);
+    if (entity->header.texture) {
+      texture_wait = process_texture(memory, entity->header.texture);
     }
 
     if (model_wait || texture_wait) { continue; }
 
-    if (!is_sphere_in_frustum(&camera->frustum, entity->position, entity->model->radius * glm::compMax(entity->scale))) {
+    if (!is_sphere_in_frustum(&camera->frustum, entity->header.position, entity->header.model->radius * glm::compMax(entity->header.scale))) {
       continue;
     }
 
     mat4 model_view;
 
-    model_view = glm::translate(model_view, entity->position);
+    model_view = glm::translate(model_view, entity->header.position);
 
-    if (entity->flags & EntityFlags::LOOK_AT_CAMERA) {
-      model_view *= make_billboard_matrix(entity->position, app->camera.position, vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
+    if (entity->header.flags & EntityFlags::LOOK_AT_CAMERA) {
+      model_view *= make_billboard_matrix(entity->header.position, app->camera.position, vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
     }
 
-    model_view = glm::rotate(model_view, entity->rotation.x, vec3(1.0, 0.0, 0.0));
-    model_view = glm::rotate(model_view, entity->rotation.y, vec3(0.0, 1.0, 0.0));
-    model_view = glm::rotate(model_view, entity->rotation.z, vec3(0.0, 0.0, 1.0));
+    model_view = glm::rotate(model_view, entity->header.rotation.x, vec3(1.0, 0.0, 0.0));
+    model_view = glm::rotate(model_view, entity->header.rotation.y, vec3(0.0, 1.0, 0.0));
+    model_view = glm::rotate(model_view, entity->header.rotation.z, vec3(0.0, 0.0, 1.0));
 
-    model_view = glm::scale(model_view, entity->scale);
+    model_view = glm::scale(model_view, entity->header.scale);
 
     mat3 normal = glm::inverseTranspose(mat3(model_view));
 
     RenderCommand command;
-
     command.shader = &app->main_object_program;
     command.model_view = model_view;
-    command.flags = entity->flags;
+    command.flags = entity->header.flags;
+
     command.normal = normal;
-    command.color = entity->color;
+    command.color = entity->header.color;
     command.cull_type = GL_BACK;
-    command.model_mesh = &entity->model->mesh;
+    command.model_mesh = &entity->header.model->mesh;
 
-    if (entity->type == EntityWater) {
+    if (app->editor.inspect_entity && app->editor.entity_id == entity->header.id)  {
+      RenderCommand wireframe_command = command;
+      wireframe_command.shader = &app->solid_program;
+      wireframe_command.color = vec4(1.0, 0.0, 1.0, 1.0);
+      wireframe_command.flags |= EntityFlags::RENDER_WIREFRAME;
+      add_command_to_render_group(&second_render_group, wireframe_command);
+    }
+
+    if (entity->header.type == EntityType::EntityWater) {
       command.shader = &app->water_program;
-    } else if (entity->type == EntityPlanet) {
-      if (process_texture(memory, &app->planet_texture)) { continue; }
-
-      command.texture = &app->planet_texture;
-      command.shader = &app->textured_program;
-
-      for (auto it = entity->positions.begin(); it != entity->positions.end(); it++) {
-        mat4 child_view;
-        child_view = glm::translate(child_view, entity->position);
-        float radius = entity->scale.x;
-
-#if 0
-        float lat = glm::radians(180.0f - (90.0f + it->x));
-        float lon = glm::radians(it->y);
-#else
-        float lat = glm::radians(it->x);
-        float lon = glm::radians(it->y);
-
-        /* float lat = it->x; */
-        /* float lon = it->y; */
-#endif
-
-        float f = 0.0f;
-        float ls = glm::pow(glm::atan((1.0f - f)), 2) * glm::tan(lat);
-
-        float x = radius * glm::cos(ls) * glm::cos(lon) + glm::cos(lon);
-        float y = radius * glm::cos(ls) * glm::sin(lon) + glm::sin(lon);
-        float z = radius * glm::sin(ls);
-
-        vec3 position = vec3(x, z, y);
-
-        child_view = glm::translate(child_view, position);
-        child_view = glm::scale(child_view, vec3(1.0f));
-        mat3 normal = glm::inverseTranspose(mat3(child_view));
-
-        RenderCommand child_command;
-        child_command.model_view = child_view;
-        child_command.flags = entity->flags;
-        child_command.normal = normal;
-        child_command.color = vec4(1.0f, 0.0f, 0.0f, 1.0f);
-        child_command.cull_type = GL_BACK;
-        child_command.model_mesh = &entity->model->mesh;
-        add_command_to_render_group(&app->render_group, child_command);
-      }
     }
 
-    bool transparent = command.texture != NULL || command.color.a < 1.0f; // TODO(sedivy): remove when there is way to tell if the object is transparent
-    if (false) { // TODO(sedivy): replace with transparent variable
-      command.distance_from_camera = glm::distance2(app->camera.position, entity->position);
-      command.shader = &app->transparent_program;
-      add_command_to_render_group(&app->transparent_render_group, command);
-    } else {
-      add_command_to_render_group(&app->render_group, command);
-    }
+    add_command_to_render_group(&app->render_group, command);
   }
 
   end_render_group(app, &app->render_group);
-
-  if (!shadow_pass) {
-#if 0
-    glActiveTexture(GL_TEXTURE0 + 0);
-    glBindTexture(GL_TEXTURE_2D, app->shadow_depth_texture);
-
-    glBindFramebuffer(GL_FRAMEBUFFER, app->transparent_buffer);
-
-    glDrawBuffer(GL_COLOR_ATTACHMENT0);
-    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    glDrawBuffer(GL_COLOR_ATTACHMENT1);
-    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    glDepthMask(GL_FALSE);
-
-    glEnable(GL_BLEND);
-    glBlendFunci(0, GL_ONE, GL_ONE);
-    glBlendFunci(1, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
-
-    glDrawBuffers(2, app->transparent_buffers);
-    end_render_group(app, &app->transparent_render_group);
-
-    glDepthMask(GL_TRUE);
-
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-#endif
-  }
+  end_render_group(app, &second_render_group);
 }
 
 void render_terrain(Memory *memory, App *app) {
@@ -2230,21 +2034,21 @@ void tick(Memory *memory, Input input) {
         }
 
         if (input.is_mouse_locked) {
-          follow_entity->rotation.y += static_cast<float>(input.rel_mouse_x)/200.0f;
-          follow_entity->rotation.x += static_cast<float>(input.rel_mouse_y)/200.0f;
+          follow_entity->header.rotation.y += static_cast<float>(input.rel_mouse_x)/200.0f;
+          follow_entity->header.rotation.x += static_cast<float>(input.rel_mouse_y)/200.0f;
         }
 
         static float halfpi = glm::half_pi<float>();
 
-        if (follow_entity->rotation[0] > halfpi - 0.001f) {
-          follow_entity->rotation[0] = halfpi - 0.001f;
+        if (follow_entity->header.rotation[0] > halfpi - 0.001f) {
+          follow_entity->header.rotation[0] = halfpi - 0.001f;
         }
 
-        if (follow_entity->rotation[0] < -halfpi + 0.001f) {
-          follow_entity->rotation[0] = -halfpi + 0.001f;
+        if (follow_entity->header.rotation[0] < -halfpi + 0.001f) {
+          follow_entity->header.rotation[0] = -halfpi + 0.001f;
         }
 
-        vec3 rotation = follow_entity->rotation;
+        vec3 rotation = follow_entity->header.rotation;
 
         vec3 forward;
         forward.x = glm::sin(rotation[1]) * glm::cos(rotation[0]);
@@ -2290,72 +2094,69 @@ void tick(Memory *memory, Input input) {
           movement = glm::normalize(movement);
         }
 
-        follow_entity->velocity += movement * speed * input.delta_time;
+        follow_entity->header.velocity += movement * speed * input.delta_time;
 
         for (u32 i=0; i<app->entity_count; i++) {
           Entity *entity = app->entities + i;
 
-          if (entity->type == EntityParticleEmitter) {
+          if (entity->header.type == EntityType::EntityParticleEmitter) {
+            EntityParticleEmitter *emitter = (EntityParticleEmitter *)entity;
+
             Particle *particle = app->particles + app->next_particle++;
             if (app->next_particle >= array_count(app->particles)) {
               app->next_particle = 0;
             }
 
-            particle->position = entity->position;
-            particle->color = entity->color;
-            particle->size = entity->scale.x;
+            particle->position = emitter->header.position;
+            particle->color = emitter->initial_color;
+            particle->size = emitter->particle_size;
             particle->velocity = vec3(get_random_float_between(-500.0f, 500.0f), get_random_float_between(0.0f, 1000.0f), get_random_float_between(-500.0f, 500.0f));
-            particle->gravity = 500.0f;
-          } else if (entity->type == EntityPlayer) {
-            entity->position += entity->velocity * input.delta_time;
-            entity->velocity = glm::mix(entity->velocity, vec3(0.0f), input.delta_time * 10.0f);
+            particle->gravity = emitter->gravity;
+
+          } else if (entity->header.type == EntityType::EntityPlayer) {
+            entity->header.position += entity->header.velocity * input.delta_time;
+            entity->header.velocity = glm::mix(entity->header.velocity, vec3(0.0f), input.delta_time * 10.0f);
           }
         }
 
-        for (u32 i=0; i<array_count(app->particles); i++) {
-          Particle *particle = app->particles + i;
+        {
+          PROFILE_BLOCK("Update particles");
+          for (u32 i=0; i<array_count(app->particles); i++) {
+            Particle *particle = app->particles + i;
 
-          particle->velocity.y += particle->gravity * input.delta_time;
-          particle->position += particle->velocity * input.delta_time;
-          particle->size = std::max(particle->size - 60.0f * input.delta_time, 0.0f);
-          particle->velocity = glm::mix(particle->velocity, vec3(0.0f), input.delta_time);
-          particle->color.a = glm::mix(particle->color.a, 0.0f, input.delta_time * 4.0f);
+            particle->velocity.y += particle->gravity * input.delta_time;
+            particle->position += particle->velocity * input.delta_time;
+            particle->size = std::max(particle->size - 60.0f * input.delta_time, 0.0f);
+            particle->velocity = glm::mix(particle->velocity, vec3(0.0f), input.delta_time);
+            particle->color.a = glm::mix(particle->color.a, 0.0f, input.delta_time * 4.0f);
+          }
 
-          particle->distance_from_camera = glm::distance2(app->camera.position, particle->position);
+          std::sort(app->particles, app->particles + array_count(app->particles), sort_particles_by_distance);
+
+          for (u32 i=0; i<array_count(app->particles); i++) {
+            Particle *particle = app->particles + i;
+
+            app->particle_positions[i] = vec4(vec3(particle->position), particle->size);
+            app->particle_colors[i] = particle->color;
+          }
         }
 
-        std::sort(app->particles, app->particles + array_count(app->particles), sort_particles_by_distance);
-
-        for (u32 i=0; i<array_count(app->particles); i++) {
-          Particle *particle = app->particles + i;
-
-          app->particle_positions[4 * i + 0] = particle->position.x;
-          app->particle_positions[4 * i + 1] = particle->position.y;
-          app->particle_positions[4 * i + 2] = particle->position.z;
-          app->particle_positions[4 * i + 3] = particle->size;
-
-          app->particle_colors[4 * i + 0] = particle->color.x;
-          app->particle_colors[4 * i + 1] = particle->color.y;
-          app->particle_colors[4 * i + 2] = particle->color.z;
-          app->particle_colors[4 * i + 3] = particle->color.w;
-        }
-
-        if (follow_entity->position.x < 0) { follow_entity->position.x = 0; }
-        if (follow_entity->position.z < 0) { follow_entity->position.z = 0; }
+        if (follow_entity->header.position.x < 0) { follow_entity->header.position.x = 0; }
+        if (follow_entity->header.position.z < 0) { follow_entity->header.position.z = 0; }
 
         if (!app->editing_mode) {
-          follow_entity->position.y = get_terrain_height_at(follow_entity->position.x, follow_entity->position.z);
+          follow_entity->header.position.y = get_terrain_height_at(follow_entity->header.position.x, follow_entity->header.position.z);
         } else {
-          float terrain = get_terrain_height_at(follow_entity->position.x, follow_entity->position.z);
-          if (follow_entity->position.y < terrain) {
-            follow_entity->position.y = terrain;
+          float terrain = get_terrain_height_at(follow_entity->header.position.x, follow_entity->header.position.z);
+          if (follow_entity->header.position.y < terrain) {
+            follow_entity->header.position.y = terrain;
           }
         }
         /* printf("position: %f %f %f\n", follow_entity->position.x, follow_entity->position.y, follow_entity->position.z); */
         /* printf("rotation: %f %f %f\n\n", follow_entity->rotation.x, follow_entity->rotation.y, follow_entity->rotation.z); */
 
-        app->camera.rotation = follow_entity->rotation;
-        app->camera.position = follow_entity->position + vec3(0.0f, 70.0f, 0.0f);
+        app->camera.rotation = follow_entity->header.rotation;
+        app->camera.position = follow_entity->header.position + vec3(0.0f, 70.0f, 0.0f);
         app->camera.view_matrix = get_camera_projection(&app->camera);
         app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.x, vec3(1.0, 0.0, 0.0));
         app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.y, vec3(0.0, 1.0, 0.0));
@@ -2372,14 +2173,14 @@ void tick(Memory *memory, Input input) {
         for (u32 i=0; i<app->entity_count; i++) {
           Entity *entity = app->entities + i;
 
-          if (!(entity->flags & EntityFlags::HIDE_IN_EDITOR)) {
+          if (!(entity->header.flags & EntityFlags::HIDE_IN_EDITOR)) {
             RayMatchResult hit;
             hit.hit = false;
 
-            if (entity->type == EntityBlock) {
+            if (entity->header.type == EntityType::EntityBlock) {
               hit = ray_match_entity(app, ray, entity);
             } else {
-              hit = ray_match_sphere(ray, entity->position, app->editor.handle_size);
+              hit = ray_match_sphere(ray, entity->header.position, app->editor.handle_size);
             }
 
             if (hit.hit) {
@@ -2394,7 +2195,7 @@ void tick(Memory *memory, Input input) {
         }
 
         if (closest_entity) {
-          app->editor.hover_entity = closest_entity->id;
+          app->editor.hover_entity = closest_entity->header.id;
           app->editor.hovering_entity = true;
         } else {
           app->editor.hovering_entity = false;
@@ -2404,15 +2205,15 @@ void tick(Memory *memory, Input input) {
           if (closest_entity) {
             if (input.shift) {
               Entity *new_entity = app->entities + app->entity_count++;
-              *new_entity = *closest_entity;
-              new_entity->id = next_entity_id(app);
+              memcpy(new_entity, closest_entity, sizeof(Entity));
+              new_entity->header.id = next_entity_id(app);
               closest_entity = new_entity;
             }
 
-            app->editor.entity_id = closest_entity->id;
+            app->editor.entity_id = closest_entity->header.id;
             app->editor.holding_entity = true;
             app->editor.distance_from_entity_offset = closest_distance;
-            app->editor.hold_offset = hit_position - closest_entity->position;
+            app->editor.hold_offset = hit_position - closest_entity->header.position;
             app->editor.inspect_entity = true;
           } else {
             app->editor.inspect_entity = false;
@@ -2508,18 +2309,18 @@ void tick(Memory *memory, Input input) {
 
             Ray ray = get_mouse_ray(app, input, memory);
 
-            if ((entity->flags & EntityFlags::MOUNT_TO_TERRAIN) != 0) {
+            if ((entity->header.flags & EntityFlags::MOUNT_TO_TERRAIN) != 0) {
               if (app->editor.experimental_terrain_entity_movement) {
                 RayMatchResult hit = ray_match_terrain(app, ray);
                 if (hit.hit) {
-                  entity->position = hit.hit_position;
+                  entity->header.position = hit.hit_position;
                 }
               } else {
-                entity->position = (ray.start + ray.direction * app->editor.distance_from_entity_offset) - app->editor.hold_offset;
+                entity->header.position = (ray.start + ray.direction * app->editor.distance_from_entity_offset) - app->editor.hold_offset;
               }
               mount_entity_to_terrain(entity);
             } else {
-              entity->position = (ray.start + ray.direction * app->editor.distance_from_entity_offset) - app->editor.hold_offset;
+              entity->header.position = (ray.start + ray.direction * app->editor.distance_from_entity_offset) - app->editor.hold_offset;
             }
           }
         } else {
@@ -2658,36 +2459,6 @@ void tick(Memory *memory, Input input) {
             glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
             glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
             glDrawArrays(GL_TRIANGLES, 0, 6);
-
-            std::swap(app->write_frame, app->read_frame);
-          }
-
-          if (0)
-          {
-            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, app->frames[app->write_frame].id);
-            glBindFramebuffer(GL_READ_FRAMEBUFFER, app->transparent_buffer);
-            glReadBuffer(GL_COLOR_ATTACHMENT0);
-
-            use_program(app, &app->fullscreen_merge_alpha);
-
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA);
-
-            glActiveTexture(GL_TEXTURE0 + 3);
-            glBindTexture(GL_TEXTURE_2D, app->transparent_color_texture);
-            set_uniformi(app->current_program, "color_texture", 3);
-
-            glActiveTexture(GL_TEXTURE0 + 4);
-            glBindTexture(GL_TEXTURE_2D, app->transparent_alpha_texture);
-            set_uniformi(app->current_program, "transparent_color_texture", 4);
-
-            glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
-            glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
-            glDrawArrays(GL_TRIANGLES, 0, 6);
-            glDisable(GL_BLEND);
-
-            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-            glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 
             std::swap(app->write_frame, app->read_frame);
           }

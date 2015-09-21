@@ -54,6 +54,8 @@ using glm::quat;
 struct Memory *debug_global_memory;
 PlatformAPI platform;
 
+#include "scope_exit.h"
+
 #include "font.h"
 #include "array.h"
 #include "random.h"
@@ -142,14 +144,6 @@ struct TerrainChunk {
   TerrainChunk *next;
 };
 
-enum EntityType {
-  EntityPlayer = 0,
-  EntityBlock = 1,
-  EntityParticleEmitter = 2,
-  EntityPlanet = 3,
-  EntityWater = 4
-};
-
 struct Texture {
   const char *path = NULL;
 
@@ -162,46 +156,12 @@ struct Texture {
   u32 state = AssetState::EMPTY;
 };
 
-namespace EntityFlags {
-  enum EntityFlags {
-    PERMANENT_FLAG = (1 << 0),
-    MOUNT_TO_TERRAIN = (1 << 1),
-    CASTS_SHADOW = (1 << 2),
-
-    RENDER_HIDDEN = (1 << 3),
-    RENDER_WIREFRAME = (1 << 4),
-    RENDER_IGNORE_DEPTH = (1 << 5),
-    HIDE_IN_EDITOR = (1 << 6),
-    LOOK_AT_CAMERA = (1 << 7)
-  };
-};
-
 struct RayMatchResult {
   bool hit;
   vec3 hit_position;
 };
 
-struct Entity {
-  u32 id = 0;
-
-  u32 flags = 0;
-
-  Model *model = NULL;
-
-  vec3 position;
-
-  vec3 rotation;
-
-  vec3 velocity;
-  vec3 scale;
-  vec4 color;
-
-  EntityType type;
-  Texture *texture = 0;
-
-  // TODO(sedivy): Move planet specific stuff into union
-  std::vector<vec2> positions;
-};
+#include "entity.h"
 
 struct Ray {
   vec3 start;
@@ -258,6 +218,13 @@ namespace EditorLeftState {
   };
 }
 
+namespace EditorRightState {
+  enum EditorRightState {
+    COMMON,
+    SPECIFIC
+  };
+}
+
 #include "ui.h"
 
 struct Editor {
@@ -281,6 +248,7 @@ struct Editor {
   float speed;
 
   EditorLeftState::EditorLeftState left_state;
+  EditorRightState::EditorRightState right_state;
 
   UICommandBuffer command_buffer;
 };
@@ -300,15 +268,17 @@ struct LoadedLevelHeader {
 
 struct EntitySave {
   u32 id;
-  EntityType type;
+  EntityType::EntityType type;
   vec3 position;
   vec3 scale;
   vec3 rotation;
   vec4 color;
   u32 flags;
+
+  bool has_model;
   char model_name[128];
 };
-/* #pragma options align=reset */
+#pragma options align=reset
 
 struct LoadedLevel {
   std::vector<EntitySave> entities;
@@ -393,7 +363,7 @@ struct App {
 
   std::unordered_map<std::string, Model*> models;
 
-  Entity entities[10000];
+  Entity *entities;
   u32 entity_count = 0;
 
   Camera shadow_camera;
@@ -426,8 +396,8 @@ struct App {
   Particle particles[4096];
   u32 next_particle;
 
-  GLfloat particle_positions[4096 * 4];
-  GLfloat particle_colors[4096 * 4];
+  vec4 particle_positions[4096];
+  vec4 particle_colors[4096];
 
   GLuint particle_buffer;
   GLuint particle_color_buffer;

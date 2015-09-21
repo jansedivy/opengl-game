@@ -109,6 +109,7 @@ extern "C" {
   typedef PlatformFileLine read_file_line_type(PlatformFile file);
   typedef void close_directory_type(PlatformDirectory directory);
   typedef void write_to_file_type(PlatformFile file, u64 len, void *value);
+  typedef void print_to_file_type(PlatformFile file, const char *format, ...);
   typedef void create_directory_type(char *path);
   typedef u64 get_file_time_type(char *path);
   typedef void message_box_type(const char *title, const char *format, ...);
@@ -120,7 +121,6 @@ extern "C" {
     complete_all_work_type *complete_all_work;
     queue_has_free_spot_type *queue_has_free_spot;
     debugReadEntireFileType *debug_read_entire_file;
-    get_file_time_type *get_file_time;
     debugFreeFileType *debug_free_file;
     get_time_type *get_time;
     get_performance_counter_type *get_performance_counter;
@@ -133,10 +133,12 @@ extern "C" {
     atomic_exchange_type *atomic_exchange;
 
     open_directory_type *open_directory;
+    get_file_time_type *get_file_time;
     read_next_directory_entry_type *read_next_directory_entry;
     is_directory_entry_file_type *is_directory_entry_file;
     open_file_type *open_file;
     write_to_file_type *write_to_file;
+    print_to_file_type *print_to_file;
     create_directory_type *create_directory;
     close_file_type *close_file;
     read_file_line_type *read_file_line;

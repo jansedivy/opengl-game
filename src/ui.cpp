@@ -97,6 +97,19 @@ void debug_render_rect(UICommandBuffer *command_buffer, float x, float y, float 
   command_buffer->commands.push_back(command);
 }
 
+void debug_layout_set(DebugDrawState *state, u32 count) {
+  state->push_down = false;
+  state->set_count = count;
+  state->set_pushing = true;
+}
+
+void debug_layout_reset(DebugDrawState *state) {
+  state->pushed_count = 0;
+  state->push_down = true;
+  state->set_count = 1;
+  state->set_pushing = false;
+}
+
 bool push_debug_button(Input &input,
                        App *app,
                        DebugDrawState *state,
@@ -106,9 +119,10 @@ bool push_debug_button(Input &input,
                        vec3 color,
                        vec4 background_color) {
   PROFILE_BLOCK("Push Debug Button");
-  float min_x = x;
-  float min_y = state->offset_top;;
-  float max_x = min_x + state->width;
+
+  float min_x = (state->width / state->set_count) * state->pushed_count + x;
+  float min_y = state->offset_top;
+  float max_x = min_x + state->width / state->set_count;
   float max_y = min_y + height;
 
   bool clicked = false;
@@ -135,9 +149,16 @@ bool push_debug_button(Input &input,
     }
   }
 
-  debug_render_rect(command_buffer, x, state->offset_top, state->width, height, button_background);
-  draw_string(command_buffer, &app->font, x + 5, state->offset_top + (height - 23.0f) / 2.0f, text, color);
-  state->offset_top += height;
+  debug_render_rect(command_buffer, min_x, min_y, max_x - min_x, max_y - min_y, button_background);
+  draw_string(command_buffer, &app->font, min_x + 5, state->offset_top + ((max_y - min_y) - 23.0f) / 2.0f, text, color);
+
+  if (state->set_pushing) {
+    state->pushed_count += 1;
+  }
+
+  if (state->push_down) {
+    state->offset_top += height;
+  }
 
   return clicked;
 }

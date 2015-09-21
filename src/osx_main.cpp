@@ -135,8 +135,8 @@ struct Queue {
 bool do_queue_work(Queue *queue) {
   bool sleep = false;
 
-  int original_next_index = queue->next_entry_to_read;
-  int new_next_index = (original_next_index + 1) % array_count(queue->entries);
+  u32 original_next_index = queue->next_entry_to_read;
+  u32 new_next_index = (original_next_index + 1) % array_count(queue->entries);
 
   if (original_next_index != queue->next_entry_to_write) {
     SDL_bool value = SDL_AtomicCAS((SDL_atomic_t *)&queue->next_entry_to_read, original_next_index, new_next_index);
@@ -278,15 +278,22 @@ void write_to_file(PlatformFile file, u64 len, void *value) {
   fwrite(value, 1, len, static_cast<FILE *>(file.platform));
 }
 
-void create_directory(char *path) {
-  mkdir(path, 0777);
-}
-
 inline void format_string(char* buf, int buf_size, const char* fmt, va_list args) {
   int val = vsnprintf(buf, buf_size, fmt, args);
   if (val == -1 || val >= buf_size) {
     buf[buf_size-1] = '\0';
   }
+}
+
+void print_to_file(PlatformFile file, const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  vfprintf((FILE *)file.platform, format, args);
+  va_end(args);
+}
+
+void create_directory(char *path) {
+  mkdir(path, 0777);
 }
 
 bool atomic_exchange(u32 volatile *atomic, u32 old_value, u32 new_value) {
@@ -374,6 +381,7 @@ int main() {
   platform.read_file_line = read_file_line;
   platform.close_directory = close_directory;
   platform.write_to_file = write_to_file;
+  platform.print_to_file = print_to_file;
   platform.create_directory = create_directory;
   platform.get_file_time = get_file_time;
   platform.message_box = message_box;

@@ -77,11 +77,10 @@ void end_render_group(App *app, RenderGroup *group) {
 
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  set_depth_mode(group, GL_LESS, true);
 
   group->last_model = 0;
   group->last_shader = 0;
-
-  set_depth_mode(group, GL_LESS, true);
 
   if (group->shadow_pass) {
     glCullFace(GL_FRONT);
@@ -114,6 +113,13 @@ void end_render_group(App *app, RenderGroup *group) {
         set_depth_mode(group, GL_ALWAYS);
       } else {
         set_depth_mode(group, GL_LESS);
+      }
+
+      if ((it->flags & EntityFlags::RENDER_WIREFRAME) != 0) {
+        glEnable(GL_LINE_SMOOTH);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+      } else {
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
       }
 
       if (shader_has_uniform(app->current_program, "uNMatrix")) {
@@ -158,6 +164,10 @@ void end_render_group(App *app, RenderGroup *group) {
       glDrawElements(GL_TRIANGLES, it->model_mesh->data.indices_count, GL_UNSIGNED_INT, 0);
     }
   }
+
+  glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+  set_depth_mode(group, GL_LESS, true);
+  glPolygonOffset(0, 0);
 }
 
 void add_command_to_render_group(RenderGroup *group, RenderCommand command) {

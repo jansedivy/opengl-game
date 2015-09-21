@@ -25,4 +25,9 @@ struct DebugDrawState {
   float offset_top = 0;
   float width = 0;
   UICommandBuffer *command_buffer;
+
+  bool set_pushing = false;
+  bool push_down = true;
+  u32 set_count = 1;
+  u32 pushed_count = 0;
 };
