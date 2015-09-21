@@ -422,7 +422,7 @@ int main() {
 
   SDL_GL_CreateContext(window);
 
-  SDL_GL_SetSwapInterval(-1);
+  SDL_GL_SetSwapInterval(1);
   /* SDL_GL_SetSwapInterval(0); */
 
   glClear(GL_COLOR_BUFFER_BIT);

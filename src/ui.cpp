@@ -1,7 +1,6 @@
 void draw_string(UICommandBuffer *command_buffer, Font *font, float x, float y, char *text, vec3 color=vec3(1.0f, 1.0f, 1.0f)) {
   PROFILE_BLOCK("Draw String");
-  y = glm::round(y);
-  x = glm::round(x);
+  y = y - font->size;
 
   float font_x = 0, font_y = font->size;
   stbtt_aligned_quad q;
@@ -149,8 +148,8 @@ bool push_debug_button(Input &input,
     }
   }
 
-  debug_render_rect(command_buffer, min_x, min_y, max_x - min_x, max_y - min_y, button_background);
-  draw_string(command_buffer, &app->font, min_x + 5, state->offset_top + ((max_y - min_y) - 23.0f) / 2.0f, text, color);
+  debug_render_rect(command_buffer, min_x, min_y, max_x - min_x, height, button_background);
+  draw_string(command_buffer, &app->font, min_x + 5, min_y - app->font.size, text, color);
 
   if (state->set_pushing) {
     state->pushed_count += 1;
@@ -166,7 +165,7 @@ bool push_debug_button(Input &input,
 void push_debug_text(App *app, Font *font, DebugDrawState *state, UICommandBuffer *command_buffer, float x, char *text, vec3 color, vec4 background_color) {
   PROFILE_BLOCK("Push Debug Text");
   debug_render_rect(command_buffer, x, state->offset_top, state->width, 25.0f, background_color);
-  draw_string(command_buffer, font, x + 5, state->offset_top, text, color);
+  draw_string(command_buffer, font, x + 5, state->offset_top - font->size, text, color);
   state->offset_top += 25.0f;
 }
 
@@ -207,22 +206,22 @@ void push_debug_editable_vector(Input &input, DebugDrawState *state, Font *font,
   debug_render_rect(command_buffer, x, state->offset_top, state->width, 25.0f, background_color);
 
   sprintf(text, "%s", name);
-  draw_string(command_buffer, font, x + 5.0f, state->offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 5.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector->x);
   debug_render_range(input, command_buffer, x, state->offset_top, state->width, 25.0f, background_color, &vector->x, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector->y);
   debug_render_range(input, command_buffer, x, state->offset_top, state->width, 25.0f, background_color, &vector->y, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector->z);
   debug_render_range(input, command_buffer, x, state->offset_top, state->width, 25.0f, background_color, &vector->z, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 }
 
@@ -233,27 +232,27 @@ void push_debug_editable_vector(Input &input, DebugDrawState *state, Font *font,
   debug_render_rect(command_buffer, x, state->offset_top, state->width, 25.0f, background_color);
 
   sprintf(text, "%s", name);
-  draw_string(command_buffer, font, x + 5.0f, state->offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 5.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector->x);
   debug_render_range(input, command_buffer, x, state->offset_top, state->width, 25.0f, background_color, &vector->x, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector->y);
   debug_render_range(input, command_buffer, x, state->offset_top, state->width, 25.0f, background_color, &vector->y, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector->z);
   debug_render_range(input, command_buffer, x, state->offset_top, state->width, 25.0f, background_color, &vector->z, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector->w);
   debug_render_range(input, command_buffer, x, state->offset_top, state->width, 25.0f, background_color, &vector->w, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 }
 
@@ -264,27 +263,27 @@ void push_debug_editable_quat(Input &input, DebugDrawState *state, Font *font, U
   debug_render_rect(command_buffer, x, state->offset_top, state->width, 25.0f, background_color);
 
   sprintf(text, "%s", name);
-  draw_string(command_buffer, font, x + 5.0f, state->offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 5.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector->x);
-  debug_render_range(input, command_buffer, x, state->offset_top, state->width, 25.0f, background_color, &vector->x, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+  debug_render_range(input, command_buffer, x, state->offset_top + 25.0f, state->width, 25.0f, background_color, &vector->x, min, max);
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector->y);
-  debug_render_range(input, command_buffer, x, state->offset_top, state->width, 25.0f, background_color, &vector->y, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+  debug_render_range(input, command_buffer, x, state->offset_top + 25.0f, state->width, 25.0f, background_color, &vector->y, min, max);
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector->z);
-  debug_render_range(input, command_buffer, x, state->offset_top, state->width, 25.0f, background_color, &vector->z, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+  debug_render_range(input, command_buffer, x, state->offset_top + 25.0f, state->width, 25.0f, background_color, &vector->z, min, max);
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector->w);
   debug_render_range(input, command_buffer, x, state->offset_top, state->width, 25.0f, background_color, &vector->w, min, max);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 }
 
@@ -295,23 +294,21 @@ void push_debug_vector(DebugDrawState *state, Font *font, UICommandBuffer *comma
   debug_render_rect(command_buffer, x, state->offset_top, state->width, 25.0f * 4.0f, background_color);
 
   sprintf(text, "%s", name);
-  draw_string(command_buffer, font, x + 5.0f, state->offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 5.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector.x);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector.y);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector.z);
-  draw_string(command_buffer, font, x + 25.0f, state->offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+  draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 }
-
-
 
 void push_toggle_button(App *app, Input &input, DebugDrawState *draw_state, UICommandBuffer *command_buffer, float x, bool *value, vec4 background_color) {
   PROFILE_BLOCK("Push Debug Toggle");
