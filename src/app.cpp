@@ -102,7 +102,7 @@ vec4 read_vector4(char *start) {
 }
 
 Model *get_model_by_name(App *app, char *name) {
-  return app->models[name];
+  return app->models.at(name);
 }
 
 float get_terrain_height_at(float x, float y) {
@@ -172,7 +172,8 @@ RayMatchResult ray_match_terrain(App *app, Ray ray) {
     TerrainChunk *chunk = app->chunk_cache + i;
     if (chunk->initialized) {
       Model *model = NULL;
-      for (u32 model_index=0; model_index<array_count(app->models); model_index++) {
+
+      for (u32 model_index=0; model_index<array_count(chunk->models); model_index++) {
         Model *item = chunk->models + model_index;
         if (item->state == AssetState::INITIALIZED) {
           model = item;
@@ -703,6 +704,7 @@ void init(Memory *memory) {
 
       app->sphere_model.mesh = mesh;
       app->sphere_model.id_name = allocate_string("sphere");
+      app->sphere_model.path = NULL;
       app->sphere_model.radius = radius;
       app->sphere_model.state = AssetState::HAS_DATA;
       app->models[app->sphere_model.id_name] = &app->sphere_model;
@@ -779,6 +781,7 @@ void init(Memory *memory) {
       memcpy(mesh.data.indices, &indices, sizeof(indices));
 
       app->cube_model.id_name = allocate_string("cube");
+      app->cube_model.path = NULL;
       app->cube_model.radius = calculate_radius(&mesh);
       app->cube_model.mesh = mesh;
       app->cube_model.state = AssetState::HAS_DATA;
@@ -811,6 +814,7 @@ void init(Memory *memory) {
       memcpy(mesh.data.uv, &uvs, sizeof(uvs));
 
       app->quad_model.id_name = allocate_string("quad");
+      app->quad_model.path = NULL;
       app->quad_model.radius = calculate_radius(&mesh);
       app->quad_model.mesh = mesh;
       app->quad_model.state = AssetState::HAS_DATA;
@@ -1126,6 +1130,7 @@ void load_model_work(void *data) {
 
   if (platform.atomic_exchange(&work->model->state, AssetState::EMPTY, AssetState::PROCESSING)) {
     acquire_asset_file((char *)work->model->path);
+    printf("Loading %s\n", work->model->path);
 
     DebugReadFileResult result = platform.debug_read_entire_file(work->model->path);
 
@@ -1366,13 +1371,13 @@ void draw_3d_debug_info(Input &input, App *app) {
     for (u32 i=0; i<app->entity_count; i++) {
       Entity *entity = app->entities + i;
 
-      if (entity->header.type == EntityType::EntityBlock) { continue; }
-
       if (entity->header.flags & EntityFlags::HIDE_IN_EDITOR) { continue; }
 
-      if (!is_sphere_in_frustum(&app->camera.frustum, entity->header.position, app->editor.handle_size)) {
+      if (entity->header.model && entity->header.model->state == AssetState::INITIALIZED) {
         continue;
       }
+
+      if (!is_sphere_in_frustum(&app->camera.frustum, entity->header.position, app->editor.handle_size)) { continue; }
 
       mat4 model_view;
       model_view = glm::translate(model_view, entity->header.position);
@@ -1478,7 +1483,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           sprintf(text, "%17s: %6.3fms %4llu %6.3fms\n", counter->name, time, counter->hit_count, time / (float)counter->hit_count);
 
           float original_width = draw_state.width;
-          draw_state.width = 350.0f;
+          draw_state.width = font_get_string_size_in_px(&app->mono_font, text) + 5.0f;
           push_debug_text(app, &app->mono_font, &draw_state, command_buffer, 10.0f, text, vec3(1.0f, 1.0f, 1.0f), vec4(0.0f, 0.1f, 0.6f, 0.9f));
           draw_state.width = original_width;
         }
@@ -2171,7 +2176,7 @@ void tick(Memory *memory, Input input) {
             RayMatchResult hit;
             hit.hit = false;
 
-            if (entity->header.type == EntityType::EntityBlock) {
+            if (entity->header.model && entity->header.model->state == AssetState::INITIALIZED) {
               hit = ray_match_entity(app, ray, entity);
             } else {
               hit = ray_match_sphere(ray, entity->header.position, app->editor.handle_size);

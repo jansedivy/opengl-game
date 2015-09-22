@@ -1,6 +1,6 @@
 void draw_string(UICommandBuffer *command_buffer, Font *font, float x, float y, char *text, vec3 color=vec3(1.0f, 1.0f, 1.0f)) {
   PROFILE_BLOCK("Draw String");
-  y = y - font->size - 5.0f;
+  y = y - font->size;
 
   float font_x = 0, font_y = font->size;
   stbtt_aligned_quad q;
@@ -149,11 +149,10 @@ bool push_debug_button(Input &input,
   }
 
   float width = max_x - min_x;
-  debug_render_rect(command_buffer, min_x, min_y, width, height, button_background);
-
   float font_width = font_get_string_size_in_px(&app->font, text);
 
-  draw_string(command_buffer, &app->font, min_x + (width - font_width) / 2, max_y, text, color);
+  debug_render_rect(command_buffer, min_x, min_y, width, height, button_background);
+  draw_string(command_buffer, &app->font, min_x + (width - font_width) / 2, glm::round(max_y - (height + app->font.size) / 2.0f - 1.0f), text, color);
 
   if (state->set_pushing) {
     state->pushed_count += 1;
