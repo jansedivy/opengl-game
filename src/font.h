@@ -54,5 +54,16 @@ Font create_font(void *font_data, float font_size) {
 }
 
 void font_get_quad(Font *font, char text, float *x, float *y, stbtt_aligned_quad *q) {
-  stbtt_GetPackedQuad(font->chardata[0], font->width, font->width, text, x, y, q, 1);
+  stbtt_GetPackedQuad(font->chardata[0], font->width, font->height, text, x, y, q, 1);
+}
+
+float font_get_string_size_in_px(Font *font, char *text) {
+  float font_x = 0, font_y = 0;
+  stbtt_aligned_quad q;
+
+  while (*text != '\0') {
+    font_get_quad(font, *text++, &font_x, &font_y, &q);
+  }
+
+  return font_x;
 }

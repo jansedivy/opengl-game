@@ -1,6 +1,6 @@
 void draw_string(UICommandBuffer *command_buffer, Font *font, float x, float y, char *text, vec3 color=vec3(1.0f, 1.0f, 1.0f)) {
   PROFILE_BLOCK("Draw String");
-  y = y - font->size;
+  y = y - font->size - 5.0f;
 
   float font_x = 0, font_y = font->size;
   stbtt_aligned_quad q;
@@ -148,8 +148,12 @@ bool push_debug_button(Input &input,
     }
   }
 
-  debug_render_rect(command_buffer, min_x, min_y, max_x - min_x, height, button_background);
-  draw_string(command_buffer, &app->font, min_x + 5, min_y - app->font.size, text, color);
+  float width = max_x - min_x;
+  debug_render_rect(command_buffer, min_x, min_y, width, height, button_background);
+
+  float font_width = font_get_string_size_in_px(&app->font, text);
+
+  draw_string(command_buffer, &app->font, min_x + (width - font_width) / 2, max_y, text, color);
 
   if (state->set_pushing) {
     state->pushed_count += 1;
@@ -165,7 +169,7 @@ bool push_debug_button(Input &input,
 void push_debug_text(App *app, Font *font, DebugDrawState *state, UICommandBuffer *command_buffer, float x, char *text, vec3 color, vec4 background_color) {
   PROFILE_BLOCK("Push Debug Text");
   debug_render_rect(command_buffer, x, state->offset_top, state->width, 25.0f, background_color);
-  draw_string(command_buffer, font, x + 5, state->offset_top - font->size, text, color);
+  draw_string(command_buffer, font, x + 5, state->offset_top + 25.0f, text, color);
   state->offset_top += 25.0f;
 }
 

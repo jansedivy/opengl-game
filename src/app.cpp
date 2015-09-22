@@ -1771,28 +1771,21 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
               float x = memory->width - (draw_state.width + 25.0f);
 
-              debug_render_rect(command_buffer, x, draw_state.offset_top, draw_state.width, 25.0f, default_background_color);
-              sprintf(text, "%s", (char *)"particle_size");
-              draw_string(command_buffer, &app->font, x + 5.0f, draw_state.offset_top, text, vec3(1.0f, 1.0f, 1.0f));
-              draw_state.offset_top += 25.0f;
-              sprintf(text, "%f", emitter->particle_size);
+              push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), (char *)"particle_size", vec3(1.0f, 1.0f, 1.0f), default_background_color);
+
               debug_render_range(input, command_buffer, x, draw_state.offset_top, draw_state.width, 25.0f, default_background_color, &emitter->particle_size, 0.0f, 100.0f);
-              draw_string(command_buffer, &app->font, x + 25.0f, draw_state.offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+              sprintf(text, "%f", emitter->particle_size);
+              draw_string(command_buffer, &app->font, x + 25.0f, draw_state.offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
               draw_state.offset_top += 25.0f;
 
-              debug_render_rect(command_buffer, x, draw_state.offset_top, draw_state.width, 25.0f, default_background_color);
-              sprintf(text, "%s", (char *)"gravity");
-              draw_string(command_buffer, &app->font, x + 5.0f, draw_state.offset_top, text, vec3(1.0f, 1.0f, 1.0f));
-              draw_state.offset_top += 25.0f;
+              debug_render_rect(command_buffer, x, draw_state.offset_top + 25.0f, draw_state.width, 25.0f, default_background_color);
+
+              push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), (char *)"gravity", vec3(1.0f, 1.0f, 1.0f), default_background_color);
+
               sprintf(text, "%f", emitter->gravity);
               debug_render_range(input, command_buffer, x, draw_state.offset_top, draw_state.width, 25.0f, default_background_color, &emitter->gravity, -1000.0f, 1000.0f);
-              draw_string(command_buffer, &app->font, x + 25.0f, draw_state.offset_top, text, vec3(1.0f, 1.0f, 1.0f));
+              draw_string(command_buffer, &app->font, x + 25.0f, draw_state.offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
               draw_state.offset_top += 25.0f;
-
-              push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), (char *)"", vec3(1.0f, 1.0f, 1.0f), default_background_color);
-              push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), (char *)"this is going to be type specific", vec3(1.0f, 1.0f, 1.0f), default_background_color);
-              push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), (char *)"like particle emitter editing buttons", vec3(1.0f, 1.0f, 1.0f), default_background_color);
-              push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), (char *)"", vec3(1.0f, 1.0f, 1.0f), default_background_color);
             }
 
           } break;
