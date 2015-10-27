@@ -239,7 +239,7 @@ void render_terrain_chunk(App *app, TerrainChunk *chunk, Model *model) {
   }
 
   if (shader_has_uniform(app->current_program, "in_color")) {
-    set_uniform(app->current_program, "in_color", vec4(1.0f, 0.4f, 0.1f, 1.0f));
+    set_uniform(app->current_program, "in_color", vec4(0.0f, 0.3f, 0.1f, 1.0f));
   }
 
   use_model_mesh(app, &model->mesh);

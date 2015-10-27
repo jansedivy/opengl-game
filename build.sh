@@ -21,6 +21,12 @@ libraries="
   -I./libs/jemalloc/include
   ./libs/jemalloc/lib/libjemalloc.a
 
+  ./libs/stb/stb_truetype.a
+  ./libs/stb/stb_image.a
+  ./libs/stb/stb_image_write.a
+
+  ./libs/perlin/perlin.a
+
   -I./libs/glm
   -I./libs/vcache
   -I./libs/perlin
@@ -64,15 +70,41 @@ build_glew() {
   popd > /dev/null
 }
 
+build_stb() {
+  pushd stb > /dev/null
+
+  clang++ -O2 -static -c stb_truetype.cpp -o stb_truetype.o -DSTB_TRUETYPE_IMPLEMENTATION
+  ar rcs stb_truetype.a stb_truetype.o
+
+  clang++ -O2 -static -c stb_image.cpp -o stb_image.o -DSTB_IMAGE_IMPLEMENTATION
+  ar rcs stb_image.a stb_image.o
+
+  clang++ -O2 -static -c stb_image_write.cpp -o stb_image_write.o -DSTB_IMAGE_WRITE_IMPLEMENTATION
+  ar rcs stb_image_write.a stb_image_write.o
+
+  popd > /dev/null
+}
+
+build_perlin() {
+  pushd perlin > /dev/null
+
+  clang++ -O2 -static -c perlin.cpp -o perlin.o
+  ar rcs perlin.a perlin.o
+
+  popd > /dev/null
+}
+
 build_libraries() {
   echo 'Building libraries'
   echo '=================='
 
   pushd libs > /dev/null
 
-  build_assimp &
-  build_glew &
-  build_jemalloc &
+  # build_assimp &
+  # build_glew &
+  # build_jemalloc &
+  build_stb &
+  build_perlin &
 
   popd > /dev/null
 

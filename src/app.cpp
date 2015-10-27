@@ -21,11 +21,8 @@ inline Entity *get_entity_by_id(App *app, u32 id) {
 char *mprintf(const char *format, ...) {
   va_list args;
   va_start(args, format);
-  size_t size = snprintf(NULL, 0, format, args);
-
-  char *data = (char *)malloc(size);
-  vsprintf(data, format, args);
-
+  char *data;
+  vasprintf(&data, format, args);
   va_end(args);
 
   return data;
@@ -107,9 +104,9 @@ Model *get_model_by_name(App *app, char *name) {
 
 float get_terrain_height_at(float x, float y) {
   return (
-    scaled_octave_noise_2d(20.0f, 0.3f, 10.0f, 0.0f, 40.0f, x / 4000.0f, y / 4000.0f) +
     scaled_octave_noise_2d(1.0f, 1.0f, 10.0f, -100.0f, 500.0f, x / 40000.0f, y / 40000.0f) +
     scaled_octave_noise_2d(1.0f, 1.0f, 10.0f, 00.0f, 1000.0f, x / 400000.0f, y / 400000.0f) +
+    scaled_octave_noise_2d(1.0f, 1.0f, 100.0f, 00.0f, 1000.0f, x / 800000.0f, y / 800000.0f) +
 
     0.0f
   );
@@ -131,7 +128,11 @@ void deserialize_entity(App *app, EntitySave *src, Entity *dest) {
   dest->header.scale = src->scale;
   dest->header.rotation = src->rotation;
   dest->header.color = src->color;
-  dest->header.model = get_model_by_name(app, src->model_name);
+  if (src->has_model) {
+    dest->header.model = get_model_by_name(app, src->model_name);
+  } else {
+    dest->header.model = NULL;
+  }
 
   if (dest->header.flags & EntityFlags::MOUNT_TO_TERRAIN) {
     mount_entity_to_terrain(dest);
@@ -347,7 +348,10 @@ void unload_texture(Texture *texture) {
   if (platform.atomic_exchange(&texture->state, AssetState::INITIALIZED, AssetState::PROCESSING)) {
     glDeleteTextures(1, &texture->id);
 
-    stbi_image_free(texture->data);
+    if (texture->data) {
+      stbi_image_free(texture->data);
+      texture->data = NULL;
+    }
 
     texture->state = AssetState::EMPTY;
   }
@@ -486,11 +490,11 @@ u32 next_entity_id(App *app) {
   return ++app->last_id;
 }
 
-u32 generate_blue_noise(vec2 *positions, u32 position_count, float min_radius, float radius) {
-  u32 noise_count = 0;
+void generate_random_grass_positions(vec2 start, vec4 *positions, u32 position_count, float min_radius, float radius, float min_grass_scale, float max_grass_scale, u32 *count) {
+  *count = 0;
 
-  positions[0] = vec2(20000.0, 20000.0);
-  noise_count += 1;
+  positions[0] = vec4(start.x, get_terrain_height_at(start.x, start.y), start.y, get_random_float_between(min_grass_scale, max_grass_scale));
+  *count += 1;
 
   bool full = false;
   for (u32 i=0; i<position_count; i++) {
@@ -498,7 +502,7 @@ u32 generate_blue_noise(vec2 *positions, u32 position_count, float min_radius, f
       break;
     }
 
-    vec2 record = positions[i];
+    vec2 record = vec2(positions[i].x, positions[i].z);
 
     for (u32 k=0; k<10; k++) {
       float angle = get_random_float_between(0.0f, tau);
@@ -512,8 +516,8 @@ u32 generate_blue_noise(vec2 *positions, u32 position_count, float min_radius, f
 
       bool hit = false;
 
-      for (u32 l=0; l<noise_count; l++) {
-        vec2 check_record = positions[l];
+      for (u32 l=0; l<(*count); l++) {
+        vec2 check_record = vec2(positions[l].x, positions[l].z);
 
         float distance = glm::distance(new_position, check_record);
         if (distance < min_radius) {
@@ -523,22 +527,21 @@ u32 generate_blue_noise(vec2 *positions, u32 position_count, float min_radius, f
       }
 
       if (!hit) {
-        if (noise_count >= position_count) {
+        if ((*count) >= position_count) {
           full = true;
           break;
         }
-        positions[noise_count] = new_position;
-        noise_count += 1;
+        positions[(*count)] = vec4(new_position.x, get_terrain_height_at(new_position.x, new_position.y), new_position.y, get_random_float_between(min_grass_scale, max_grass_scale));
+        *count += 1;
       }
     }
   }
-
-  return noise_count;
 }
 
+#if 0
 void generate_trees(App *app) {
   vec2 noise_records[200];
-  u32 size = generate_blue_noise(noise_records, array_count(noise_records), 500.0f, 400.0f);
+  u32 size = generate_blue_noise(vec2(20000.0f, 20000.0f), noise_records, array_count(noise_records), 500.0f, 400.0f);
 
   Random random = create_random_sequence();
 
@@ -557,6 +560,7 @@ void generate_trees(App *app) {
     entity->header.flags = EntityFlags::PERMANENT_FLAG | EntityFlags::MOUNT_TO_TERRAIN;
   }
 }
+#endif
 
 #include "level.cpp"
 
@@ -567,9 +571,11 @@ void setup_all_shaders(App *app) {
   create_shader(&app->main_object_program, "assets/shaders/object.vert", "assets/shaders/object.frag");
   create_shader(&app->water_program, "assets/shaders/water.vert", "assets/shaders/water.frag");
   create_shader(&app->solid_program, "assets/shaders/solid.vert", "assets/shaders/solid.frag");
+  create_shader(&app->record_depth_program, "assets/shaders/record_depth.vert", "assets/shaders/record_depth.frag");
   create_shader(&app->phong_program, "assets/shaders/phong.vert", "assets/shaders/phong.frag");
   create_shader(&app->terrain_program, "assets/shaders/terrain.vert", "assets/shaders/terrain.frag");
   create_shader(&app->textured_program, "assets/shaders/textured.vert", "assets/shaders/textured.frag");
+  create_shader(&app->grass_program, "assets/shaders/grass.vert", "assets/shaders/grass.frag");
   create_shader(&app->controls_program, "assets/shaders/controls.vert", "assets/shaders/controls.frag");
 
   create_shader(&app->debug_program, "assets/shaders/debug.vert", "assets/shaders/debug.frag");
@@ -591,6 +597,55 @@ void setup_all_shaders(App *app) {
   create_shader(&app->fullscreen_lens_program, "assets/shaders/fullscreen.vert", "assets/shaders/fullscreen_lens_flare.frag");
 }
 
+void debug_render_frustum(App *app, Camera *camera) {
+  vec4 hcorners[8];
+  hcorners[0] = glm::vec4(-1, 1, 1, 1);
+  hcorners[1] = glm::vec4(1, 1, 1, 1);
+  hcorners[2] = glm::vec4(1, -1, 1, 1);
+  hcorners[3] = glm::vec4(-1, -1, 1, 1);
+
+  hcorners[4] = glm::vec4(-1, 1, -1, 1);
+  hcorners[5] = glm::vec4(1, 1, -1, 1);
+  hcorners[6] = glm::vec4(1, -1, -1, 1);
+  hcorners[7] = glm::vec4(-1, -1, -1, 1);
+
+  vec3 corners[8];
+  glm::mat4 inverseProj = glm::inverse(camera->view_matrix);
+  for (int i = 0; i < 8; i++) {
+    hcorners[i] = inverseProj * hcorners[i];
+    hcorners[i] /= hcorners[i].w;
+
+    corners[i] = glm::vec3(hcorners[i]);
+  }
+
+  app->debug_lines.push_back(corners[0]);
+  app->debug_lines.push_back(corners[1]);
+  app->debug_lines.push_back(corners[1]);
+  app->debug_lines.push_back(corners[2]);
+  app->debug_lines.push_back(corners[2]);
+  app->debug_lines.push_back(corners[3]);
+  app->debug_lines.push_back(corners[3]);
+  app->debug_lines.push_back(corners[0]);
+
+  app->debug_lines.push_back(corners[0]);
+  app->debug_lines.push_back(corners[4]);
+  app->debug_lines.push_back(corners[1]);
+  app->debug_lines.push_back(corners[5]);
+  app->debug_lines.push_back(corners[2]);
+  app->debug_lines.push_back(corners[6]);
+  app->debug_lines.push_back(corners[3]);
+  app->debug_lines.push_back(corners[7]);
+
+  app->debug_lines.push_back(corners[4]);
+  app->debug_lines.push_back(corners[5]);
+  app->debug_lines.push_back(corners[5]);
+  app->debug_lines.push_back(corners[6]);
+  app->debug_lines.push_back(corners[6]);
+  app->debug_lines.push_back(corners[7]);
+  app->debug_lines.push_back(corners[7]);
+  app->debug_lines.push_back(corners[4]);
+}
+
 void init(Memory *memory) {
   glewExperimental = GL_TRUE;
   glewInit();
@@ -602,6 +657,8 @@ void init(Memory *memory) {
   app->lens_flare = false;
   app->bloom = false;
   app->hdr = false;
+
+  app->time = 0;
 
   app->current_program = NULL;
 
@@ -628,9 +685,10 @@ void init(Memory *memory) {
   app->camera.size = vec2((float)memory->width, (float)memory->height);
 
   app->shadow_camera.ortho = true;
-  app->shadow_camera.near = 100.0f;
-  app->shadow_camera.far = 6000.0f;
+  app->shadow_camera.near = 1.0f;
+  app->shadow_camera.far = 100000.0f;
   app->shadow_camera.size = vec2(4096.0f, 4096.0f) / 2.0f;
+  app->shadow_camera.rotation = vec3(1.759f, 3.841f, 0.0f);
 
   glGenVertexArrays(1, &app->vao);
   glBindVertexArray(app->vao);
@@ -774,11 +832,39 @@ void init(Memory *memory) {
         20, 21, 22,   20, 22, 23
       };
 
+      GLfloat uvs[] = {
+        0, -3,
+        1, -3,
+        0, -2,
+        1, -2,
+        0, -2,
+        1, -2,
+        0, -1,
+        1, -1,
+        0, -1,
+        1, -1,
+        0, 0,
+        1, 0,
+        0, 0,
+        1, 0,
+        0, 1,
+        1, 1,
+        1, -3,
+        2, -3,
+        1, -2,
+        2, -2,
+        -1, -3,
+        0, -3,
+        -1, -2,
+        0, -2
+      };
+
       Mesh mesh;
-      allocate_mesh(&mesh, array_count(vertices), array_count(normals), array_count(indices), 0);
+      allocate_mesh(&mesh, array_count(vertices), array_count(normals), array_count(indices), array_count(uvs));
       memcpy(mesh.data.vertices, &vertices, sizeof(vertices));
       memcpy(mesh.data.normals, &normals, sizeof(normals));
       memcpy(mesh.data.indices, &indices, sizeof(indices));
+      memcpy(mesh.data.uv, &uvs, sizeof(uvs));
 
       app->cube_model.id_name = allocate_string("cube");
       app->cube_model.path = NULL;
@@ -828,6 +914,16 @@ void init(Memory *memory) {
     app->models[model->id_name] = model;
 
     model = static_cast<Model *>(malloc(sizeof(Model)));
+    model->path = allocate_string("assets/models/plant.lwo");
+    model->id_name = allocate_string("plant");
+    app->models[model->id_name] = model;
+
+    model = static_cast<Model *>(malloc(sizeof(Model)));
+    model->path = allocate_string("assets/models/plant_01.lwo");
+    model->id_name = allocate_string("plant_001");
+    app->models[model->id_name] = model;
+
+    model = static_cast<Model *>(malloc(sizeof(Model)));
     model->path = allocate_string("assets/models/tree_01.obj");
     model->id_name = allocate_string("tree_001");
     app->models[model->id_name] = model;
@@ -857,12 +953,7 @@ void init(Memory *memory) {
   }
 
   app->color_correction_texture.path = allocate_string("assets/textures/color_correction.png");
-  app->planet_texture.path = allocate_string("assets/textures/planet.jpg");
   app->gradient_texture.path = allocate_string("assets/textures/gradient.png");
-  app->circle_texture.path = allocate_string("assets/textures/circle.png");
-  app->debug_texture.path = allocate_string("assets/textures/debug.png");
-  app->debug_transparent_texture.path = allocate_string("assets/textures/debug_transparent.png");
-  app->editor_texture.path = allocate_string("assets/textures/editor_images.png");
 
   {
     load_texture(&app->gradient_texture, STBI_rgb_alpha);
@@ -872,38 +963,10 @@ void init(Memory *memory) {
   }
 
   {
-    load_texture(&app->editor_texture, STBI_rgb_alpha);
-    initialize_texture(&app->editor_texture, GL_RGBA, GL_RGBA, false);
-    stbi_image_free(app->editor_texture.data);
-    app->editor_texture.data = NULL;
-  }
-
-  {
     load_texture(&app->color_correction_texture, STBI_rgb_alpha);
     initialize_texture(&app->color_correction_texture, GL_RGB8, GL_RGBA, false);
     stbi_image_free(app->color_correction_texture.data);
     app->color_correction_texture.data = NULL;
-  }
-
-  {
-    load_texture(&app->circle_texture, STBI_rgb_alpha);
-    initialize_texture(&app->circle_texture, GL_RGBA, GL_RGBA, true);
-    stbi_image_free(app->circle_texture.data);
-    app->circle_texture.data = NULL;
-  }
-
-  {
-    load_texture(&app->debug_texture, STBI_rgb_alpha);
-    initialize_texture(&app->debug_texture, GL_RGBA, GL_RGBA, true);
-    stbi_image_free(app->debug_texture.data);
-    app->debug_texture.data = NULL;
-  }
-
-  {
-    load_texture(&app->debug_transparent_texture, STBI_rgb_alpha);
-    initialize_texture(&app->debug_transparent_texture, GL_RGBA, GL_RGBA, true);
-    stbi_image_free(app->debug_transparent_texture.data);
-    app->debug_transparent_texture.data = NULL;
   }
 
   {
@@ -981,7 +1044,7 @@ void init(Memory *memory) {
     {
       glGenTextures(1, &frame->texture);
       glBindTexture(GL_TEXTURE_2D, frame->texture);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, frame->width, frame->height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame->width, frame->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -1130,7 +1193,6 @@ void load_model_work(void *data) {
 
   if (platform.atomic_exchange(&work->model->state, AssetState::EMPTY, AssetState::PROCESSING)) {
     acquire_asset_file((char *)work->model->path);
-    printf("Loading %s\n", work->model->path);
 
     DebugReadFileResult result = platform.debug_read_entire_file(work->model->path);
 
@@ -1243,7 +1305,9 @@ inline bool process_texture(Memory *memory, Texture *texture) {
   }
 
   if (texture->state == AssetState::HAS_DATA) {
-    initialize_texture(texture);
+    initialize_texture(texture, GL_RGBA, GL_RGBA);
+    free(texture->data);
+    texture->data = NULL;
     return false;
   }
 
@@ -1338,6 +1402,26 @@ Ray get_mouse_ray(App *app, Input input, Memory *memory) {
   return ray;
 }
 
+Texture* get_texture(App *app, char *name) {
+  Texture *texture;
+  if (app->textures.count(name)) {
+    texture = app->textures.at(name);
+    if (texture->state == AssetState::INITIALIZED) {
+      return texture;
+    }
+  } else {
+    texture = new Texture();
+    texture->path = mprintf("assets/textures/%s", name);
+    texture->short_name = allocate_string(name);
+    app->textures[name] = texture;
+  }
+
+  process_texture(app->memory, texture);
+
+  return texture;
+}
+
+
 #include "render_group.cpp"
 #include "ui.cpp"
 
@@ -1349,7 +1433,26 @@ bool sort_particles_by_distance(const Particle &a, const Particle &b) {
   return a.distance_from_camera > b.distance_from_camera;
 }
 
+void render_debug_circle(std::vector<EditorHandleRenderCommand> *commands, Camera *camera, vec3 position, float size, vec4 color) {
+  if (!is_sphere_in_frustum(&camera->frustum, position, size)) { return; }
+
+  mat4 model_view;
+  model_view = glm::translate(model_view, position);
+  model_view = glm::scale(model_view, vec3(size));
+  model_view *= make_billboard_matrix(position, camera->position, vec3(camera->view_matrix[0][1], camera->view_matrix[1][1], camera->view_matrix[2][1]));
+
+  EditorHandleRenderCommand command;
+  command.distance_from_camera = glm::distance2(camera->position, position);
+  command.model_view = model_view;
+  command.color = color;
+
+  commands->push_back(command);
+}
+
 void draw_3d_debug_info(Input &input, App *app) {
+  Texture *texture = get_texture(app, (char *)"circle.png");
+  if (!texture && texture->state == AssetState::INITIALIZED) { return; }
+
   PROFILE_BLOCK("Draw 3D Debug");
   use_program(app, &app->controls_program);
 
@@ -1360,7 +1463,7 @@ void draw_3d_debug_info(Input &input, App *app) {
   set_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
 
   glActiveTexture(GL_TEXTURE0 + 0);
-  glBindTexture(GL_TEXTURE_2D, app->circle_texture.id);
+  glBindTexture(GL_TEXTURE_2D, texture->id);
   set_uniformi(app->current_program, "textureImage", 0);
 
   use_model_mesh(app, &app->quad_model.mesh);
@@ -1377,27 +1480,26 @@ void draw_3d_debug_info(Input &input, App *app) {
         continue;
       }
 
-      if (!is_sphere_in_frustum(&app->camera.frustum, entity->header.position, app->editor.handle_size)) { continue; }
-
-      mat4 model_view;
-      model_view = glm::translate(model_view, entity->header.position);
-      model_view = glm::scale(model_view, vec3(app->editor.handle_size));
-      model_view *= make_billboard_matrix(entity->header.position, app->camera.position, vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
-
-      EditorHandleRenderCommand command;
-      command.distance_from_camera = glm::distance2(app->camera.position, entity->header.position);
-      command.model_view = model_view;
+      vec4 color = vec4(0.0, 1.0, 0.0, 0.7);
       if (entity->header.type == EntityType::EntityParticleEmitter) {
-        command.color = vec4(0.0, 1.0, 1.0, 0.7);
-      } else {
-        command.color = vec4(0.0, 1.0, 0.0, 0.7);
+        color = vec4(0.0, 1.0, 1.0, 0.7);
       }
 
       if (!input.is_mouse_locked && app->editor.hovering_entity && app->editor.hover_entity == entity->header.id) {
-        command.color *= vec4(0.6, 0.6, 0.6, 1.0);
+        color *= vec4(0.6, 0.6, 0.6, 1.0);
       }
 
-      render_commands.push_back(command);
+      if (entity->header.type == EntityType::EntityGrass) {
+        EntityGrass *grass = (EntityGrass *)entity;
+        if (app->editor.inspect_entity && app->editor.entity_id == grass->header.id) {
+          for (u32 grass_index=0; grass_index<grass->grass_count; grass_index++) {
+            vec4 data = grass->positions[grass_index];
+            render_debug_circle(&render_commands, &app->camera, vec3(data), data.w / 7.0f, vec4(0.4, 1.0, 0.4, 0.4));
+          }
+        }
+      }
+
+      render_debug_circle(&render_commands, &app->camera, entity->header.position, app->editor.handle_size, color);
     }
   }
 
@@ -1415,6 +1517,7 @@ void draw_3d_debug_info(Input &input, App *app) {
 
 void flush_2d_render(App *app, Memory *memory) {
   PROFILE_BLOCK("Draw UI Flush");
+
   mat4 projection = glm::ortho(0.0f, float(memory->width), float(memory->height), 0.0f);
 
   glDisable(GL_DEPTH_TEST);
@@ -1448,6 +1551,27 @@ void flush_2d_render(App *app, Memory *memory) {
 
   glDisable(GL_BLEND);
   glEnable(GL_DEPTH_TEST);
+}
+
+void generate_grass(EntityGrass *grass) {
+  grass->grass_count = 0;
+  grass->render = false;
+
+  generate_random_grass_positions(vec2(grass->header.position.x, grass->header.position.z), grass->positions, MAX_GRASS_GROUP_COUNT, grass->min_radius, grass->max_radius, grass->min_scale, grass->max_scale, &grass->grass_count);
+
+  for (u32 i=0; i<grass->grass_count; i++) {
+    grass->rotations[i] = vec3(0.0f, get_random_float_between(0.0f, tau), 0.0f);
+    float tint = get_random_float_between(-0.14f, 0.04f);
+    grass->tints[i] = vec3(0.4353f + tint, 0.5922f + tint, 0.2235f + tint);
+  }
+
+  grass->reload_data = true;
+  grass->render = true;
+}
+
+void generate_grass_work(void *data) {
+  EntityGrass *grass = (EntityGrass *)data;
+  generate_grass(grass);
 }
 
 void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
@@ -1484,14 +1608,14 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
           float original_width = draw_state.width;
           draw_state.width = font_get_string_size_in_px(&app->mono_font, text) + 5.0f;
-          push_debug_text(app, &app->mono_font, &draw_state, command_buffer, 10.0f, text, vec3(1.0f, 1.0f, 1.0f), vec4(0.0f, 0.1f, 0.6f, 0.9f));
+          push_debug_text(&app->mono_font, &draw_state, command_buffer, 10.0f, text, vec3(1.0f, 1.0f, 1.0f), vec4(0.0f, 0.1f, 0.6f, 0.9f));
           draw_state.width = original_width;
         }
       }
     }
 
     sprintf(text, "fps: %d\n", (u32)app->fps);
-    push_debug_text(app, &draw_state, command_buffer, 10.0f, text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
+    push_debug_text(&app->font, &draw_state, command_buffer, 10.0f, text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
     draw_state.offset_top += 10.0f;
 
@@ -1503,16 +1627,22 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
     vec4 selected_button_background_color = vec4(0.5f, 0.8f, 1.0f, 0.9f);
 
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Modeling", vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::MODELING ? selected_button_background_color : button_background_color)) {
+    debug_layout_set(&draw_state, 4);
+
+    if (debug_button_image(app, input, &draw_state, command_buffer, 10.0f, app->editor.left_state == EditorLeftState::MODELING ? selected_button_background_color : button_background_color, get_texture(app, (char *)"model.png"))) {
       app->editor.left_state = EditorLeftState::MODELING;
     }
 
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Terrain", vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::TERRAIN ? selected_button_background_color : button_background_color)) {
-      app->editor.left_state = EditorLeftState::TERRAIN;
+    if (debug_button_image(app, input, &draw_state, command_buffer, 10.0f, app->editor.left_state == EditorLeftState::LIGHT ? selected_button_background_color : button_background_color, get_texture(app, (char *)"light.png"))) {
+      app->editor.left_state = EditorLeftState::LIGHT;
     }
 
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Light", vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::LIGHT ? selected_button_background_color : button_background_color)) {
-      app->editor.left_state = EditorLeftState::LIGHT;
+    draw_state.offset_top += draw_state.next_width;
+
+    debug_layout_reset(&draw_state);
+
+    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Terrain", vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::TERRAIN ? selected_button_background_color : button_background_color)) {
+      app->editor.left_state = EditorLeftState::TERRAIN;
     }
 
     if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Post Processing", vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::POST_PROCESSING ? selected_button_background_color : button_background_color)) {
@@ -1558,12 +1688,15 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
               entity->header.position = app->camera.position + forward * 400.0f;
               entity->header.scale = vec3(100.f);
               entity->header.model = get_model_by_name(app, (char *)types[i].id_name);
-              entity->header.color = vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
+              entity->header.color = vec4(0.31f, 0.18f, 0.02f, 1.0f);
               entity->header.flags = EntityFlags::CASTS_SHADOW | EntityFlags::PERMANENT_FLAG;
 
               if (strcmp(types[i].id_name, "quad") == 0) {
                 entity->header.flags |= EntityFlags::LOOK_AT_CAMERA;
               }
+
+              app->editor.entity_id = entity->header.id;
+              app->editor.inspect_entity = true;
             }
           }
 
@@ -1584,6 +1717,47 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             entity->header.flags = EntityFlags::RENDER_HIDDEN | EntityFlags::PERMANENT_FLAG;
             entity->particle_size = 40.0f;
             entity->initial_color = vec4(1.0f);
+
+            app->editor.entity_id = entity->header.id;
+            app->editor.inspect_entity = true;
+          }
+
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Grass", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+            EntityGrass *entity = (EntityGrass *)(app->entities + app->entity_count++);
+
+            vec3 forward;
+            forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
+            forward.y = -glm::sin(app->camera.rotation[0]);
+            forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
+
+            entity->header.id = next_entity_id(app);
+            entity->header.type = EntityType::EntityGrass;
+            entity->header.position = app->camera.position + forward * 400.0f;
+            entity->header.model = NULL;
+            entity->header.flags = EntityFlags::MOUNT_TO_TERRAIN | EntityFlags::RENDER_HIDDEN | EntityFlags::PERMANENT_FLAG;
+
+            if (entity->header.flags & EntityFlags::MOUNT_TO_TERRAIN) {
+              mount_entity_to_terrain(entity);
+            }
+
+            entity->grass_count = 0;
+            entity->min_radius = 25.0f;
+            entity->max_radius = 51.0f;
+
+            entity->min_scale = 30.0f;
+            entity->max_scale = 40.0f;
+
+            entity->positions = (vec4 *)malloc(sizeof(vec4) * MAX_GRASS_GROUP_COUNT);
+            entity->rotations = (vec3 *)malloc(sizeof(vec3) * MAX_GRASS_GROUP_COUNT);
+            entity->tints = (vec3 *)malloc(sizeof(vec3) * MAX_GRASS_GROUP_COUNT);
+            entity->initialized = false;
+            entity->reload_data = true;
+            entity->render = false;
+            entity->grass_model = get_model_by_name(app, (char *)"plant");
+            entity->texture = get_texture(app, (char *)"plant_01.png");
+
+            app->editor.entity_id = entity->header.id;
+            app->editor.inspect_entity = true;
           }
 
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Water", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
@@ -1601,6 +1775,9 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             entity->header.model = get_model_by_name(app, (char *)"quad");
             entity->header.color = vec4(0.2f, 0.45f, 0.5f, 0.5f);
             entity->header.flags = EntityFlags::PERMANENT_FLAG;
+
+            app->editor.entity_id = entity->header.id;
+            app->editor.inspect_entity = true;
           }
 
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Phong", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
@@ -1618,6 +1795,9 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             entity->header.model = get_model_by_name(app, (char *)"sphere");
             entity->header.color = vec4(0.2f, 0.45f, 0.5f, 1.0f);
             entity->header.flags = EntityFlags::PERMANENT_FLAG;
+
+            app->editor.entity_id = entity->header.id;
+            app->editor.inspect_entity = true;
           }
           break;
       }
@@ -1630,7 +1810,9 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
       }
       {
         case EditorLeftState::LIGHT:
-          push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, 10.0f, "rotation", &app->shadow_camera.rotation, default_background_color, 0.0f, tau);
+          push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, 10.0f, "Sun rotation", &app->shadow_camera.rotation, default_background_color, 0.0f, tau);
+          push_debug_range((char *)"near", input, &app->font, command_buffer, &draw_state, 10.0f, default_background_color, &app->shadow_camera.near, 0.0f, 100.0f);
+          push_debug_range((char *)"far", input, &app->font, command_buffer, &draw_state, 10.0f, default_background_color, &app->shadow_camera.far, 0.0f, 100000.0f);
           break;
       }
       {
@@ -1714,21 +1896,20 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
       draw_state.offset_top += 25.0f;
 
-
       if (entity) {
         switch (app->editor.right_state) {
           case EditorRightState::COMMON:
           {
             sprintf(text, "id: %d\n", entity->header.id);
-            push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
+            push_debug_text(&app->font, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
             if (entity->header.model) {
               sprintf(text, "model: %s\n", entity->header.model->id_name);
-              push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
+              push_debug_text(&app->font, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
             }
 
             sprintf(text, "type: %d\n", entity->header.type);
-            push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
+            push_debug_text(&app->font, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
             push_debug_vector(&draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "position", entity->header.position, default_background_color);
             push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "rotation", &entity->header.rotation, default_background_color, 0.0f, pi * 2);
@@ -1776,21 +1957,24 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
               float x = memory->width - (draw_state.width + 25.0f);
 
-              push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), (char *)"particle_size", vec3(1.0f, 1.0f, 1.0f), default_background_color);
+              push_debug_text(&app->font, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), (char *)"particle_size", vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
-              debug_render_range(input, command_buffer, x, draw_state.offset_top, draw_state.width, 25.0f, default_background_color, &emitter->particle_size, 0.0f, 100.0f);
-              sprintf(text, "%f", emitter->particle_size);
-              draw_string(command_buffer, &app->font, x + 25.0f, draw_state.offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
-              draw_state.offset_top += 25.0f;
+              push_debug_range(NULL, input, &app->font, command_buffer, &draw_state, x, default_background_color, &emitter->particle_size, 0.0f, 100.0f);
+              push_debug_text(&app->font, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), (char *)"gravity", vec3(1.0f, 1.0f, 1.0f), default_background_color);
+              push_debug_range(NULL, input, &app->font, command_buffer, &draw_state, x, default_background_color, &emitter->gravity, -1000.0f, 1000.0f);
+            } else if (entity->header.type == EntityType::EntityGrass) {
+              EntityGrass *grass = (EntityGrass *)entity;
 
-              debug_render_rect(command_buffer, x, draw_state.offset_top + 25.0f, draw_state.width, 25.0f, default_background_color);
+              draw_state.offset_top += 10.0f;
 
-              push_debug_text(app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), (char *)"gravity", vec3(1.0f, 1.0f, 1.0f), default_background_color);
+              push_debug_range((char *)"min_radius", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->min_radius, 10.0f, 400.0f);
+              push_debug_range((char *)"max_radius", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->max_radius, 10.0f, 500.0f);
+              push_debug_range((char *)"min_scale", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->min_scale, 5.0f, 100.0f);
+              push_debug_range((char *)"max_scale", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->max_scale, 5.0f, 100.0f);
 
-              sprintf(text, "%f", emitter->gravity);
-              debug_render_range(input, command_buffer, x, draw_state.offset_top, draw_state.width, 25.0f, default_background_color, &emitter->gravity, -1000.0f, 1000.0f);
-              draw_string(command_buffer, &app->font, x + 25.0f, draw_state.offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
-              draw_state.offset_top += 25.0f;
+              if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), 35.0f, (char *)"Rebuild grass", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+                platform.add_work(memory->low_queue, generate_grass_work, grass);
+              }
             }
 
           } break;
@@ -1828,29 +2012,136 @@ void render_skybox(App *app) {
   glEnable(GL_CULL_FACE);
 }
 
+inline mat4 get_model_view(Entity *entity, Camera *camera) {
+  mat4 model_view;
+
+  model_view = glm::translate(model_view, entity->header.position);
+  if (entity->header.flags & EntityFlags::LOOK_AT_CAMERA) {
+    model_view *= make_billboard_matrix(entity->header.position, camera->position, vec3(camera->view_matrix[0][1], camera->view_matrix[1][1], camera->view_matrix[2][1]));
+  }
+  model_view = glm::rotate(model_view, entity->header.rotation.x, vec3(1.0, 0.0, 0.0));
+  model_view = glm::rotate(model_view, entity->header.rotation.y, vec3(0.0, 1.0, 0.0));
+  model_view = glm::rotate(model_view, entity->header.rotation.z, vec3(0.0, 0.0, 1.0));
+  model_view = glm::scale(model_view, entity->header.scale);
+
+  return model_view;
+}
+
 void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shader=NULL, bool shadow_pass=false) {
   PROFILE_BLOCK("Draw Scene");
-  start_render_group(&app->transparent_render_group);
-  app->transparent_render_group.camera = camera;
-  app->transparent_render_group.transparent_pass = true;
-  app->transparent_render_group.force_shader = forced_shader;
-  app->transparent_render_group.shadow_pass = shadow_pass;
-
   start_render_group(&app->render_group);
   app->render_group.camera = camera;
-  app->render_group.transparent_pass = false;
   app->render_group.force_shader = forced_shader;
   app->render_group.shadow_pass = shadow_pass;
 
   RenderGroup second_render_group;
   start_render_group(&second_render_group);
   second_render_group.camera = camera;
-  second_render_group.transparent_pass = false;
   second_render_group.force_shader = NULL;
   second_render_group.shadow_pass = false;
 
-  for (u32 i=0; i<app->entity_count; i++) {
-    Entity *entity = app->entities + i;
+  for (u32 entity_index=0; entity_index<app->entity_count; entity_index++) {
+    Entity *entity = app->entities + entity_index;
+
+    if (!shadow_pass) {
+      if ((shadow_pass && (entity->header.flags & EntityFlags::CASTS_SHADOW)) || !shadow_pass) {
+        EntityGrass *grass = (EntityGrass *)entity;
+        if (grass->render) {
+          bool texture_wait = process_texture(memory, grass->texture);
+          bool wait_model = process_model(memory, grass->grass_model);
+
+          if (!texture_wait && !wait_model) {
+            PROFILE_BLOCK("Render Grass");
+
+            glDisable(GL_CULL_FACE);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glDepthFunc(GL_LESS);
+
+            use_program(app, &app->grass_program);
+
+            set_uniform(app->current_program, "uPMatrix", camera->view_matrix);
+            set_uniformi(app->current_program, "uShadow", 0);
+            set_uniform(app->current_program, "texmapscale", vec2(1.0f / app->shadow_width, 1.0f / app->shadow_height));
+            set_uniform(app->current_program, "shadow_light_position", app->shadow_camera.position);
+
+            glActiveTexture(GL_TEXTURE0 + 1);
+            glBindTexture(GL_TEXTURE_2D, grass->texture->id);
+            set_uniformi(app->current_program, "textureImage", 1);
+            set_uniform(app->current_program, "shadow_matrix", app->shadow_camera.view_matrix);
+            set_uniformf(app->current_program, "time", app->time);
+
+            Mesh *mesh = &grass->grass_model->mesh;
+
+            GLuint id = shader_get_attribute_location(app->current_program, "position");
+            glBindBuffer(GL_ARRAY_BUFFER, mesh->vertices_id);
+            glVertexAttribPointer(id, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+            id = shader_get_attribute_location(app->current_program, "normals");
+            glBindBuffer(GL_ARRAY_BUFFER, mesh->normals_id);
+            glVertexAttribPointer(id, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+            id = shader_get_attribute_location(app->current_program, "uv");
+            glBindBuffer(GL_ARRAY_BUFFER, mesh->uv_id);
+            glVertexAttribPointer(id, 2, GL_FLOAT, GL_FALSE, 0, 0);
+
+            if (!grass->initialized) {
+              grass->initialized = true;
+
+              glGenBuffers(1, &grass->position_data_id);
+              glGenBuffers(1, &grass->rotation_id);
+              glGenBuffers(1, &grass->tint_id);
+            }
+
+            if (grass->reload_data) {
+              grass->reload_data = false;
+
+              glBindBuffer(GL_ARRAY_BUFFER, grass->position_data_id);
+              glBufferData(GL_ARRAY_BUFFER, grass->grass_count * sizeof(vec4), grass->positions, GL_STATIC_DRAW);
+              glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+              glBindBuffer(GL_ARRAY_BUFFER, grass->rotation_id);
+              glBufferData(GL_ARRAY_BUFFER, grass->grass_count * sizeof(vec3), grass->rotations, GL_STATIC_DRAW);
+              glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+              glBindBuffer(GL_ARRAY_BUFFER, grass->tint_id);
+              glBufferData(GL_ARRAY_BUFFER, grass->grass_count * sizeof(vec3), grass->tints, GL_STATIC_DRAW);
+              glBindBuffer(GL_ARRAY_BUFFER, 0);
+            }
+
+            id = shader_get_attribute_location(app->current_program, "position_data");
+            glBindBuffer(GL_ARRAY_BUFFER, grass->position_data_id);
+            glVertexAttribPointer(id, 4, GL_FLOAT, GL_FALSE, 0, 0);
+
+            id = shader_get_attribute_location(app->current_program, "rotation");
+            glBindBuffer(GL_ARRAY_BUFFER, grass->rotation_id);
+            glVertexAttribPointer(id, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+            id = shader_get_attribute_location(app->current_program, "tint");
+            glBindBuffer(GL_ARRAY_BUFFER, grass->tint_id);
+            glVertexAttribPointer(id, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->indices_id);
+
+            glVertexAttribDivisor(0, 0);
+            glVertexAttribDivisor(1, 0);
+            glVertexAttribDivisor(2, 0);
+            glVertexAttribDivisor(3, 1);
+            glVertexAttribDivisor(4, 1);
+            glVertexAttribDivisor(5, 1);
+
+            glDrawElementsInstanced(GL_TRIANGLES, mesh->data.indices_count, GL_UNSIGNED_INT, 0, grass->grass_count);
+
+            glVertexAttribDivisor(0, 0);
+            glVertexAttribDivisor(1, 0);
+            glVertexAttribDivisor(2, 0);
+            glVertexAttribDivisor(3, 0);
+            glVertexAttribDivisor(4, 0);
+            glVertexAttribDivisor(5, 0);
+          }
+        }
+      }
+    }
 
     if (entity->header.model == NULL || entity->header.flags & EntityFlags::RENDER_HIDDEN) { continue; }
 
@@ -1871,19 +2162,7 @@ void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shade
       continue;
     }
 
-    mat4 model_view;
-
-    model_view = glm::translate(model_view, entity->header.position);
-
-    if (entity->header.flags & EntityFlags::LOOK_AT_CAMERA) {
-      model_view *= make_billboard_matrix(entity->header.position, app->camera.position, vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
-    }
-
-    model_view = glm::rotate(model_view, entity->header.rotation.x, vec3(1.0, 0.0, 0.0));
-    model_view = glm::rotate(model_view, entity->header.rotation.y, vec3(0.0, 1.0, 0.0));
-    model_view = glm::rotate(model_view, entity->header.rotation.z, vec3(0.0, 0.0, 1.0));
-
-    model_view = glm::scale(model_view, entity->header.scale);
+    mat4 model_view = get_model_view(entity, &app->camera);
 
     mat3 normal = glm::inverseTranspose(mat3(model_view));
 
@@ -1891,13 +2170,12 @@ void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shade
     command.shader = &app->main_object_program;
     command.model_view = model_view;
     command.flags = entity->header.flags;
-
     command.normal = normal;
     command.color = entity->header.color;
     command.cull_type = GL_BACK;
     command.model_mesh = &entity->header.model->mesh;
 
-    if (app->editor.inspect_entity && app->editor.entity_id == entity->header.id)  {
+    if (app->editing_mode && app->editor.inspect_entity && app->editor.entity_id == entity->header.id)  {
       RenderCommand wireframe_command = command;
       wireframe_command.shader = &app->solid_program;
       wireframe_command.color = vec4(1.0, 0.0, 1.0, 1.0);
@@ -1969,6 +2247,8 @@ void tick(Memory *memory, Input input) {
   platform = memory->platform;
   App *app = memory->app;
 
+  app->time += input.delta_time;
+
   {
     PROFILE_BLOCK("Tick");
 
@@ -1997,31 +2277,27 @@ void tick(Memory *memory, Input input) {
           unload_texture(&app->gradient_texture);
           load_texture(&app->gradient_texture, STBI_rgb_alpha);
           initialize_texture(&app->gradient_texture, GL_RGBA, GL_RGBA, false);
-          stbi_image_free(app->gradient_texture.data);
-          app->gradient_texture.data = NULL;
+          if (app->gradient_texture.data) {
+            stbi_image_free(app->gradient_texture.data);
+            app->gradient_texture.data = NULL;
+          }
 
           unload_texture(&app->color_correction_texture);
           load_texture(&app->color_correction_texture, STBI_rgb_alpha);
           initialize_texture(&app->color_correction_texture, GL_RGB8, GL_RGBA, false);
-          stbi_image_free(app->color_correction_texture.data);
-          app->color_correction_texture.data = NULL;
+          if (app->color_correction_texture.data) {
+            stbi_image_free(app->color_correction_texture.data);
+            app->color_correction_texture.data = NULL;
+          }
 
-          unload_texture(&app->circle_texture);
-          load_texture(&app->circle_texture, STBI_rgb_alpha);
-          initialize_texture(&app->circle_texture, GL_RGBA, GL_RGBA, true);
+          for (auto it = app->textures.begin(); it != app->textures.end(); it++) {
+            unload_texture(it->second);
+          }
 
           for (auto it = app->models.begin(); it != app->models.end(); it++) {
             if (it->second->path != NULL) { // NOTE(sedivy): If it has path it should be reloadable
               unload_model(it->second);
             }
-          }
-
-          {
-            unload_texture(&app->debug_transparent_texture);
-            load_texture(&app->debug_transparent_texture, STBI_rgb_alpha);
-            initialize_texture(&app->debug_transparent_texture, GL_RGBA, GL_RGBA, true);
-            stbi_image_free(app->debug_transparent_texture.data);
-            app->debug_transparent_texture.data = NULL;
           }
         }
 
@@ -2093,8 +2369,6 @@ void tick(Memory *memory, Input input) {
           movement = glm::normalize(movement);
         }
 
-        follow_entity->header.velocity += movement * speed * input.delta_time;
-
         for (u32 i=0; i<app->entity_count; i++) {
           Entity *entity = app->entities + i;
 
@@ -2113,8 +2387,13 @@ void tick(Memory *memory, Input input) {
             particle->gravity = emitter->gravity;
 
           } else if (entity->header.type == EntityType::EntityPlayer) {
-            entity->header.position += entity->header.velocity * input.delta_time;
+            entity->header.velocity += movement * speed * input.delta_time;
             entity->header.velocity = glm::mix(entity->header.velocity, vec3(0.0f), input.delta_time * 10.0f);
+
+            entity->header.position += entity->header.velocity * input.delta_time;
+
+            if (entity->header.position.x < 0) { entity->header.position.x = 0; }
+            if (entity->header.position.z < 0) { entity->header.position.z = 0; }
           }
         }
 
@@ -2140,9 +2419,6 @@ void tick(Memory *memory, Input input) {
           }
         }
 
-        if (follow_entity->header.position.x < 0) { follow_entity->header.position.x = 0; }
-        if (follow_entity->header.position.z < 0) { follow_entity->header.position.z = 0; }
-
         if (!app->editing_mode) {
           follow_entity->header.position.y = get_terrain_height_at(follow_entity->header.position.x, follow_entity->header.position.z);
         } else {
@@ -2151,11 +2427,10 @@ void tick(Memory *memory, Input input) {
             follow_entity->header.position.y = terrain;
           }
         }
-        /* printf("position: %f %f %f\n", follow_entity->position.x, follow_entity->position.y, follow_entity->position.z); */
-        /* printf("rotation: %f %f %f\n\n", follow_entity->rotation.x, follow_entity->rotation.y, follow_entity->rotation.z); */
 
         app->camera.rotation = follow_entity->header.rotation;
         app->camera.position = follow_entity->header.position + vec3(0.0f, 70.0f, 0.0f);
+
         app->camera.view_matrix = get_camera_projection(&app->camera);
         app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.x, vec3(1.0, 0.0, 0.0));
         app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.y, vec3(0.0, 1.0, 0.0));
@@ -2205,6 +2480,18 @@ void tick(Memory *memory, Input input) {
             if (input.shift) {
               Entity *new_entity = app->entities + app->entity_count++;
               memcpy(new_entity, closest_entity, sizeof(Entity));
+
+              // TODO(sedivy): Don't hard code unique properties
+              if (new_entity->header.type == EntityType::EntityGrass) {
+                EntityGrass *grass = (EntityGrass *)new_entity;
+                grass->positions = (vec4 *)malloc(sizeof(vec4) * MAX_GRASS_GROUP_COUNT);
+                grass->rotations = (vec3 *)malloc(sizeof(vec3) * MAX_GRASS_GROUP_COUNT);
+                grass->tints = (vec3 *)malloc(sizeof(vec3) * MAX_GRASS_GROUP_COUNT);
+                grass->grass_count = 0;
+                grass->initialized = false;
+                grass->reload_data = true;
+              }
+
               new_entity->header.id = next_entity_id(app);
               closest_entity = new_entity;
             }
@@ -2219,73 +2506,21 @@ void tick(Memory *memory, Input input) {
           }
         }
 
-
         {
-          /* app->shadow_camera.position = vec3(20000.0, 4000.0, 20000.0); */
-          app->shadow_camera.position = app->camera.position + vec3(0.0, 4000.0, 0.0);
-          /* app->shadow_camera.rotation = vec3(1.229797, -1.170025, 0.0f); */
-          app->shadow_camera.rotation = vec3(pi / 2.0f, 0.0f, 0.0f);
-          app->shadow_camera.view_matrix = get_camera_projection(&app->shadow_camera);
-          app->shadow_camera.view_matrix = glm::rotate(app->shadow_camera.view_matrix, app->shadow_camera.rotation.x, vec3(1.0, 0.0, 0.0));
-          app->shadow_camera.view_matrix = glm::rotate(app->shadow_camera.view_matrix, app->shadow_camera.rotation.y, vec3(0.0, 1.0, 0.0));
-          app->shadow_camera.view_matrix = glm::rotate(app->shadow_camera.view_matrix, app->shadow_camera.rotation.z, vec3(0.0, 0.0, 1.0));
-          app->shadow_camera.view_matrix = glm::translate(app->shadow_camera.view_matrix, (app->shadow_camera.position * -1.0f));
-
-          fill_frustum_with_matrix(&app->shadow_camera.frustum, app->shadow_camera.view_matrix);
-
-#if 0
           vec3 forward;
           forward.x = glm::sin(app->shadow_camera.rotation[1]) * glm::cos(app->shadow_camera.rotation[0]);
           forward.y = -glm::sin(app->shadow_camera.rotation[0]);
           forward.z = -glm::cos(app->shadow_camera.rotation[1]) * glm::cos(app->shadow_camera.rotation[0]);
-          forward = glm::normalize(forward);
 
-          vec3 up = vec3(0.0, 1.0, 0.0);
+          app->shadow_camera.position = app->camera.position + glm::normalize(forward) * ((app->shadow_camera.far - app->shadow_camera.near) / 2.0f * -1.0f);
+          app->shadow_camera.view_matrix = get_camera_projection(&app->shadow_camera);
+          app->shadow_camera.view_matrix = glm::rotate(app->shadow_camera.view_matrix, app->shadow_camera.rotation.x, vec3(1.0, 0.0, 0.0));
+          app->shadow_camera.view_matrix = glm::rotate(app->shadow_camera.view_matrix, app->shadow_camera.rotation.y, vec3(0.0, 1.0, 0.0));
+          app->shadow_camera.view_matrix = glm::translate(app->shadow_camera.view_matrix, (app->shadow_camera.position * -1.0f));
 
-          vec3 fc = app->shadow_camera.position + forward * app->shadow_camera.far;
+          fill_frustum_with_matrix(&app->shadow_camera.frustum, app->shadow_camera.view_matrix);
 
-          vec3 right = glm::normalize(glm::cross(forward, vec3(0.0, 1.0, 0.0)));
-
-          vec3 ftl = fc + (up * app->shadow_camera.size.x/2.0f) - (right * app->shadow_camera.size.y * app->shadow_camera.far/2.0f);
-          vec3 ftr = fc + (up * app->shadow_camera.size.x/2.0f) + (right * app->shadow_camera.size.y * app->shadow_camera.far/2.0f);
-          vec3 fbl = fc - (up * app->shadow_camera.size.x/2.0f) - (right * app->shadow_camera.size.y * app->shadow_camera.far/2.0f);
-          vec3 fbr = fc - (up * app->shadow_camera.size.x/2.0f) + (right * app->shadow_camera.size.y * app->shadow_camera.far/2.0f);
-
-          vec3 nc = app->shadow_camera.position + forward * app->shadow_camera.near;
-
-          vec3 ntl = nc + (up * app->shadow_camera.size.x/2.0f) - (right * app->shadow_camera.size.y * app->shadow_camera.near/2.0f);
-          vec3 ntr = nc + (up * app->shadow_camera.size.x/2.0f) + (right * app->shadow_camera.size.y * app->shadow_camera.near/2.0f);
-          vec3 nbl = nc - (up * app->shadow_camera.size.x/2.0f) - (right * app->shadow_camera.size.y * app->shadow_camera.near/2.0f);
-          vec3 nbr = nc - (up * app->shadow_camera.size.x/2.0f) + (right * app->shadow_camera.size.y * app->shadow_camera.near/2.0f);
-
-          {
-            app->debug_lines.push_back(ftl);
-            app->debug_lines.push_back(ftr);
-
-            app->debug_lines.push_back(ftl);
-            app->debug_lines.push_back(fbl);
-
-            app->debug_lines.push_back(fbl);
-            app->debug_lines.push_back(fbr);
-
-            app->debug_lines.push_back(fbr);
-            app->debug_lines.push_back(fbl);
-          }
-
-          {
-            app->debug_lines.push_back(ntl);
-            app->debug_lines.push_back(ntr);
-
-            app->debug_lines.push_back(ntl);
-            app->debug_lines.push_back(nbl);
-
-            app->debug_lines.push_back(nbl);
-            app->debug_lines.push_back(nbr);
-
-            app->debug_lines.push_back(nbr);
-            app->debug_lines.push_back(nbl);
-          }
-#endif
+          /* debug_render_frustum(app, &app->shadow_camera); */
         }
 
         if (app->editing_mode) {
@@ -2347,7 +2582,7 @@ void tick(Memory *memory, Input input) {
 
           glEnable(GL_DEPTH_TEST);
 
-          render_scene(memory, app, &app->shadow_camera, &app->solid_program, true);
+          render_scene(memory, app, &app->shadow_camera, &app->record_depth_program, true);
 
           glBindFramebuffer(GL_FRAMEBUFFER, 0);
         }
@@ -2417,11 +2652,11 @@ void tick(Memory *memory, Input input) {
               PROFILE_BLOCK("Draw Debug Lines");
               use_program(app, &app->debug_program);
               glBindBuffer(GL_ARRAY_BUFFER, app->debug_buffer);
-              glBufferData(GL_ARRAY_BUFFER, app->debug_lines.size() * sizeof(GLfloat)*3*2, NULL, GL_STREAM_DRAW);
-              glBufferSubData(GL_ARRAY_BUFFER, 0, app->debug_lines.size() * sizeof(GLfloat)*3*2, &app->debug_lines[0]);
+              glBufferData(GL_ARRAY_BUFFER, app->debug_lines.size() * sizeof(vec3)*2, NULL, GL_STREAM_DRAW);
+              glBufferSubData(GL_ARRAY_BUFFER, 0, app->debug_lines.size() * sizeof(vec3)*2, &app->debug_lines[0]);
               set_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
               glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
-              glDrawArrays(GL_LINES, 0, app->debug_lines.size()*2);
+              glDrawArrays(GL_LINES, 0, app->debug_lines.size());
               app->debug_lines.clear();
             }
           }
@@ -2560,7 +2795,6 @@ void tick(Memory *memory, Input input) {
       counter->hit_count = 0;
     }
   }
-  global_debug_counter = 0;
 
   u64 diff = platform.get_time();
   if (diff >= app->frametimelast + 1000) {

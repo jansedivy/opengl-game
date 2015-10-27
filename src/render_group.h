@@ -8,6 +8,7 @@ struct RenderCommand {
   mat4 model_view;
   mat3 normal;
   vec4 color;
+  vec3 tint;
   float distance_from_camera;
 
   GLenum cull_type = GL_BACK;
@@ -29,6 +30,5 @@ struct RenderGroup {
   GLenum cull_face;
 
   Camera *camera;
-  bool transparent_pass;
   bool shadow_pass;
 };

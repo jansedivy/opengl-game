@@ -1,4 +1,3 @@
-
 #include <stdio.h>
 #include <dlfcn.h>
 #include <unistd.h>
@@ -359,6 +358,7 @@ int main() {
   memory.height = 720;
   memory.should_reload = false;
   memory.app = new App();
+  memory.app->memory = &memory;
 
   PlatformAPI platform;
   platform.debug_read_entire_file = debug_read_entire_file;

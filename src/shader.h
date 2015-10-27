@@ -11,6 +11,7 @@ inline GLuint shader_get_attribute_location(Shader *shader, const char *name) {
 
 void use_program(App* app, Shader *program) {
   if (program == app->current_program) { return; }
+
   if (app->current_program != NULL) {
     for (auto it = app->current_program->attributes.begin(); it != app->current_program->attributes.end(); it++) {
       glDisableVertexAttribArray(it->second);

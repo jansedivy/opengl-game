@@ -1,5 +1,7 @@
 #pragma once
 
+#define MAX_GRASS_GROUP_COUNT 500
+
 namespace EntityFlags {
   enum EntityFlags {
     PERMANENT_FLAG = (1 << 0),
@@ -19,6 +21,7 @@ namespace EntityType {
     EntityPlayer = 0,
     EntityBlock = 1,
     EntityParticleEmitter = 2,
+    EntityGrass = 3,
     EntityWater = 4
   };
 }
@@ -58,6 +61,31 @@ struct EntityPlayer {
   EntityHeader header;
 };
 
+struct EntityGrass {
+  EntityHeader header;
+  Texture *texture;
+  float min_radius;
+  float max_radius;
+
+  float min_scale;
+  float max_scale;
+
+  u32 grass_count;
+  Model *grass_model;
+
+  vec4 *positions;
+  vec3 *rotations;
+  vec3 *tints;
+
+  GLuint position_data_id;
+  GLuint rotation_id;
+  GLuint tint_id;
+
+  bool initialized;
+  bool reload_data;
+  bool render;
+};
+
 union Entity {
   EntityHeader header;
 
@@ -65,5 +93,6 @@ union Entity {
   EntityBlock block;
   EntityWater water;
   EntityParticleEmitter particle_emitter;
+  EntityGrass grass;
 };
 

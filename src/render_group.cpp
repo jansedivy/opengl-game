@@ -19,11 +19,14 @@ bool sort_function(const RenderCommand &a, const RenderCommand &b) {
   return false;
 }
 
-bool transparent_sort_function(const RenderCommand &a, const RenderCommand &b) {
-  if (a.distance_from_camera > b.distance_from_camera) { return true; }
-  if (a.distance_from_camera < b.distance_from_camera) { return false; }
+bool depth_record_sort_function(const RenderCommand &a, const RenderCommand &b) {
+  if (a.texture < b.texture) { return true; }
+  if (b.texture < a.texture) { return false; }
 
-  return sort_function(a, b);
+  if (a.model_mesh < b.model_mesh) { return true; }
+  if (b.model_mesh < a.model_mesh) { return false; }
+
+  return false;
 }
 
 void start_render_group(RenderGroup *group) {
@@ -65,12 +68,14 @@ void change_shader(RenderGroup *group, App *app, Shader *shader) {
   }
 }
 
-void end_render_group(App *app, RenderGroup *group) {
+void end_render_group(App *app, RenderGroup *group, bool sort=true) {
   PROFILE_BLOCK("Render Group Blit");
-  if (group->transparent_pass) {
-    std::sort(group->commands.begin(), group->commands.end(), transparent_sort_function);
-  } else {
-    std::sort(group->commands.begin(), group->commands.end(), sort_function);
+  if (sort) {
+    if (group->force_shader) {
+      std::sort(group->commands.begin(), group->commands.end(), depth_record_sort_function);
+    } else {
+      std::sort(group->commands.begin(), group->commands.end(), sort_function);
+    }
   }
 
   glEnable(GL_CULL_FACE);
@@ -79,8 +84,8 @@ void end_render_group(App *app, RenderGroup *group) {
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   set_depth_mode(group, GL_LESS, true);
 
-  group->last_model = 0;
-  group->last_shader = 0;
+  group->last_model = NULL;
+  group->last_shader = NULL;
 
   if (group->shadow_pass) {
     glCullFace(GL_FRONT);
@@ -92,6 +97,7 @@ void end_render_group(App *app, RenderGroup *group) {
 
   if (group->force_shader) {
     change_shader(group, app, group->force_shader);
+    group->last_shader = group->force_shader;
   }
 
   {
@@ -109,17 +115,17 @@ void end_render_group(App *app, RenderGroup *group) {
         group->cull_face = it->cull_type;
       }
 
-      if ((it->flags & EntityFlags::RENDER_IGNORE_DEPTH) != 0) {
-        set_depth_mode(group, GL_ALWAYS);
-      } else {
-        set_depth_mode(group, GL_LESS);
-      }
-
       if ((it->flags & EntityFlags::RENDER_WIREFRAME) != 0) {
         glEnable(GL_LINE_SMOOTH);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
       } else {
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+      }
+
+      set_depth_mode(group, GL_LESS);
+
+      if ((it->flags & EntityFlags::RENDER_IGNORE_DEPTH) != 0) {
+        set_depth_mode(group, GL_ALWAYS);
       }
 
       if (shader_has_uniform(app->current_program, "uNMatrix")) {
@@ -132,6 +138,10 @@ void end_render_group(App *app, RenderGroup *group) {
 
       if (shader_has_uniform(app->current_program, "in_color")) {
         set_uniform(app->current_program, "in_color", it->color);
+      }
+
+      if (shader_has_uniform(app->current_program, "tint")) {
+        set_uniform(app->current_program, "tint", it->tint);
       }
 
       if (shader_has_uniform(app->current_program, "znear")) {
@@ -158,10 +168,12 @@ void end_render_group(App *app, RenderGroup *group) {
 
       if (group->last_model != it->model_mesh) {
         group->last_model = it->model_mesh;
-        use_model_mesh(app, it->model_mesh);
       }
+      use_model_mesh(app, it->model_mesh);
 
-      glDrawElements(GL_TRIANGLES, it->model_mesh->data.indices_count, GL_UNSIGNED_INT, 0);
+      u32 count = it->model_mesh->data.indices_count;
+
+      glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, 0);
     }
   }
 

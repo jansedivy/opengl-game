@@ -35,6 +35,7 @@ void main() {
 
   vec4 sc = depthScaleMatrix * shadow_matrix * (inPosition + vec4(normals * 4.0, 0.0));
   float shadow = 1.0;
+
   if (sc.w > 0.0 && (sc.x > 0 && sc.y > 0) && (sc.x < 1 && sc.y < 1)) {
     float sum = 0.0;
 

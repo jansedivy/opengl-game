@@ -17,6 +17,4 @@ struct DebugProfileBlock {
   }
 };
 
-static u64 global_debug_counter = 0; // TODO(sedivy): remove
-
 #define PROFILE_BLOCK(NAME, ...) DebugProfileBlock debug_profile_block_##__LINE__(__COUNTER__, (char *)NAME, ## __VA_ARGS__)

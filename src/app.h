@@ -37,15 +37,11 @@ using glm::quat;
 #include <vector>
 #include <unordered_map>
 
-#include "perlin.cpp"
+#include "perlin.h"
 
-#define STB_TRUETYPE_IMPLEMENTATION
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#define STB_IMAGE_IMPLEMENTATION
-
-#include "stb_truetype.h"
-#include "stb_image_write.h"
-#include "stb_image.h"
+#include "stb_truetype.cpp"
+#include "stb_image_write.cpp"
+#include "stb_image.cpp"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -61,7 +57,6 @@ PlatformAPI platform;
 #include "random.h"
 
 #include "debug.h"
-
 
 #define CHUNK_SIZE_X 5000
 #define CHUNK_SIZE_Y 5000
@@ -146,6 +141,7 @@ struct TerrainChunk {
 
 struct Texture {
   const char *path = NULL;
+  const char *short_name = NULL;
 
   GLuint id = 0;
   u8 *data = NULL;
@@ -304,6 +300,7 @@ struct App {
   Shader debug_program;
   Shader ui_program;
   Shader solid_program;
+  Shader record_depth_program;
   Shader phong_program;
   Shader fullscreen_program;
   Shader fullscreen_merge_alpha;
@@ -319,6 +316,7 @@ struct App {
   Shader particle_program;
   Shader skybox_program;
   Shader textured_program;
+  Shader grass_program;
   Shader controls_program;
 
   Shader *current_program;
@@ -335,11 +333,6 @@ struct App {
   u32 write_frame;
   FrameBuffer frames[2];
 
-  GLuint transparent_buffer;
-  GLuint transparent_color_texture;
-  GLuint transparent_alpha_texture;
-  GLenum transparent_buffers[2];
-
   GLuint shadow_buffer;
   GLuint shadow_depth_texture;
   u32 shadow_width;
@@ -347,12 +340,9 @@ struct App {
 
   Texture gradient_texture;
   Texture color_correction_texture;
-  Texture planet_texture;
-  Texture circle_texture;
-  Texture debug_texture;
-  Texture debug_transparent_texture;
-  Texture editor_texture;
   CubeMap cubemap;
+
+  std::unordered_map<std::string, Texture*> textures;
 
   Font font;
   Font mono_font;
@@ -387,6 +377,8 @@ struct App {
   u32 framecount;
   u32 frametimelast;
 
+  float time;
+
   bool antialiasing;
   bool color_correction;
   bool bloom;
@@ -403,4 +395,5 @@ struct App {
   GLuint particle_color_buffer;
 
   GLuint particle_model;
+  Memory *memory;
 };

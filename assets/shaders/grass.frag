@@ -1,23 +1,23 @@
-#version 330 
+#version 330
 out vec4 color;
 
 in vec3 inNormals;
 in vec4 inPosition;
-
-uniform vec4 in_color;
-
-uniform vec3 eye_position;
+in vec2 TexCoords;
+in vec3 inTint;
 
 uniform sampler2DShadow uShadow;
 uniform vec2 texmapscale;
 uniform vec3 shadow_light_position;
+
+uniform sampler2D textureImage;
+uniform mat4 shadow_matrix;
 
 float offset_lookup(sampler2DShadow map, vec4 loc, vec2 offset) {
   return textureProj(map, vec4(loc.xy + offset * texmapscale * loc.w, loc.z, loc.w));
 }
 
 const mat4 depthScaleMatrix = mat4(0.5, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.5, 0.5, 0.5, 1.0);
-uniform mat4 shadow_matrix;
 
 vec2 get_shadow_offsets(vec3 N, vec3 L) {
   float cos_alpha = clamp(dot(N, L), 0.0, 1.0);
@@ -27,17 +27,17 @@ vec2 get_shadow_offsets(vec3 N, vec3 L) {
 }
 
 void main() {
+  vec4 texture_color = texture(textureImage, TexCoords);
+
+  if (texture_color.a < 0.5) {
+    discard;
+  }
+
   vec3 normals = normalize(inNormals);
 
   vec3 direction_to_light = normalize(shadow_light_position - inPosition.xyz);
 
-  float directional_light = max(dot(direction_to_light, normals), 0.0);
-  vec3 final_directional_light = vec3(directional_light);
-
-  vec3 V = normalize(eye_position - inPosition.xyz);
-
-  vec3 rim = vec3(smoothstep(0.5, 1.0, 1.0 - max(dot(V, normals), 0.0)));
-  vec3 light = final_directional_light;
+  vec3 light = vec3(1.0f);
 
   vec2 shadow_offset = get_shadow_offsets(normals, direction_to_light);
 
@@ -84,5 +84,5 @@ void main() {
     shadow = sum * 1.0 / 144;
   }
 
-  color = vec4(in_color.xyz * (vec3(0.8) + light * shadow), in_color.a);
+  color = vec4((inTint * texture_color.xyz) * (light + shadow), texture_color.a);
 }
