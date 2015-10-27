@@ -1,6 +1,6 @@
 # OpenGL rendering demo
 
-![test](https://cldup.com/fvXXc3dBg3-3000x3000.png)
+![preview](https://cldup.com/fvXXc3dBg3-3000x3000.png)
 
 ## Features
 
