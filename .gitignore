@@ -1,3 +1,5 @@
 /debugger/
 /tags
 /build/Explore.app/Contents/Resources/assets
+*.a
+*.o
