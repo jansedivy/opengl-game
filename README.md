@@ -1,6 +1,6 @@
 # OpenGL rendering demo
 
-![preview](https://cldup.com/fvXXc3dBg3-3000x3000.png)
+![preview](screenshots/preview.png)
 
 ## Features
 
@@ -18,6 +18,6 @@
 
 #### Grass entity
 
-![grass entity](https://cldup.com/496DX0SkCd.gif)
+![grass entity](screenshots/grass.gif)
 
 
