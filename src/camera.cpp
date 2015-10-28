@@ -1,4 +1,3 @@
-
 bool is_sphere_in_frustum(Frustum *frustum, vec3 position, float radius) {
   for (int i=0; i<6; i++) {
     float distance = distance_from_plane(frustum->planes[i], position);
@@ -31,6 +30,7 @@ void debug_render_frustum(App *app, Camera *camera) {
     corners[i] = glm::vec3(hcorners[i]);
   }
 
+  app->debug_lines.reserve(24);
   app->debug_lines.push_back(corners[0]);
   app->debug_lines.push_back(corners[1]);
   app->debug_lines.push_back(corners[1]);
@@ -94,4 +94,3 @@ Ray get_mouse_ray(App *app, Input input, Memory *memory) {
 
   return ray;
 }
-

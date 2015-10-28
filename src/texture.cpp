@@ -47,6 +47,35 @@ void initialize_texture(Texture *texture, GLenum interal_type=GL_RGB, GLenum typ
   }
 }
 
+void load_and_initialize_cubemap_texture(Texture *texture, std::vector<char *> *faces) {
+  GLenum types[] = {
+    GL_TEXTURE_CUBE_MAP_POSITIVE_X, GL_TEXTURE_CUBE_MAP_NEGATIVE_X,
+    GL_TEXTURE_CUBE_MAP_POSITIVE_Y, GL_TEXTURE_CUBE_MAP_NEGATIVE_Y,
+    GL_TEXTURE_CUBE_MAP_POSITIVE_Z, GL_TEXTURE_CUBE_MAP_NEGATIVE_Z
+  };
+
+  glGenTextures(1, &texture->id);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_CUBE_MAP, texture->id);
+
+  for (u32 i=0; i<faces->size(); i++) {
+    int width, height, channels;
+    acquire_asset_file(faces->at(i));
+    u8 *image = stbi_load(faces->at(i), &width, &height, &channels, STBI_rgb_alpha);
+    glTexImage2D(types[i], 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
+    stbi_image_free(image);
+  }
+
+  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+
+  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+  glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+}
+
 inline bool process_texture(Memory *memory, Texture *texture) {
   if (texture->state == AssetState::INITIALIZED) {
     return false;

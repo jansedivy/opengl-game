@@ -14,28 +14,7 @@ mat4 make_billboard_matrix(vec3 position, vec3 camera_position, vec3 camera_up) 
   return transform;
 }
 
-void acquire_asset_file(char *path) {
-#if INTERNAL
-  PROFILE_BLOCK("Acquiring Asset");
-  char *original_file_path = join_string(debug_global_memory->debug_assets_path, path);
-
-  u64 original_time = platform.get_file_time(original_file_path);
-  u64 used_time = platform.get_file_time(path);
-
-  if (original_time > used_time) {
-    DebugReadFileResult result = platform.debug_read_entire_file(original_file_path);
-
-    PlatformFile file = platform.open_file(path, "w+");
-    platform.write_to_file(file, result.fileSize, result.contents);
-    platform.close_file(file);
-
-    platform.debug_free_file(result);
-  }
-
-  free(original_file_path);
-#endif
-}
-
+#include "assets.cpp"
 #include "raytrace.cpp"
 #include "plane.cpp"
 #include "camera.cpp"
@@ -490,38 +469,18 @@ void init(Memory *memory) {
     platform.debug_free_file(font_file);
   }
 
-  const char* faces[] = {
-    "assets/textures/right.png", "assets/textures/left.png",
-    "assets/textures/top.png", "assets/textures/bottom.png",
-    "assets/textures/back.png", "assets/textures/front.png"
-  };
+  {
+    std::vector<char *>faces;
+    faces.reserve(6);
+    faces.push_back((char *)"assets/textures/right.png");
+    faces.push_back((char *)"assets/textures/left.png");
+    faces.push_back((char *)"assets/textures/top.png");
+    faces.push_back((char *)"assets/textures/bottom.png");
+    faces.push_back((char *)"assets/textures/back.png");
+    faces.push_back((char *)"assets/textures/front.png");
 
-  GLenum types[] = {
-    GL_TEXTURE_CUBE_MAP_POSITIVE_X, GL_TEXTURE_CUBE_MAP_NEGATIVE_X,
-    GL_TEXTURE_CUBE_MAP_POSITIVE_Y, GL_TEXTURE_CUBE_MAP_NEGATIVE_Y,
-    GL_TEXTURE_CUBE_MAP_POSITIVE_Z, GL_TEXTURE_CUBE_MAP_NEGATIVE_Z
-  };
-
-  glGenTextures(1, &app->cubemap.id);
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_CUBE_MAP, app->cubemap.id);
-
-  for (u32 i=0; i<array_count(faces); i++) {
-    int width, height, channels;
-    acquire_asset_file((char *)faces[i]);
-    u8 *image = stbi_load(faces[i], &width, &height, &channels, STBI_rgb_alpha);
-    glTexImage2D(types[i], 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
-    stbi_image_free(image);
+    load_and_initialize_cubemap_texture(&app->cubemap, &faces);
   }
-
-  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-
-  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-
-  glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
 
   {
     float vertices[] = {
@@ -1109,6 +1068,11 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           sprintf(text, "Experimenal editing: %d\n", app->editor.experimental_terrain_entity_movement);
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             app->editor.experimental_terrain_entity_movement = !app->editor.experimental_terrain_entity_movement;
+          }
+
+          sprintf(text, "Show camera frustum: %d\n", app->editor.show_camera_frustum);
+          if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, text, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
+            app->editor.show_camera_frustum = !app->editor.show_camera_frustum;
           }
           break;
       }
@@ -1792,7 +1756,9 @@ void tick(Memory *memory, Input input) {
 
           fill_frustum_with_matrix(&app->shadow_camera.frustum, app->shadow_camera.view_matrix);
 
-          /* debug_render_frustum(app, &app->shadow_camera); */
+          if (app->editing_mode && app->editor.show_camera_frustum) {
+            debug_render_frustum(app, &app->shadow_camera);
+          }
         }
 
         if (app->editing_mode) {

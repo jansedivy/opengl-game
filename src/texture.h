@@ -1,6 +1,13 @@
 #pragma once
 
+enum TextureType {
+  NormalTexture,
+  CubeTexture
+};
+
 struct Texture {
+  TextureType type;
+
   const char *path = NULL;
   const char *short_name = NULL;
 
@@ -12,4 +19,3 @@ struct Texture {
 
   u32 state = AssetState::EMPTY;
 };
-

@@ -68,21 +68,8 @@ struct Box {
   vec3 max;
 };
 
-namespace AssetState {
-  enum AssetState {
-    EMPTY,
-    INITIALIZED,
-    HAS_DATA,
-    PROCESSING
-  };
-}
-
+#include "assets.h"
 #include "model.h"
-
-struct CubeMap {
-  GLuint id;
-  Model *model;
-};
 
 #include "texture.h"
 #include "chunk.h"
@@ -92,57 +79,10 @@ struct CubeMap {
 #include "camera.h"
 
 #include "render_group.h"
-
-struct EditorHandleRenderCommand {
-  float distance_from_camera;
-  mat4 model_view;
-  vec4 color;
-};
-
-namespace EditorLeftState {
-  enum EditorLeftState {
-    MODELING,
-    TERRAIN,
-    EDITOR_SETTINGS,
-    POST_PROCESSING,
-    LIGHT,
-  };
-}
-
-namespace EditorRightState {
-  enum EditorRightState {
-    COMMON,
-    SPECIFIC
-  };
-}
+#include "level.h"
 
 #include "ui.h"
-
-struct Editor {
-  bool holding_entity = false;
-  bool hovering_entity = false;
-  bool inspect_entity = false;
-  u32 entity_id;
-  u32 hover_entity;
-  float distance_from_entity_offset;
-  vec3 hold_offset;
-  float handle_size;
-
-  bool show_left = true;
-  bool show_right = true;
-
-  bool show_handles = true;
-  bool show_performance = false;
-
-  bool experimental_terrain_entity_movement = false;
-
-  float speed;
-
-  EditorLeftState::EditorLeftState left_state;
-  EditorRightState::EditorRightState right_state;
-
-  UICommandBuffer command_buffer;
-};
+#include "editor.h"
 
 struct FrameBuffer {
   GLuint id;
@@ -150,29 +90,6 @@ struct FrameBuffer {
   GLuint depth;
   u32 width;
   u32 height;
-};
-
-#pragma pack(1)
-struct LoadedLevelHeader {
-  u32 entity_count;
-};
-
-struct EntitySave {
-  u32 id;
-  EntityType::EntityType type;
-  vec3 position;
-  vec3 scale;
-  vec3 rotation;
-  vec4 color;
-  u32 flags;
-
-  bool has_model;
-  char model_name[128];
-};
-#pragma options align=reset
-
-struct LoadedLevel {
-  std::vector<EntitySave> entities;
 };
 
 struct Particle {
@@ -235,7 +152,7 @@ struct App {
 
   Texture gradient_texture;
   Texture color_correction_texture;
-  CubeMap cubemap;
+  Texture cubemap;
 
   std::unordered_map<std::string, Texture*> textures;
 
