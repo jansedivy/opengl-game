@@ -23,6 +23,7 @@ mat4 make_billboard_matrix(vec3 position, vec3 camera_position, vec3 camera_up) 
 #include "shader.cpp"
 #include "model.cpp"
 #include "chunk.cpp"
+#include "primitives.cpp"
 
 template<typename T>
 void mount_entity_to_terrain(T *entity) {
@@ -187,69 +188,9 @@ void init(Memory *memory) {
 
   {
     {
-      float latitude_bands = 30;
-      float longitude_bands = 30;
-      float radius = 1.0;
-
-      u32 vertices_count = (latitude_bands + 1) * (longitude_bands + 1) * 3;
-      u32 normals_count = vertices_count;
-      u32 uv_count = vertices_count;
-      u32 indices_count = latitude_bands * longitude_bands * 6;
-
-      Mesh mesh;
-      allocate_mesh(&mesh, vertices_count, normals_count, indices_count, uv_count);
-
-      u32 vertices_index = 0;
-      u32 normals_index = 0;
-      u32 uv_index = 0;
-      u32 indices_index = 0;
-
-      for (float lat_number = 0; lat_number <= latitude_bands; lat_number++) {
-        float theta = lat_number * pi / latitude_bands;
-        float sinTheta = sin(theta);
-        float cos_theta = cos(theta);
-
-        for (float long_number = 0; long_number <= longitude_bands; long_number++) {
-          float phi = long_number * 2 * pi / longitude_bands;
-          float sin_phi = sin(phi);
-          float cos_phi = cos(phi);
-
-          float x = cos_phi * sinTheta;
-          float y = cos_theta;
-          float z = sin_phi * sinTheta;
-
-          mesh.data.uv[uv_index++] = 1 - (long_number / longitude_bands);
-          mesh.data.uv[uv_index++] = 1 - (lat_number / latitude_bands);
-
-          mesh.data.vertices[vertices_index++] = radius * x;
-          mesh.data.vertices[vertices_index++] = radius * y;
-          mesh.data.vertices[vertices_index++] = radius * z;
-
-          mesh.data.normals[normals_index++] = x;
-          mesh.data.normals[normals_index++] = y;
-          mesh.data.normals[normals_index++] = z;
-        }
-      }
-
-      for (int lat_number = 0; lat_number < latitude_bands; lat_number++) {
-        for (int long_number = 0; long_number < longitude_bands; long_number++) {
-          int first = (lat_number * (longitude_bands + 1)) + long_number;
-          int second = first + longitude_bands + 1;
-
-          mesh.data.indices[indices_index++] = first + 1;
-          mesh.data.indices[indices_index++] = second;
-          mesh.data.indices[indices_index++] = first;
-
-          mesh.data.indices[indices_index++] = first + 1;
-          mesh.data.indices[indices_index++] = second + 1;
-          mesh.data.indices[indices_index++] = second;
-        }
-      }
-
-      app->sphere_model.mesh = mesh;
+      generate_sphere_mesh(&app->sphere_model.mesh, &app->sphere_model.radius, 40);
       app->sphere_model.id_name = allocate_string("sphere");
       app->sphere_model.path = NULL;
-      app->sphere_model.radius = radius;
       app->sphere_model.state = AssetState::HAS_DATA;
       app->models[app->sphere_model.id_name] = &app->sphere_model;
     }

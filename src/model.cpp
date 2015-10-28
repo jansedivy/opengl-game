@@ -15,13 +15,13 @@ float calculate_radius(Mesh *mesh) {
   float max_radius = 0.0f;
 
   for (u32 i=0; i<mesh->data.vertices_count; i += 3) {
-    float radius = glm::length(vec3(mesh->data.vertices[i], mesh->data.vertices[i + 1], mesh->data.vertices[i + 2]));
+    float radius = glm::length2(vec3(mesh->data.vertices[i], mesh->data.vertices[i + 1], mesh->data.vertices[i + 2]));
     if (radius > max_radius) {
       max_radius = radius;
     }
   }
 
-  return max_radius;
+  return glm::sqrt(max_radius);
 }
 
 void optimize_model(Model *model) {
