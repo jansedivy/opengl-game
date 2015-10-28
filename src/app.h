@@ -58,48 +58,14 @@ PlatformAPI platform;
 
 #include "debug.h"
 
-#define CHUNK_SIZE_X 5000
-#define CHUNK_SIZE_Y 5000
-
 static float tau = glm::pi<float>() * 2.0f;
 static float pi = glm::pi<float>();
 
-struct Shader {
-  GLuint id;
-  std::unordered_map<std::string, GLuint> uniforms;
-  std::unordered_map<std::string, GLuint> attributes;
-  bool initialized = false;
-};
+#include "shader.h"
 
 struct Box {
   vec3 min;
   vec3 max;
-};
-
-struct ModelData {
-  void *data = NULL;
-
-  float *vertices = NULL;
-  u32 vertices_count = 0;
-
-  float *normals = NULL;
-  u32 normals_count = 0;
-
-  float *uv = NULL;
-  u32 uv_count = 0;
-
-  int *indices = NULL;
-  u32 indices_count = 0;
-};
-
-struct Mesh {
-  GLuint indices_id;
-
-  GLuint vertices_id;
-  GLuint normals_id;
-  GLuint uv_id;
-
-  ModelData data;
 };
 
 namespace AssetState {
@@ -111,90 +77,19 @@ namespace AssetState {
   };
 }
 
-struct Model {
-  const char *path = NULL;
-  const char *id_name;
-
-  Mesh mesh;
-
-  float radius = 0.0f;
-
-  u32 state = AssetState::EMPTY;
-};
+#include "model.h"
 
 struct CubeMap {
   GLuint id;
   Model *model;
 };
 
-struct TerrainChunk {
-  u32 x;
-  u32 y;
-
-  Model models[3];
-
-  bool initialized;
-
-  TerrainChunk *prev;
-  TerrainChunk *next;
-};
-
-struct Texture {
-  const char *path = NULL;
-  const char *short_name = NULL;
-
-  GLuint id = 0;
-  u8 *data = NULL;
-
-  u32 width = 0;
-  u32 height = 0;
-
-  u32 state = AssetState::EMPTY;
-};
-
-struct RayMatchResult {
-  bool hit;
-  vec3 hit_position;
-};
-
+#include "texture.h"
+#include "chunk.h"
+#include "raytrace.h"
 #include "entity.h"
-
-struct Ray {
-  vec3 start;
-  vec3 direction;
-};
-
-struct Plane {
-  vec3 normal;
-  float distance;
-};
-
-struct Frustum {
-  Plane planes[6];
-};
-
-enum FrustumPlaneType {
-  LeftPlane = 0,
-  RightPlane = 1,
-  TopPlane = 2,
-  BottomPlane = 3,
-  NearPlane = 4,
-  FarPlane = 5
-};
-
-struct Camera {
-  mat4 view_matrix;
-
-  vec3 rotation;
-  vec3 position;
-  Frustum frustum;
-
-  bool ortho = false;
-  vec2 size;
-
-  float far;
-  float near;
-};
+#include "plane.h"
+#include "camera.h"
 
 #include "render_group.h"
 

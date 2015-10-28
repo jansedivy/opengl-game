@@ -95,4 +95,3 @@ union Entity {
   EntityParticleEmitter particle_emitter;
   EntityGrass grass;
 };
-

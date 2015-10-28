@@ -151,10 +151,6 @@ extern "C" {
     char *name;
   };
 
-  struct LogMessage {
-    char text[128];
-  };
-
   struct Memory {
     bool should_reload;
 

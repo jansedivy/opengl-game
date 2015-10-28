@@ -1,3 +1,37 @@
+void deserialize_entity(App *app, EntitySave *src, Entity *dest) {
+  dest->header.id = src->id;
+  dest->header.type = src->type;
+  dest->header.position = src->position;
+  dest->header.flags = src->flags;
+
+  dest->header.texture = NULL;
+
+  dest->header.scale = src->scale;
+  dest->header.rotation = src->rotation;
+  dest->header.color = src->color;
+  if (src->has_model) {
+    dest->header.model = get_model_by_name(app, src->model_name);
+  } else {
+    dest->header.model = NULL;
+  }
+
+  if (dest->header.flags & EntityFlags::MOUNT_TO_TERRAIN) {
+    mount_entity_to_terrain(dest);
+  }
+}
+
+vec3 read_vector(char *start) {
+  vec3 result;
+  sscanf(start, "%f,%f,%f", &result.x, &result.y, &result.z);
+  return result;
+}
+
+vec4 read_vector4(char *start) {
+  vec4 result;
+  sscanf(start, "%f,%f,%f,%f", &result.x, &result.y, &result.z, &result.w);
+  return result;
+}
+
 void save_binary_level_file(LoadedLevel loaded_level) {
   LoadedLevelHeader header;
   header.entity_count = loaded_level.entities.size();
