@@ -7,6 +7,7 @@
 - Randomly generated terrain
 - Asset streaming
 - Reloadable C and shader code
+- Reloadable assets (textures, models)
 - Post processing
 - Editable levels with entity inspector
 - Profiling code
@@ -19,5 +20,3 @@
 #### Grass entity
 
 ![grass entity](screenshots/grass.gif)
-
-

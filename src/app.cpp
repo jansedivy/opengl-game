@@ -830,12 +830,12 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
     switch (app->editor.left_state) {
       {
         case EditorLeftState::MODELING:
-          struct Something {
+          struct EntityButtonSelection {
             const char *id_name;
             const char *display_name;
           };
 
-          Something types[] = {
+          EntityButtonSelection types[] = {
             {"tree_001", "Tree 1"},
             {"tree_002", "Tree 2"},
             {"tree_003", "Tree 3"},
