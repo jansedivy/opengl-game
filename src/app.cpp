@@ -2,8 +2,51 @@
 
 #include "string.cpp"
 
-mat4 make_billboard_matrix(vec3 position, vec3 camera_position, vec3 camera_up) {
-  vec3 look = glm::normalize(camera_position - position);
+void update_world_position(WorldPosition *position) {
+  int x = glm::floor(position->offset_.x / (float)CHUNK_SIZE_X);
+  int z = glm::floor(position->offset_.z / (float)CHUNK_SIZE_Y);
+
+  position->offset_.x -= x * CHUNK_SIZE_X;
+  position->offset_.z -= z * CHUNK_SIZE_Y;
+
+  position->chunk_x += x;
+  position->chunk_y += z;
+}
+
+vec3 get_world_position(WorldPosition position) {
+  return position.offset_ + vec3(CHUNK_SIZE_X * position.chunk_x, 0.0, CHUNK_SIZE_Y * position.chunk_y);
+}
+
+vec3 position_direction(WorldPosition &from, WorldPosition &to) {
+  return glm::normalize(get_world_position(to) - get_world_position(from));
+}
+
+WorldPosition add_offset(WorldPosition position, vec3 offset) {
+  position.offset_ += offset;
+
+  update_world_position(&position);
+
+  return position;
+};
+
+WorldPosition make_position(vec3 value) {
+  WorldPosition result;
+
+  result.chunk_x = 0;
+  result.chunk_y = 0;
+  result.offset_ = value;
+
+  update_world_position(&result);
+
+  return result;
+}
+
+float position_distance2(WorldPosition &a, WorldPosition &b) {
+  return glm::distance2(get_world_position(a), get_world_position(b));
+}
+
+mat4 make_billboard_matrix(WorldPosition &position, WorldPosition &camera_position, vec3 camera_up) {
+  vec3 look = position_direction(position, camera_position);
   vec3 right = glm::cross(camera_up, look);
   vec3 up = glm::cross(look, right);
   mat4 transform;
@@ -13,6 +56,22 @@ mat4 make_billboard_matrix(vec3 position, vec3 camera_position, vec3 camera_up) 
   /* transform[3] = vec4(position, 1.0f); */
   return transform;
 }
+
+inline mat4 get_model_view(Entity *entity, Camera *camera) {
+  mat4 model_view;
+
+  model_view = glm::translate(model_view, get_world_position(entity->header.position));
+  if (entity->header.flags & EntityFlags::LOOK_AT_CAMERA) {
+    model_view *= make_billboard_matrix(entity->header.position, camera->position, vec3(camera->view_matrix[0][1], camera->view_matrix[1][1], camera->view_matrix[2][1]));
+  }
+  model_view = glm::rotate(model_view, entity->header.rotation.x, vec3(1.0, 0.0, 0.0));
+  model_view = glm::rotate(model_view, entity->header.rotation.y, vec3(0.0, 1.0, 0.0));
+  model_view = glm::rotate(model_view, entity->header.rotation.z, vec3(0.0, 0.0, 1.0));
+  model_view = glm::scale(model_view, entity->header.scale);
+
+  return model_view;
+}
+
 
 #include "assets.cpp"
 #include "raytrace.cpp"
@@ -27,7 +86,8 @@ mat4 make_billboard_matrix(vec3 position, vec3 camera_position, vec3 camera_up) 
 
 template<typename T>
 void mount_entity_to_terrain(T *entity) {
-  entity->header.position.y = get_terrain_height_at(entity->header.position.x, entity->header.position.z);
+  vec3 position = get_world_position(entity->header.position);
+  entity->header.position.offset_.y = get_terrain_height_at(position.x, position.z);
 }
 
 Model *get_model_by_name(App *app, char *name) {
@@ -514,26 +574,15 @@ void init(Memory *memory) {
 
   load_debug_level(memory, app);
 
-  {
-    Entity *entity = app->entities + app->entity_count;
-    entity->header.id = next_entity_id(app);
-    entity->header.type = EntityType::EntityPlayer;
-    entity->header.flags = EntityFlags::RENDER_HIDDEN | EntityFlags::HIDE_IN_EDITOR;
-    entity->header.position.x = 0.0f;
-    entity->header.position.y = 0.0f;
-    entity->header.position.z = 0.0f;
-    entity->header.color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
-    entity->header.model = &app->sphere_model;
-
-    app->entity_count += 1;
-
-    app->camera_follow = entity->header.id;
-  }
-
-  Entity *follow_entity = get_entity_by_id(app, app->camera_follow);
-  follow_entity->header.rotation.y = 2.5f;
-  follow_entity->header.position.x = 20000.0f;
-  follow_entity->header.position.z = 20000.0f;
+  Entity *follow_entity = app->entities + app->entity_count;
+  follow_entity->header.id = next_entity_id(app);
+  follow_entity->header.type = EntityType::EntityPlayer;
+  follow_entity->header.flags = EntityFlags::RENDER_HIDDEN | EntityFlags::HIDE_IN_EDITOR;
+  follow_entity->header.position = make_position(vec3(20000.0f, 20000.0f, 20000.0f));
+  follow_entity->header.color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+  follow_entity->header.model = &app->sphere_model;
+  app->entity_count += 1;
+  app->camera_follow = follow_entity->header.id;
 
   {
     /* generate_trees(app); */
@@ -605,16 +654,18 @@ bool sort_particles_by_distance(const Particle &a, const Particle &b) {
   return a.distance_from_camera > b.distance_from_camera;
 }
 
-void render_debug_circle(std::vector<EditorHandleRenderCommand> *commands, Camera *camera, vec3 position, float size, vec4 color) {
-  if (!is_sphere_in_frustum(&camera->frustum, position, size)) { return; }
+void render_debug_circle(std::vector<EditorHandleRenderCommand> *commands, Camera *camera, WorldPosition &position, float size, vec4 color) {
+  vec3 world_position = get_world_position(position);
+
+  if (!is_sphere_in_frustum(&camera->frustum, world_position, size)) { return; }
 
   mat4 model_view;
-  model_view = glm::translate(model_view, position);
+  model_view = glm::translate(model_view, world_position);
   model_view = glm::scale(model_view, vec3(size));
   model_view *= make_billboard_matrix(position, camera->position, vec3(camera->view_matrix[0][1], camera->view_matrix[1][1], camera->view_matrix[2][1]));
 
   EditorHandleRenderCommand command;
-  command.distance_from_camera = glm::distance2(camera->position, position);
+  command.distance_from_camera = position_distance2(camera->position, position);
   command.model_view = model_view;
   command.color = color;
 
@@ -666,7 +717,8 @@ void draw_3d_debug_info(Input &input, App *app) {
         if (app->editor.inspect_entity && app->editor.entity_id == grass->header.id) {
           for (u32 grass_index=0; grass_index<grass->grass_count; grass_index++) {
             vec4 data = grass->positions[grass_index];
-            render_debug_circle(&render_commands, &app->camera, vec3(data), data.w / 7.0f, vec4(0.4, 1.0, 0.4, 0.4));
+            WorldPosition position = make_position(vec3(data));
+            render_debug_circle(&render_commands, &app->camera, position, data.w / 7.0f, vec4(0.4, 1.0, 0.4, 0.4));
           }
         }
       }
@@ -729,7 +781,9 @@ void generate_grass(EntityGrass *grass) {
   grass->grass_count = 0;
   grass->render = false;
 
-  generate_random_grass_positions(vec2(grass->header.position.x, grass->header.position.z), grass->positions, MAX_GRASS_GROUP_COUNT, grass->min_radius, grass->max_radius, grass->min_scale, grass->max_scale, &grass->grass_count);
+  vec3 position = get_world_position(grass->header.position);
+
+  generate_random_grass_positions(vec2(position.x, position.z), grass->positions, MAX_GRASS_GROUP_COUNT, grass->min_radius, grass->max_radius, grass->min_scale, grass->max_scale, &grass->grass_count);
 
   for (u32 i=0; i<grass->grass_count; i++) {
     grass->rotations[i] = vec3(0.0f, get_random_float_between(0.0f, tau), 0.0f);
@@ -857,7 +911,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
               entity->header.id = next_entity_id(app);
               entity->header.type = EntityType::EntityBlock;
-              entity->header.position = app->camera.position + forward * 400.0f;
+              entity->header.position = add_offset(app->camera.position, forward * 400.0f);
               entity->header.scale = vec3(100.f);
               entity->header.model = get_model_by_name(app, (char *)types[i].id_name);
               entity->header.color = vec4(0.31f, 0.18f, 0.02f, 1.0f);
@@ -884,7 +938,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
             entity->header.id = next_entity_id(app);
             entity->header.type = EntityType::EntityParticleEmitter;
-            entity->header.position = app->camera.position + forward * 400.0f;
+            entity->header.position = add_offset(app->camera.position, forward * 400.0f);
             entity->header.model = NULL;
             entity->header.flags = EntityFlags::RENDER_HIDDEN | EntityFlags::PERMANENT_FLAG;
             entity->particle_size = 40.0f;
@@ -904,7 +958,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
             entity->header.id = next_entity_id(app);
             entity->header.type = EntityType::EntityGrass;
-            entity->header.position = app->camera.position + forward * 400.0f;
+            entity->header.position = add_offset(app->camera.position, forward * 400.0f);
             entity->header.model = NULL;
             entity->header.flags = EntityFlags::MOUNT_TO_TERRAIN | EntityFlags::RENDER_HIDDEN | EntityFlags::PERMANENT_FLAG;
 
@@ -942,7 +996,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
             entity->header.id = next_entity_id(app);
             entity->header.type = EntityType::EntityWater;
-            entity->header.position = app->camera.position + forward * 400.0f;
+            entity->header.position = add_offset(app->camera.position, forward * 400.0f);
             entity->header.scale = vec3(100.0f);
             entity->header.model = get_model_by_name(app, (char *)"quad");
             entity->header.color = vec4(0.2f, 0.45f, 0.5f, 0.5f);
@@ -962,7 +1016,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
             entity->header.id = next_entity_id(app);
             entity->header.type = EntityType::EntityBlock;
-            entity->header.position = app->camera.position + forward * 400.0f;
+            entity->header.position = add_offset(app->camera.position, forward * 400.0f);
             entity->header.scale = vec3(100.0f);
             entity->header.model = get_model_by_name(app, (char *)"sphere");
             entity->header.color = vec4(0.2f, 0.45f, 0.5f, 1.0f);
@@ -1088,7 +1142,13 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             sprintf(text, "type: %d\n", entity->header.type);
             push_debug_text(&app->font, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
-            push_debug_vector(&draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "position", entity->header.position, default_background_color);
+            sprintf(text, "chunk_x: %d\n", entity->header.position.chunk_x);
+            push_debug_text(&app->font, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
+
+            sprintf(text, "chunk_y: %d\n", entity->header.position.chunk_y);
+            push_debug_text(&app->font, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
+
+            push_debug_vector(&draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "position", entity->header.position.offset_, default_background_color);
             push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "rotation", &entity->header.rotation, default_background_color, 0.0f, pi * 2);
             push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "scale", &entity->header.scale, default_background_color, 0.0f, 200.0f);
 
@@ -1189,21 +1249,6 @@ void render_skybox(App *app) {
   glEnable(GL_CULL_FACE);
 }
 
-inline mat4 get_model_view(Entity *entity, Camera *camera) {
-  mat4 model_view;
-
-  model_view = glm::translate(model_view, entity->header.position);
-  if (entity->header.flags & EntityFlags::LOOK_AT_CAMERA) {
-    model_view *= make_billboard_matrix(entity->header.position, camera->position, vec3(camera->view_matrix[0][1], camera->view_matrix[1][1], camera->view_matrix[2][1]));
-  }
-  model_view = glm::rotate(model_view, entity->header.rotation.x, vec3(1.0, 0.0, 0.0));
-  model_view = glm::rotate(model_view, entity->header.rotation.y, vec3(0.0, 1.0, 0.0));
-  model_view = glm::rotate(model_view, entity->header.rotation.z, vec3(0.0, 0.0, 1.0));
-  model_view = glm::scale(model_view, entity->header.scale);
-
-  return model_view;
-}
-
 void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shader=NULL, bool shadow_pass=false) {
   PROFILE_BLOCK("Draw Scene");
   start_render_group(&app->render_group);
@@ -1240,7 +1285,7 @@ void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shade
             set_uniform(app->current_program, "uPMatrix", camera->view_matrix);
             set_uniformi(app->current_program, "uShadow", 0);
             set_uniform(app->current_program, "texmapscale", vec2(1.0f / app->shadow_width, 1.0f / app->shadow_height));
-            set_uniform(app->current_program, "shadow_light_position", app->shadow_camera.position);
+            set_uniform(app->current_program, "shadow_light_position", get_world_position(app->shadow_camera.position));
 
             glActiveTexture(GL_TEXTURE0 + 1);
             glBindTexture(GL_TEXTURE_2D, grass->texture->id);
@@ -1335,7 +1380,7 @@ void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shade
 
     if (model_wait || texture_wait) { continue; }
 
-    if (!is_sphere_in_frustum(&camera->frustum, entity->header.position, entity->header.model->radius * glm::compMax(entity->header.scale))) {
+    if (!is_sphere_in_frustum(&camera->frustum, get_world_position(entity->header.position), entity->header.model->radius * glm::compMax(entity->header.scale))) {
       continue;
     }
 
@@ -1385,8 +1430,8 @@ void render_terrain(Memory *memory, App *app) {
   set_uniform(app->current_program, "shadow_matrix", app->shadow_camera.view_matrix);
   set_uniform(app->current_program, "texmapscale", vec2(1.0f / app->shadow_width, 1.0f / app->shadow_height));
 
-  int x_coord = static_cast<int>(app->camera.position.x / CHUNK_SIZE_X);
-  int y_coord = static_cast<int>(app->camera.position.z / CHUNK_SIZE_Y);
+  int x_coord = app->camera.position.chunk_x;
+  int y_coord = app->camera.position.chunk_y;
 
   {
     PROFILE_BLOCK("Terrain render", 17*17);
@@ -1527,7 +1572,7 @@ void tick(Memory *memory, Input input) {
           movement += right;
         }
 
-        float speed = 1000.3f;
+        float speed = 900.0f;
 
         if (input.alt && input.once.enter) {
           platform.toggle_fullscreen();
@@ -1549,6 +1594,8 @@ void tick(Memory *memory, Input input) {
         for (u32 i=0; i<app->entity_count; i++) {
           Entity *entity = app->entities + i;
 
+          update_world_position(&entity->header.position);
+
           if (entity->header.type == EntityType::EntityParticleEmitter) {
             EntityParticleEmitter *emitter = (EntityParticleEmitter *)entity;
 
@@ -1557,7 +1604,7 @@ void tick(Memory *memory, Input input) {
               app->next_particle = 0;
             }
 
-            particle->position = emitter->header.position;
+            particle->position = get_world_position(emitter->header.position);
             particle->color = emitter->initial_color;
             particle->size = emitter->particle_size;
             particle->velocity = vec3(get_random_float_between(-500.0f, 500.0f), get_random_float_between(0.0f, 1000.0f), get_random_float_between(-500.0f, 500.0f));
@@ -1567,10 +1614,7 @@ void tick(Memory *memory, Input input) {
             entity->header.velocity += movement * speed * input.delta_time;
             entity->header.velocity = glm::mix(entity->header.velocity, vec3(0.0f), input.delta_time * 10.0f);
 
-            entity->header.position += entity->header.velocity * input.delta_time;
-
-            if (entity->header.position.x < 0) { entity->header.position.x = 0; }
-            if (entity->header.position.z < 0) { entity->header.position.z = 0; }
+            entity->header.position = add_offset(entity->header.position, entity->header.velocity * input.delta_time);
           }
         }
 
@@ -1596,23 +1640,24 @@ void tick(Memory *memory, Input input) {
           }
         }
 
+        vec3 player_position = get_world_position(follow_entity->header.position);
         if (!app->editing_mode) {
-          follow_entity->header.position.y = get_terrain_height_at(follow_entity->header.position.x, follow_entity->header.position.z);
+          follow_entity->header.position.offset_.y = get_terrain_height_at(player_position.x, player_position.z);
         } else {
-          float terrain = get_terrain_height_at(follow_entity->header.position.x, follow_entity->header.position.z);
-          if (follow_entity->header.position.y < terrain) {
-            follow_entity->header.position.y = terrain;
+          float terrain = get_terrain_height_at(player_position.x, player_position.z);
+          if (player_position.y < terrain) {
+            follow_entity->header.position.offset_.y = terrain;
           }
         }
 
         app->camera.rotation = follow_entity->header.rotation;
-        app->camera.position = follow_entity->header.position + vec3(0.0f, 70.0f, 0.0f);
+        app->camera.position = add_offset(follow_entity->header.position, vec3(0.0f, 70.0f, 0.0f));
 
         app->camera.view_matrix = get_camera_projection(&app->camera);
         app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.x, vec3(1.0, 0.0, 0.0));
         app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.y, vec3(0.0, 1.0, 0.0));
         app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.z, vec3(0.0, 0.0, 1.0));
-        app->camera.view_matrix = glm::translate(app->camera.view_matrix, (app->camera.position * -1.0f));
+        app->camera.view_matrix = glm::translate(app->camera.view_matrix, (get_world_position(app->camera.position) * -1.0f));
         fill_frustum_with_matrix(&app->camera.frustum, app->camera.view_matrix);
 
         Ray ray = get_mouse_ray(app, input, memory);
@@ -1631,7 +1676,7 @@ void tick(Memory *memory, Input input) {
             if (entity->header.model && entity->header.model->state == AssetState::INITIALIZED) {
               hit = ray_match_entity(app, ray, entity);
             } else {
-              hit = ray_match_sphere(ray, entity->header.position, app->editor.handle_size);
+              hit = ray_match_sphere(ray, get_world_position(entity->header.position), app->editor.handle_size);
             }
 
             if (hit.hit) {
@@ -1676,7 +1721,7 @@ void tick(Memory *memory, Input input) {
             app->editor.entity_id = closest_entity->header.id;
             app->editor.holding_entity = true;
             app->editor.distance_from_entity_offset = closest_distance;
-            app->editor.hold_offset = hit_position - closest_entity->header.position;
+            app->editor.hold_offset = hit_position - get_world_position(closest_entity->header.position);
             app->editor.inspect_entity = true;
           } else {
             app->editor.inspect_entity = false;
@@ -1689,11 +1734,11 @@ void tick(Memory *memory, Input input) {
           forward.y = -glm::sin(app->shadow_camera.rotation[0]);
           forward.z = -glm::cos(app->shadow_camera.rotation[1]) * glm::cos(app->shadow_camera.rotation[0]);
 
-          app->shadow_camera.position = app->camera.position + glm::normalize(forward) * ((app->shadow_camera.far - app->shadow_camera.near) / 2.0f * -1.0f);
+          app->shadow_camera.position = add_offset(app->camera.position, glm::normalize(forward) * ((app->shadow_camera.far - app->shadow_camera.near) / 2.0f * -1.0f));
           app->shadow_camera.view_matrix = get_camera_projection(&app->shadow_camera);
           app->shadow_camera.view_matrix = glm::rotate(app->shadow_camera.view_matrix, app->shadow_camera.rotation.x, vec3(1.0, 0.0, 0.0));
           app->shadow_camera.view_matrix = glm::rotate(app->shadow_camera.view_matrix, app->shadow_camera.rotation.y, vec3(0.0, 1.0, 0.0));
-          app->shadow_camera.view_matrix = glm::translate(app->shadow_camera.view_matrix, (app->shadow_camera.position * -1.0f));
+          app->shadow_camera.view_matrix = glm::translate(app->shadow_camera.view_matrix, (get_world_position(app->shadow_camera.position) * -1.0f));
 
           fill_frustum_with_matrix(&app->shadow_camera.frustum, app->shadow_camera.view_matrix);
 
@@ -1701,6 +1746,8 @@ void tick(Memory *memory, Input input) {
             debug_render_frustum(app, &app->shadow_camera);
           }
         }
+
+        /* debug_render_frustum(app, &app->camera); */
 
         if (app->editing_mode) {
           if (input.right_mouse_down) {
@@ -1726,14 +1773,14 @@ void tick(Memory *memory, Input input) {
               if (app->editor.experimental_terrain_entity_movement) {
                 RayMatchResult hit = ray_match_terrain(app, ray);
                 if (hit.hit) {
-                  entity->header.position = hit.hit_position;
+                  entity->header.position = make_position(hit.hit_position);
                 }
               } else {
-                entity->header.position = (ray.start + ray.direction * app->editor.distance_from_entity_offset) - app->editor.hold_offset;
+                entity->header.position = make_position((ray.start + ray.direction * app->editor.distance_from_entity_offset) - app->editor.hold_offset);
               }
               mount_entity_to_terrain(entity);
             } else {
-              entity->header.position = (ray.start + ray.direction * app->editor.distance_from_entity_offset) - app->editor.hold_offset;
+              entity->header.position = add_offset(add_offset(app->camera.position, ray.direction * app->editor.distance_from_entity_offset), -app->editor.hold_offset);
             }
           }
         } else {

@@ -44,7 +44,7 @@ void change_shader(RenderGroup *group, App *app, Shader *shader) {
   use_program(app, shader);
 
   if (shader_has_uniform(app->current_program, "eye_position")) {
-    set_uniform(app->current_program, "eye_position", app->camera.position);
+    set_uniform(app->current_program, "eye_position", get_world_position(app->camera.position));
   }
 
   if (shader_has_uniform(app->current_program, "uPMatrix")) {
@@ -64,7 +64,7 @@ void change_shader(RenderGroup *group, App *app, Shader *shader) {
   }
 
   if (shader_has_uniform(app->current_program, "shadow_light_position")) {
-    set_uniform(app->current_program, "shadow_light_position", app->shadow_camera.position);
+    set_uniform(app->current_program, "shadow_light_position", get_world_position(app->shadow_camera.position));
   }
 }
 

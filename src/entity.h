@@ -26,11 +26,19 @@ namespace EntityType {
   };
 }
 
+struct WorldPosition {
+  u32 chunk_x;
+  u32 chunk_y;
+
+  vec3 offset_;
+};
+
 struct EntityHeader {
   u32 id = 0;
   u32 flags = 0;
   EntityType::EntityType type;
-  vec3 position;
+
+  WorldPosition position;
 
   Model *model = NULL;
   Texture *texture = 0;

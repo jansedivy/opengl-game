@@ -453,7 +453,7 @@ int main() {
 
     Input input = {};
 
-    input.delta_time = delta;
+    input.delta_time = (1.0f/60.0f);
 
     if (get_file_time((char *)code.path) > code.last_time_write) {
       memory.should_reload = true;

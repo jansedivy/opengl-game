@@ -1,41 +1,57 @@
-#pragma once
-
-template<typename T>
-class Array {
+template<typename T> class Array {
   public:
-    Array() {
-      count = 0;
-      max_size = 0;
-      buffer = NULL;
-    }
-
+    Array() : capacity(0), size(0), data(0) {}
     ~Array() {
-      free(buffer);
+      free(data);
     }
 
-    inline void add(T value) {
-      if (buffer == NULL) {
-        max_size = 1;
-        buffer = static_cast<T *>(malloc(sizeof(T) * max_size));
-      }
+    T &operator[](u32 index);
+    const T &operator[](u32 index) const;
 
-      if (count >= max_size) {
-        u32 new_size = max_size * 2;
-        buffer = static_cast<T *>(realloc(buffer, new_size));
-        max_size = new_size;
-      }
-
-      buffer[count] = value;
-      count += 1;
-    }
-
-    inline T &get(u32 index) {
-      assert(index < count);
-      return buffer[index];
-    }
-
-    u32 count;
-    u32 max_size;
-
-    T *buffer;
+    u32 capacity;
+    u32 size;
+    T *data;
 };
+
+template<typename T> T* begin(Array<T> &array) {
+  return array.data;
+}
+
+template<typename T> const T* begin(const Array<T> &array) {
+  return array.data;
+}
+
+template<typename T> T* end(Array<T> &array) {
+  return array.data + array.size;
+}
+
+template<typename T> const T* end(const Array<T> &array) {
+  return array.data + array.size;
+}
+
+template<typename T> T &Array<T>::operator[](u32 index) {
+  return data[index];
+};
+
+template<typename T> const T &Array<T>::operator[](u32 index) const {
+  return data[index];
+};
+
+template<typename T> void grow_array(Array<T> &array) {
+  u32 new_capacity = array.capacity * 2 + 8;
+
+  T *data = (T *)malloc(sizeof(T) * new_capacity);
+  memcpy(data, array.data, sizeof(T) * array.size);
+  free(array.data);
+
+  array.data = data;
+  array.capacity = new_capacity;
+}
+
+template<typename T> void push_back(Array<T> &array, T value) {
+  if (array.size + 1 > array.capacity) {
+    grow_array(array);
+  }
+
+  array.data[array.size++] = value;
+}

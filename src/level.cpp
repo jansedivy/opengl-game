@@ -1,7 +1,7 @@
 void deserialize_entity(App *app, EntitySave *src, Entity *dest) {
   dest->header.id = src->id;
   dest->header.type = src->type;
-  dest->header.position = src->position;
+  dest->header.position = make_position(src->position);
   dest->header.flags = src->flags;
 
   dest->header.texture = NULL;
@@ -104,7 +104,7 @@ void save_level(Memory *memory, App *app) {
       EntitySave save_entity = {};
       save_entity.id = entity->header.id;
       save_entity.type = entity->header.type;
-      save_entity.position = entity->header.position;
+      save_entity.position = get_world_position(entity->header.position);
       save_entity.scale = entity->header.scale;
       save_entity.rotation = entity->header.rotation;
       save_entity.color = entity->header.color;

@@ -87,26 +87,14 @@ RayMatchResult ray_match_entity(App *app, Ray ray, Entity *entity) {
     return result;
   }
 
-  RayMatchResult sphere = ray_match_sphere(ray, entity->header.position, entity->header.model->radius * glm::compMax(entity->header.scale));
+  RayMatchResult sphere = ray_match_sphere(ray, get_world_position(entity->header.position), entity->header.model->radius * glm::compMax(entity->header.scale));
   if (!sphere.hit) {
     result.hit = false;
     return result;
   }
   PROFILE_BLOCK("Ray Entity");
 
-  mat4 model_view;
-  model_view = glm::translate(model_view, entity->header.position);
-
-  if (entity->header.flags & EntityFlags::LOOK_AT_CAMERA) {
-    model_view *= make_billboard_matrix(entity->header.position, app->camera.position, vec3(app->camera.view_matrix[0][1], app->camera.view_matrix[1][1], app->camera.view_matrix[2][1]));
-  }
-
-  model_view = glm::rotate(model_view, entity->header.rotation.x, vec3(1.0, 0.0, 0.0));
-  model_view = glm::rotate(model_view, entity->header.rotation.y, vec3(0.0, 1.0, 0.0));
-  model_view = glm::rotate(model_view, entity->header.rotation.z, vec3(0.0, 0.0, 1.0));
-
-  model_view = glm::scale(model_view, entity->header.scale);
-
+  mat4 model_view = get_model_view(entity, &app->camera);
   mat4 res = glm::inverse(model_view);
 
   vec3 start = vec3(res * vec4(ray.start, 1.0f));
