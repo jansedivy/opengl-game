@@ -30,7 +30,7 @@ bool depth_record_sort_function(const RenderCommand &a, const RenderCommand &b) 
 }
 
 void start_render_group(RenderGroup *group) {
-  group->commands.erase(group->commands.begin(), group->commands.end());
+  array::clear(group->commands);
 }
 
 inline void set_depth_mode(RenderGroup *group, GLenum mode, bool force=false) {
@@ -72,9 +72,9 @@ void end_render_group(App *app, RenderGroup *group, bool sort=true) {
   PROFILE_BLOCK("Render Group Blit");
   if (sort) {
     if (group->force_shader) {
-      std::sort(group->commands.begin(), group->commands.end(), depth_record_sort_function);
+      std::sort(array::begin(group->commands), array::end(group->commands), depth_record_sort_function);
     } else {
-      std::sort(group->commands.begin(), group->commands.end(), sort_function);
+      std::sort(array::begin(group->commands), array::end(group->commands), sort_function);
     }
   }
 
@@ -101,8 +101,8 @@ void end_render_group(App *app, RenderGroup *group, bool sort=true) {
   }
 
   {
-    PROFILE_BLOCK("Render Entity", group->commands.size());
-    for (auto it = group->commands.begin(); it != group->commands.end(); it++) {
+    PROFILE_BLOCK("Render Entity", group->commands.size);
+    for (auto it = array::begin(group->commands); it != array::end(group->commands); it++) {
       if (group->force_shader == NULL) {
         if (group->last_shader != it->shader) {
           change_shader(group, app, it->shader);
@@ -183,5 +183,5 @@ void end_render_group(App *app, RenderGroup *group, bool sort=true) {
 }
 
 void add_command_to_render_group(RenderGroup *group, RenderCommand command) {
-  group->commands.push_back(command);
+  array::push_back(group->commands, command);
 }

@@ -19,7 +19,7 @@ struct RenderCommand {
 };
 
 struct RenderGroup {
-  std::vector<RenderCommand> commands;
+  Array<RenderCommand> commands;
 
   Mesh *last_model;
   Shader *last_shader;

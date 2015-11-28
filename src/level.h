@@ -20,5 +20,5 @@ struct EntitySave {
 #pragma options align=reset
 
 struct LoadedLevel {
-  std::vector<EntitySave> entities;
+  Array<EntitySave> entities;
 };

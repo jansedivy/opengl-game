@@ -31,6 +31,7 @@ libraries="
   -I./libs/vcache
   -I./libs/perlin
   -I./libs/stb
+  -I./libs/base
 
   -F./build/$app_name/Contents/Frameworks
   -rpath @executable_path/../Frameworks

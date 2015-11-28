@@ -34,7 +34,6 @@ using glm::quat;
 
 #include <cstdio>
 
-#include <vector>
 #include <unordered_map>
 
 #include "perlin.h"
@@ -53,7 +52,7 @@ PlatformAPI platform;
 #include "scope_exit.h"
 
 #include "font.h"
-#include "array.h"
+#include <base/array.h>
 #include "random.h"
 
 #include "debug.h"
@@ -139,7 +138,7 @@ struct App {
 
   GLuint debug_buffer;
   GLuint debug_index_buffer;
-  std::vector<vec3> debug_lines;
+  Array<vec3> debug_lines;
 
   u32 read_frame;
   u32 write_frame;
@@ -165,8 +164,7 @@ struct App {
 
   std::unordered_map<std::string, Model*> models;
 
-  Entity *entities;
-  u32 entity_count = 0;
+  Array<Entity> entities;
 
   Camera shadow_camera;
 

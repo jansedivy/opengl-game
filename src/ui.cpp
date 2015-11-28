@@ -37,63 +37,50 @@ void draw_string(UICommandBuffer *command_buffer, Font *font, float x, float y, 
     };
 
     for (u32 i=0; i<array_count(vertices_data); i++) {
-      command_buffer->vertices.push_back(vertices_data[i]);
+      array::push_back(command_buffer->vertices, vertices_data[i]);
     }
     command.vertices_count += 6;
   }
 
-  command_buffer->commands.push_back(command);
+  array::push_back(command_buffer->commands, command);
 }
 
 void debug_render_rect(UICommandBuffer *command_buffer, float x, float y, float width, float height, vec4 color, vec4 image_color=vec4(0.0f), Texture* texture=NULL) {
-  command_buffer->vertices.push_back(x);
-  command_buffer->vertices.push_back(y);
+  array::push_back(command_buffer->vertices, x);
+  array::push_back(command_buffer->vertices, y);
 
-  /* command_buffer->vertices.push_back(scale * x_index + 0.0f * scale); */
-  /* command_buffer->vertices.push_back(scale * y_index + 0.0f * scale); */
+  array::push_back(command_buffer->vertices, 0.0f);
+  array::push_back(command_buffer->vertices, 0.0f);
 
-  command_buffer->vertices.push_back(0.0f);
-  command_buffer->vertices.push_back(0.0f);
+  array::push_back(command_buffer->vertices, x + width);
+  array::push_back(command_buffer->vertices, y);
 
-  command_buffer->vertices.push_back(x + width);
-  command_buffer->vertices.push_back(y);
+  array::push_back(command_buffer->vertices, 1.0f);
+  array::push_back(command_buffer->vertices, 0.0f);
 
-  command_buffer->vertices.push_back(1.0f);
-  command_buffer->vertices.push_back(0.0f);
-  /* command_buffer->vertices.push_back(scale * x_index + 1.0f * scale); */
-  /* command_buffer->vertices.push_back(scale * y_index + 0.0f * scale); */
+  array::push_back(command_buffer->vertices, x);
+  array::push_back(command_buffer->vertices, y + height);
 
-  command_buffer->vertices.push_back(x);
-  command_buffer->vertices.push_back(y + height);
+  array::push_back(command_buffer->vertices, 0.0f);
+  array::push_back(command_buffer->vertices, 1.0f);
 
-  command_buffer->vertices.push_back(0.0f);
-  command_buffer->vertices.push_back(1.0f);
-  /* command_buffer->vertices.push_back(scale * x_index + 0.0f * scale); */
-  /* command_buffer->vertices.push_back(scale * y_index + 1.0f * scale); */
+  array::push_back(command_buffer->vertices, x + width);
+  array::push_back(command_buffer->vertices, y);
 
-  command_buffer->vertices.push_back(x + width);
-  command_buffer->vertices.push_back(y);
+  array::push_back(command_buffer->vertices, 1.0f);
+  array::push_back(command_buffer->vertices, 0.0f);
 
-  command_buffer->vertices.push_back(1.0f);
-  command_buffer->vertices.push_back(0.0f);
-  /* command_buffer->vertices.push_back(scale * x_index + 1.0f * scale); */
-  /* command_buffer->vertices.push_back(scale * y_index + 0.0f * scale); */
+  array::push_back(command_buffer->vertices, x + width);
+  array::push_back(command_buffer->vertices, y + height);
 
-  command_buffer->vertices.push_back(x + width);
-  command_buffer->vertices.push_back(y + height);
+  array::push_back(command_buffer->vertices, 1.0f);
+  array::push_back(command_buffer->vertices, 1.0f);
 
-  command_buffer->vertices.push_back(1.0f);
-  command_buffer->vertices.push_back(1.0f);
-  /* command_buffer->vertices.push_back(scale * x_index + 1.0f * scale); */
-  /* command_buffer->vertices.push_back(scale * y_index + 1.0f * scale); */
+  array::push_back(command_buffer->vertices, x);
+  array::push_back(command_buffer->vertices, y + height);
 
-  command_buffer->vertices.push_back(x);
-  command_buffer->vertices.push_back(y + height);
-
-  command_buffer->vertices.push_back(0.0f);
-  command_buffer->vertices.push_back(1.0f);
-  /* command_buffer->vertices.push_back(scale * x_index + 0.0f * scale); */
-  /* command_buffer->vertices.push_back(scale * y_index + 1.0f * scale); */
+  array::push_back(command_buffer->vertices, 0.0f);
+  array::push_back(command_buffer->vertices, 1.0f);
 
   UICommand command;
   command.vertices_count = 6;
@@ -104,7 +91,7 @@ void debug_render_rect(UICommandBuffer *command_buffer, float x, float y, float 
     command.texture_id = texture->id;
   }
 
-  command_buffer->commands.push_back(command);
+  array::push_back(command_buffer->commands, command);
 }
 
 void debug_layout_set(DebugDrawState *state, u32 count) {

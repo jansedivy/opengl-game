@@ -17,8 +17,8 @@ struct UICommand {
 };
 
 struct UICommandBuffer {
-  std::vector<GLfloat> vertices;
-  std::vector<UICommand> commands;
+  Array<GLfloat> vertices;
+  Array<UICommand> commands;
 };
 
 struct DebugDrawState {

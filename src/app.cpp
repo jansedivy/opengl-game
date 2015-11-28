@@ -104,10 +104,9 @@ Model *get_model_by_name(App *app, char *name) {
 
 inline Entity *get_entity_by_id(App *app, u32 id) {
   PROFILE_BLOCK("Finding entity");
-  for (u32 i=0; i<app->entity_count; i++) {
-    Entity *entity = app->entities + i;
-    if (entity->header.id == id) {
-      return entity;
+  for (auto it = array::begin(app->entities); it != array::end(app->entities); it++) {
+    if (it->header.id == id) {
+      return it;
     }
   }
 
@@ -227,9 +226,6 @@ void init(Memory *memory) {
 
   platform = memory->platform;
 
-  app->entities = (Entity *)malloc(sizeof(Entity) * 10000);
-
-  app->entity_count = 0;
   app->last_id = 0;
 
   app->camera.ortho = false;
@@ -477,14 +473,14 @@ void init(Memory *memory) {
   }
 
   {
-    std::vector<char *>faces;
-    faces.reserve(6);
-    faces.push_back((char *)"assets/textures/right.png");
-    faces.push_back((char *)"assets/textures/left.png");
-    faces.push_back((char *)"assets/textures/top.png");
-    faces.push_back((char *)"assets/textures/bottom.png");
-    faces.push_back((char *)"assets/textures/back.png");
-    faces.push_back((char *)"assets/textures/front.png");
+    Array<char *> faces;
+    array::reserve(faces, 6);
+    array::push_back(faces, (char *)"assets/textures/right.png");
+    array::push_back(faces, (char *)"assets/textures/left.png");
+    array::push_back(faces, (char *)"assets/textures/top.png");
+    array::push_back(faces, (char *)"assets/textures/bottom.png");
+    array::push_back(faces, (char *)"assets/textures/back.png");
+    array::push_back(faces, (char *)"assets/textures/front.png");
 
     load_and_initialize_cubemap_texture(&app->cubemap, &faces);
   }
@@ -580,16 +576,17 @@ void init(Memory *memory) {
 
   load_debug_level(memory, app);
 
-  Entity *follow_entity = app->entities + app->entity_count;
-  follow_entity->header.id = next_entity_id(app);
-  follow_entity->header.type = EntityType::EntityPlayer;
-  follow_entity->header.flags = EntityFlags::RENDER_HIDDEN | EntityFlags::HIDE_IN_EDITOR;
-  follow_entity->header.position = make_position(vec3(20000.0f, 20000.0f, 20000.0f));
-  follow_entity->header.rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
-  follow_entity->header.color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
-  follow_entity->header.model = &app->sphere_model;
-  app->entity_count += 1;
-  app->camera_follow = follow_entity->header.id;
+  Entity follow_entity = {};
+  follow_entity.header.id = next_entity_id(app);
+  follow_entity.header.type = EntityType::EntityPlayer;
+  follow_entity.header.flags = EntityFlags::RENDER_HIDDEN | EntityFlags::HIDE_IN_EDITOR;
+  follow_entity.header.position = make_position(vec3(20000.0f, 20000.0f, 20000.0f));
+  follow_entity.header.rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
+  follow_entity.header.color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+  follow_entity.header.model = &app->sphere_model;
+  array::push_back(app->entities, follow_entity);
+
+  app->camera_follow = follow_entity.header.id;
 
   {
     /* generate_trees(app); */
@@ -661,7 +658,7 @@ bool sort_particles_by_distance(const Particle &a, const Particle &b) {
   return a.distance_from_camera > b.distance_from_camera;
 }
 
-void render_debug_circle(std::vector<EditorHandleRenderCommand> *commands, Camera *camera, WorldPosition &position, float size, vec4 color) {
+void render_debug_circle(Array<EditorHandleRenderCommand> *commands, Camera *camera, WorldPosition &position, float size, vec4 color) {
   vec3 world_position = get_world_position(position);
 
   if (!is_sphere_in_frustum(&camera->frustum, world_position, size)) { return; }
@@ -676,7 +673,7 @@ void render_debug_circle(std::vector<EditorHandleRenderCommand> *commands, Camer
   command.model_view = model_view;
   command.color = color;
 
-  commands->push_back(command);
+  array::push_back(*commands, command);
 }
 
 void draw_3d_debug_info(Input &input, App *app) {
@@ -698,29 +695,27 @@ void draw_3d_debug_info(Input &input, App *app) {
 
   use_model_mesh(app, &app->quad_model.mesh);
 
-  std::vector<EditorHandleRenderCommand> render_commands;
+  Array<EditorHandleRenderCommand> render_commands;
 
   if (app->editor.show_handles && !app->editor.holding_entity) {
-    for (u32 i=0; i<app->entity_count; i++) {
-      Entity *entity = app->entities + i;
+    for (auto it = array::begin(app->entities); it != array::end(app->entities); it++) {
+      if (it->header.flags & EntityFlags::HIDE_IN_EDITOR) { continue; }
 
-      if (entity->header.flags & EntityFlags::HIDE_IN_EDITOR) { continue; }
-
-      if (entity->header.model && entity->header.model->state == AssetState::INITIALIZED) {
+      if (it->header.model && it->header.model->state == AssetState::INITIALIZED) {
         continue;
       }
 
       vec4 color = vec4(0.0, 1.0, 0.0, 0.7);
-      if (entity->header.type == EntityType::EntityParticleEmitter) {
+      if (it->header.type == EntityType::EntityParticleEmitter) {
         color = vec4(0.0, 1.0, 1.0, 0.7);
       }
 
-      if (!input.is_mouse_locked && app->editor.hovering_entity && app->editor.hover_entity == entity->header.id) {
+      if (!input.is_mouse_locked && app->editor.hovering_entity && app->editor.hover_entity == it->header.id) {
         color *= vec4(0.6, 0.6, 0.6, 1.0);
       }
 
-      if (entity->header.type == EntityType::EntityGrass) {
-        EntityGrass *grass = (EntityGrass *)entity;
+      if (it->header.type == EntityType::EntityGrass) {
+        EntityGrass *grass = (EntityGrass *)it;
         if (app->editor.inspect_entity && app->editor.entity_id == grass->header.id) {
           for (u32 grass_index=0; grass_index<grass->grass_count; grass_index++) {
             vec4 data = grass->positions[grass_index];
@@ -730,13 +725,13 @@ void draw_3d_debug_info(Input &input, App *app) {
         }
       }
 
-      render_debug_circle(&render_commands, &app->camera, entity->header.position, app->editor.handle_size, color);
+      render_debug_circle(&render_commands, &app->camera, it->header.position, app->editor.handle_size, color);
     }
   }
 
-  std::sort(render_commands.begin(), render_commands.end(), sort_by_distance);
+  std::sort(array::begin(render_commands), array::end(render_commands), sort_by_distance);
 
-  for (auto it = render_commands.begin(); it != render_commands.end(); it++) {
+  for (auto it = array::begin(render_commands); it != array::end(render_commands); it++) {
     set_uniform(app->current_program, "uMVMatrix", it->model_view);
     set_uniform(app->current_program, "in_color", it->color);
     glDrawElements(GL_TRIANGLES, app->quad_model.mesh.data.indices_count, GL_UNSIGNED_INT, 0);
@@ -766,13 +761,13 @@ void flush_2d_render(App *app, Memory *memory) {
   UICommandBuffer *command_buffer = &app->editor.command_buffer;
 
   glBindBuffer(GL_ARRAY_BUFFER, app->debug_buffer);
-  glBufferData(GL_ARRAY_BUFFER, command_buffer->vertices.size() * sizeof(GLfloat), NULL, GL_STREAM_DRAW);
-  glBufferSubData(GL_ARRAY_BUFFER, 0, command_buffer->vertices.size() * sizeof(GLfloat), &command_buffer->vertices[0]);
+  glBufferData(GL_ARRAY_BUFFER, command_buffer->vertices.size * sizeof(GLfloat), NULL, GL_STREAM_DRAW);
+  glBufferSubData(GL_ARRAY_BUFFER, 0, command_buffer->vertices.size * sizeof(GLfloat), &command_buffer->vertices[0]);
 
   glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), 0);
   glVertexAttribPointer(shader_get_attribute_location(app->current_program, "uv"), 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void *)(2 * sizeof(GLfloat)));
 
-  for (auto it = command_buffer->commands.begin(); it != command_buffer->commands.end(); it++) {
+  for (auto it = array::begin(command_buffer->commands); it != array::end(command_buffer->commands); it++) {
     glBindTexture(GL_TEXTURE_2D, it->texture_id);
     set_uniform(app->current_program, "background_color", it->color);
     set_uniform(app->current_program, "image_color", it->image_color);
@@ -810,8 +805,8 @@ void generate_grass_work(void *data) {
 void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
   PROFILE_BLOCK("Settup UI");
   UICommandBuffer *command_buffer = &app->editor.command_buffer;
-  command_buffer->vertices.clear();
-  command_buffer->commands.clear();
+  array::clear(command_buffer->vertices);
+  array::clear(command_buffer->commands);
 
   DebugDrawState draw_state;
   draw_state.offset_top = 25.0f;
@@ -908,51 +903,53 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
           for (u32 i=0; i<array_count(types); i++) {
             if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)types[i].display_name, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-
-              EntityBlock *entity = (EntityBlock *)(app->entities + app->entity_count++);
+              Entity entity;
 
               vec3 forward = get_forward(app->camera.rotation);
 
-              entity->header.id = next_entity_id(app);
-              entity->header.type = EntityType::EntityBlock;
-              entity->header.position = add_offset(app->camera.position, forward * 400.0f);
-              entity->header.rotation = quat();
-              entity->header.scale = vec3(100.f);
-              entity->header.model = get_model_by_name(app, (char *)types[i].id_name);
-              entity->header.color = vec4(0.31f, 0.18f, 0.02f, 1.0f);
-              entity->header.flags = EntityFlags::CASTS_SHADOW | EntityFlags::PERMANENT_FLAG;
+              entity.header.id = next_entity_id(app);
+              entity.header.type = EntityType::EntityBlock;
+              entity.header.position = add_offset(app->camera.position, forward * 400.0f);
+              entity.header.rotation = quat();
+              entity.header.scale = vec3(100.f);
+              entity.header.model = get_model_by_name(app, (char *)types[i].id_name);
+              entity.header.color = vec4(0.31f, 0.18f, 0.02f, 1.0f);
+              entity.header.flags = EntityFlags::CASTS_SHADOW | EntityFlags::PERMANENT_FLAG;
 
               if (strcmp(types[i].id_name, "quad") == 0) {
-                entity->header.flags |= EntityFlags::LOOK_AT_CAMERA;
+                entity.header.flags |= EntityFlags::LOOK_AT_CAMERA;
               }
 
-              app->editor.entity_id = entity->header.id;
+              app->editor.entity_id = entity.header.id;
               app->editor.inspect_entity = true;
+              array::push_back(app->entities, entity);
             }
           }
 
           draw_state.offset_top += 10.0f;
 
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"particle emitter", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-            EntityParticleEmitter *entity = (EntityParticleEmitter *)(app->entities + app->entity_count++);
+            Entity entity;
 
             vec3 forward = get_forward(app->camera.rotation);
 
-            entity->header.id = next_entity_id(app);
-            entity->header.type = EntityType::EntityParticleEmitter;
-            entity->header.position = add_offset(app->camera.position, forward * 400.0f);
-            entity->header.rotation = quat();
-            entity->header.model = NULL;
-            entity->header.flags = EntityFlags::RENDER_HIDDEN | EntityFlags::PERMANENT_FLAG;
-            entity->particle_size = 40.0f;
-            entity->initial_color = vec4(1.0f);
+            entity.header.id = next_entity_id(app);
+            entity.header.type = EntityType::EntityParticleEmitter;
+            entity.header.position = add_offset(app->camera.position, forward * 400.0f);
+            entity.header.rotation = quat();
+            entity.header.model = NULL;
+            entity.header.flags = EntityFlags::RENDER_HIDDEN | EntityFlags::PERMANENT_FLAG;
+            ((EntityParticleEmitter *)&entity)->particle_size = 40.0f;
+            ((EntityParticleEmitter *)&entity)->initial_color = vec4(1.0f);
 
-            app->editor.entity_id = entity->header.id;
+            app->editor.entity_id = entity.header.id;
             app->editor.inspect_entity = true;
+            array::push_back(app->entities, entity);
           }
 
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Grass", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-            EntityGrass *entity = (EntityGrass *)(app->entities + app->entity_count++);
+            Entity new_entity;
+            EntityGrass *entity = (EntityGrass *)&new_entity;
 
             vec3 forward = get_forward(app->camera.rotation);
 
@@ -964,7 +961,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             entity->header.flags = EntityFlags::MOUNT_TO_TERRAIN | EntityFlags::RENDER_HIDDEN | EntityFlags::PERMANENT_FLAG;
 
             if (entity->header.flags & EntityFlags::MOUNT_TO_TERRAIN) {
-              mount_entity_to_terrain(entity);
+              mount_entity_to_terrain(&new_entity);
             }
 
             entity->grass_count = 0;
@@ -985,42 +982,45 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
             app->editor.entity_id = entity->header.id;
             app->editor.inspect_entity = true;
+            array::push_back(app->entities, new_entity);
           }
 
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Water", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-            EntityWater *entity = (EntityWater *)(app->entities + app->entity_count++);
+            Entity entity;
 
             vec3 forward = get_forward(app->camera.rotation);
 
-            entity->header.id = next_entity_id(app);
-            entity->header.type = EntityType::EntityWater;
-            entity->header.position = add_offset(app->camera.position, forward * 400.0f);
-            entity->header.rotation = quat();
-            entity->header.scale = vec3(100.0f);
-            entity->header.model = get_model_by_name(app, (char *)"quad");
-            entity->header.color = vec4(0.2f, 0.45f, 0.5f, 0.5f);
-            entity->header.flags = EntityFlags::PERMANENT_FLAG;
+            entity.header.id = next_entity_id(app);
+            entity.header.type = EntityType::EntityWater;
+            entity.header.position = add_offset(app->camera.position, forward * 400.0f);
+            entity.header.rotation = quat();
+            entity.header.scale = vec3(100.0f);
+            entity.header.model = get_model_by_name(app, (char *)"quad");
+            entity.header.color = vec4(0.2f, 0.45f, 0.5f, 0.5f);
+            entity.header.flags = EntityFlags::PERMANENT_FLAG;
 
-            app->editor.entity_id = entity->header.id;
+            app->editor.entity_id = entity.header.id;
             app->editor.inspect_entity = true;
+            array::push_back(app->entities, entity);
           }
 
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Phong", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-            EntityBlock *entity = (EntityBlock *)(app->entities + app->entity_count++);
+            Entity entity;
 
             vec3 forward = get_forward(app->camera.rotation);
 
-            entity->header.id = next_entity_id(app);
-            entity->header.type = EntityType::EntityBlock;
-            entity->header.position = add_offset(app->camera.position, forward * 400.0f);
-            entity->header.rotation = quat();
-            entity->header.scale = vec3(100.0f);
-            entity->header.model = get_model_by_name(app, (char *)"sphere");
-            entity->header.color = vec4(0.2f, 0.45f, 0.5f, 1.0f);
-            entity->header.flags = EntityFlags::PERMANENT_FLAG;
+            entity.header.id = next_entity_id(app);
+            entity.header.type = EntityType::EntityBlock;
+            entity.header.position = add_offset(app->camera.position, forward * 400.0f);
+            entity.header.rotation = quat();
+            entity.header.scale = vec3(100.0f);
+            entity.header.model = get_model_by_name(app, (char *)"sphere");
+            entity.header.color = vec4(0.2f, 0.45f, 0.5f, 1.0f);
+            entity.header.flags = EntityFlags::PERMANENT_FLAG;
 
-            app->editor.entity_id = entity->header.id;
+            app->editor.entity_id = entity.header.id;
             app->editor.inspect_entity = true;
+            array::push_back(app->entities, entity);
           }
           break;
       }
@@ -1256,12 +1256,10 @@ void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shade
   second_render_group.force_shader = NULL;
   second_render_group.shadow_pass = false;
 
-  for (u32 entity_index=0; entity_index<app->entity_count; entity_index++) {
-    Entity *entity = app->entities + entity_index;
-
+  for (auto it = array::begin(app->entities); it != array::end(app->entities); it++) {
     if (!shadow_pass) {
-      if ((shadow_pass && (entity->header.flags & EntityFlags::CASTS_SHADOW)) || !shadow_pass) {
-        EntityGrass *grass = (EntityGrass *)entity;
+      if ((shadow_pass && (it->header.flags & EntityFlags::CASTS_SHADOW)) || !shadow_pass) {
+        EntityGrass *grass = (EntityGrass *)it;
         if (grass->render) {
           bool texture_wait = process_texture(memory, grass->texture);
           bool wait_model = process_model(memory, grass->grass_model);
@@ -1359,39 +1357,39 @@ void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shade
       }
     }
 
-    if (entity->header.model == NULL || entity->header.flags & EntityFlags::RENDER_HIDDEN) { continue; }
+    if (it->header.model == NULL || it->header.flags & EntityFlags::RENDER_HIDDEN) { continue; }
 
-    if (shadow_pass && !(entity->header.flags & EntityFlags::CASTS_SHADOW)) {
+    if (shadow_pass && !(it->header.flags & EntityFlags::CASTS_SHADOW)) {
       continue;
     }
 
-    bool model_wait = process_model(memory, entity->header.model);
+    bool model_wait = process_model(memory, it->header.model);
     bool texture_wait = false;
 
-    if (entity->header.texture) {
-      texture_wait = process_texture(memory, entity->header.texture);
+    if (it->header.texture) {
+      texture_wait = process_texture(memory, it->header.texture);
     }
 
     if (model_wait || texture_wait) { continue; }
 
-    if (!is_sphere_in_frustum(&camera->frustum, get_world_position(entity->header.position), entity->header.model->radius * glm::compMax(entity->header.scale))) {
+    if (!is_sphere_in_frustum(&camera->frustum, get_world_position(it->header.position), it->header.model->radius * glm::compMax(it->header.scale))) {
       continue;
     }
 
-    mat4 model_view = get_model_view(entity, &app->camera);
+    mat4 model_view = get_model_view(it, &app->camera);
 
     mat3 normal = glm::inverseTranspose(mat3(model_view));
 
     RenderCommand command;
     command.shader = &app->main_object_program;
     command.model_view = model_view;
-    command.flags = entity->header.flags;
+    command.flags = it->header.flags;
     command.normal = normal;
-    command.color = entity->header.color;
+    command.color = it->header.color;
     command.cull_type = GL_BACK;
-    command.model_mesh = &entity->header.model->mesh;
+    command.model_mesh = &it->header.model->mesh;
 
-    if (app->editing_mode && app->editor.inspect_entity && app->editor.entity_id == entity->header.id)  {
+    if (app->editing_mode && app->editor.inspect_entity && app->editor.entity_id == it->header.id)  {
       RenderCommand wireframe_command = command;
       wireframe_command.shader = &app->solid_program;
       wireframe_command.color = vec4(1.0, 0.0, 1.0, 1.0);
@@ -1399,7 +1397,7 @@ void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shade
       add_command_to_render_group(&second_render_group, wireframe_command);
     }
 
-    if (entity->header.type == EntityType::EntityWater) {
+    if (it->header.type == EntityType::EntityWater) {
       command.shader = &app->water_program;
     }
 
@@ -1578,11 +1576,9 @@ void tick(Memory *memory, Input input) {
           movement = glm::normalize(movement);
         }
 
-        for (u32 i=0; i<app->entity_count; i++) {
-          Entity *entity = app->entities + i;
-
-          if (entity->header.type == EntityType::EntityParticleEmitter) {
-            EntityParticleEmitter *emitter = (EntityParticleEmitter *)entity;
+        for (auto it = array::begin(app->entities); it != array::end(app->entities); it++) {
+          if (it->header.type == EntityType::EntityParticleEmitter) {
+            EntityParticleEmitter *emitter = (EntityParticleEmitter *)it;
 
             Particle *particle = app->particles + app->next_particle++;
             if (app->next_particle >= array_count(app->particles)) {
@@ -1595,14 +1591,14 @@ void tick(Memory *memory, Input input) {
             particle->velocity = vec3(get_random_float_between(-500.0f, 500.0f), get_random_float_between(0.0f, 1000.0f), get_random_float_between(-500.0f, 500.0f));
             particle->gravity = emitter->gravity;
 
-          } else if (entity->header.type == EntityType::EntityPlayer) {
-            entity->header.velocity += movement * speed * input.delta_time;
-            entity->header.velocity = glm::mix(entity->header.velocity, vec3(0.0f), input.delta_time * 10.0f);
+          } else if (it->header.type == EntityType::EntityPlayer) {
+            it->header.velocity += movement * speed * input.delta_time;
+            it->header.velocity = glm::mix(it->header.velocity, vec3(0.0f), input.delta_time * 10.0f);
 
-            entity->header.position = add_offset(entity->header.position, entity->header.velocity * input.delta_time);
+            it->header.position = add_offset(it->header.position, it->header.velocity * input.delta_time);
           }
 
-          update_world_position(&entity->header.position);
+          update_world_position(&it->header.position);
         }
 
         {
@@ -1652,24 +1648,22 @@ void tick(Memory *memory, Input input) {
         float closest_distance = FLT_MAX;
         vec3 hit_position;
 
-        for (u32 i=0; i<app->entity_count; i++) {
-          Entity *entity = app->entities + i;
-
-          if (!(entity->header.flags & EntityFlags::HIDE_IN_EDITOR)) {
+        for (auto it = array::begin(app->entities); it != array::end(app->entities); it++) {
+          if (!(it->header.flags & EntityFlags::HIDE_IN_EDITOR)) {
             RayMatchResult hit;
             hit.hit = false;
 
-            if (entity->header.model && entity->header.model->state == AssetState::INITIALIZED) {
-              hit = ray_match_entity(app, ray, entity);
+            if (it->header.model && it->header.model->state == AssetState::INITIALIZED) {
+              hit = ray_match_entity(app, ray, it);
             } else {
-              hit = ray_match_sphere(ray, get_world_position(entity->header.position), app->editor.handle_size);
+              hit = ray_match_sphere(ray, get_world_position(it->header.position), app->editor.handle_size);
             }
 
             if (hit.hit) {
               float distance = glm::distance(hit.hit_position, ray.start);
               if (distance < closest_distance) {
                 closest_distance = distance;
-                closest_entity = entity;
+                closest_entity = it;
                 hit_position = hit.hit_position;
               }
             }
@@ -1686,12 +1680,12 @@ void tick(Memory *memory, Input input) {
         if (app->editing_mode && input.mouse_click) {
           if (closest_entity) {
             if (input.shift) {
-              Entity *new_entity = app->entities + app->entity_count++;
-              memcpy(new_entity, closest_entity, sizeof(Entity));
+              Entity new_entity;
+              memcpy(&new_entity, closest_entity, sizeof(Entity));
 
               // TODO(sedivy): Don't hard code unique properties
-              if (new_entity->header.type == EntityType::EntityGrass) {
-                EntityGrass *grass = (EntityGrass *)new_entity;
+              if (new_entity.header.type == EntityType::EntityGrass) {
+                EntityGrass *grass = (EntityGrass *)&new_entity;
                 grass->positions = (vec4 *)malloc(sizeof(vec4) * MAX_GRASS_GROUP_COUNT);
                 grass->rotations = (vec3 *)malloc(sizeof(vec3) * MAX_GRASS_GROUP_COUNT);
                 grass->tints = (vec3 *)malloc(sizeof(vec3) * MAX_GRASS_GROUP_COUNT);
@@ -1700,8 +1694,9 @@ void tick(Memory *memory, Input input) {
                 grass->reload_data = true;
               }
 
-              new_entity->header.id = next_entity_id(app);
-              closest_entity = new_entity;
+              new_entity.header.id = next_entity_id(app);
+              array::push_back(app->entities, new_entity);
+              closest_entity = &app->entities[app->entities.size - 1];
             }
 
             app->editor.entity_id = closest_entity->header.id;
@@ -1856,16 +1851,16 @@ void tick(Memory *memory, Input input) {
           }
 
           {
-            if (app->debug_lines.size() > 0) {
+            if (app->debug_lines.size > 0) {
               PROFILE_BLOCK("Draw Debug Lines");
               use_program(app, &app->debug_program);
               glBindBuffer(GL_ARRAY_BUFFER, app->debug_buffer);
-              glBufferData(GL_ARRAY_BUFFER, app->debug_lines.size() * sizeof(vec3)*2, NULL, GL_STREAM_DRAW);
-              glBufferSubData(GL_ARRAY_BUFFER, 0, app->debug_lines.size() * sizeof(vec3)*2, &app->debug_lines[0]);
+              glBufferData(GL_ARRAY_BUFFER, app->debug_lines.size * sizeof(vec3)*2, NULL, GL_STREAM_DRAW);
+              glBufferSubData(GL_ARRAY_BUFFER, 0, app->debug_lines.size * sizeof(vec3)*2, &app->debug_lines[0]);
               set_uniform(app->current_program, "uPMatrix", app->camera.view_matrix);
               glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
-              glDrawArrays(GL_LINES, 0, app->debug_lines.size());
-              app->debug_lines.clear();
+              glDrawArrays(GL_LINES, 0, app->debug_lines.size);
+              array::clear(app->debug_lines);
             }
           }
 

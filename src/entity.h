@@ -57,18 +57,6 @@ struct EntityParticleEmitter {
   float gravity = 500.0f;
 };
 
-struct EntityWater {
-  EntityHeader header;
-};
-
-struct EntityBlock {
-  EntityHeader header;
-};
-
-struct EntityPlayer {
-  EntityHeader header;
-};
-
 struct EntityGrass {
   EntityHeader header;
   Texture *texture;
@@ -94,12 +82,10 @@ struct EntityGrass {
   bool render;
 };
 
-union Entity {
+// TODO(sedivy): don't put different types in the same struct
+struct Entity {
   EntityHeader header;
 
-  EntityPlayer player;
-  EntityBlock block;
-  EntityWater water;
   EntityParticleEmitter particle_emitter;
   EntityGrass grass;
 };

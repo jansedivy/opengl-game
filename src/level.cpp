@@ -40,11 +40,11 @@ quat read_quat(char *start) {
 
 void save_binary_level_file(LoadedLevel loaded_level) {
   LoadedLevelHeader header;
-  header.entity_count = loaded_level.entities.size();
+  header.entity_count = loaded_level.entities.size;
 
   PlatformFile file = platform.open_file((char *)"assets/level.level", "w");
   platform.write_to_file(file, sizeof(header), &header);
-  for (auto it = loaded_level.entities.begin(); it != loaded_level.entities.end(); it++) {
+  for (auto it = array::begin(loaded_level.entities); it != array::end(loaded_level.entities); it++) {
     platform.write_to_file(file, sizeof(EntitySave), &(*it));
   }
   platform.close_file(file);
@@ -54,7 +54,7 @@ void save_text_level_file(Memory *memory, LoadedLevel level) {
 #if INTERNAL
   platform.create_directory(memory->debug_level_path);
 
-  for (auto it = level.entities.begin(); it != level.entities.end(); it++) {
+  for (auto it = array::begin(level.entities); it != array::end(level.entities); it++) {
     char full_path[256];
     sprintf(full_path, "%s/%d.entity", memory->debug_level_path, it->id);
 
@@ -94,7 +94,7 @@ LoadedLevel load_binary_level_file() {
     EntitySave *entity = (EntitySave *)(contents + read_position);
     read_position += sizeof(EntitySave);
 
-    result.entities.push_back(*entity);
+    array::push_back(result.entities, *entity);
   }
 
   return result;
@@ -103,25 +103,23 @@ LoadedLevel load_binary_level_file() {
 void save_level(Memory *memory, App *app) {
   LoadedLevel level;
 
-  for (u32 i=0; i<app->entity_count; i++) {
-    Entity *entity = app->entities + i;
-
-    if (entity->header.flags & EntityFlags::PERMANENT_FLAG) {
+    for (auto it = array::begin(app->entities); it != array::end(app->entities); it++) {
+    if (it->header.flags & EntityFlags::PERMANENT_FLAG) {
       EntitySave save_entity = {};
-      save_entity.id = entity->header.id;
-      save_entity.type = entity->header.type;
-      save_entity.position = get_world_position(entity->header.position);
-      save_entity.scale = entity->header.scale;
-      save_entity.rotation = entity->header.rotation;
-      save_entity.color = entity->header.color;
-      save_entity.flags = entity->header.flags;
-      if (entity->header.model) {
+      save_entity.id = it->header.id;
+      save_entity.type = it->header.type;
+      save_entity.position = get_world_position(it->header.position);
+      save_entity.scale = it->header.scale;
+      save_entity.rotation = it->header.rotation;
+      save_entity.color = it->header.color;
+      save_entity.flags = it->header.flags;
+      if (it->header.model) {
         save_entity.has_model = true;
-        strcpy(save_entity.model_name, entity->header.model->id_name);
+        strcpy(save_entity.model_name, it->header.model->id_name);
       } else {
         save_entity.has_model = false;
       }
-      level.entities.push_back(save_entity);
+      array::push_back(level.entities, save_entity);
     }
   }
 
@@ -211,7 +209,7 @@ void load_debug_level(Memory *memory, App *app) {
               }
             }
 
-            loaded_level.entities.push_back(entity);
+            array::push_back(loaded_level.entities, entity);
 
             platform.close_file(file);
           }
@@ -228,14 +226,16 @@ void load_debug_level(Memory *memory, App *app) {
   {
     LoadedLevel bin_loaded_level = load_binary_level_file();
 
-    for (auto it = bin_loaded_level.entities.begin(); it != bin_loaded_level.entities.end(); it++) {
-      Entity *entity = app->entities + app->entity_count++;
+    for (auto it = array::begin(bin_loaded_level.entities); it != array::end(bin_loaded_level.entities); it++) {
+      Entity entity;
 
-      deserialize_entity(app, &(*it), entity);
+      deserialize_entity(app, &(*it), &entity);
 
-      if (entity->header.id > app->last_id) {
-        app->last_id = entity->header.id;
+      if (entity.header.id > app->last_id) {
+        app->last_id = entity.header.id;
       }
+
+      array::push_back(app->entities, entity);
     }
   }
 }

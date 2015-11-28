@@ -30,33 +30,34 @@ void debug_render_frustum(App *app, Camera *camera) {
     corners[i] = glm::vec3(hcorners[i]);
   }
 
-  app->debug_lines.reserve(24);
-  app->debug_lines.push_back(corners[0]);
-  app->debug_lines.push_back(corners[1]);
-  app->debug_lines.push_back(corners[1]);
-  app->debug_lines.push_back(corners[2]);
-  app->debug_lines.push_back(corners[2]);
-  app->debug_lines.push_back(corners[3]);
-  app->debug_lines.push_back(corners[3]);
-  app->debug_lines.push_back(corners[0]);
+  array::reserve(app->debug_lines, 24);
 
-  app->debug_lines.push_back(corners[0]);
-  app->debug_lines.push_back(corners[4]);
-  app->debug_lines.push_back(corners[1]);
-  app->debug_lines.push_back(corners[5]);
-  app->debug_lines.push_back(corners[2]);
-  app->debug_lines.push_back(corners[6]);
-  app->debug_lines.push_back(corners[3]);
-  app->debug_lines.push_back(corners[7]);
+  array::push_back(app->debug_lines, corners[0]);
+  array::push_back(app->debug_lines, corners[1]);
+  array::push_back(app->debug_lines, corners[1]);
+  array::push_back(app->debug_lines, corners[2]);
+  array::push_back(app->debug_lines, corners[2]);
+  array::push_back(app->debug_lines, corners[3]);
+  array::push_back(app->debug_lines, corners[3]);
+  array::push_back(app->debug_lines, corners[0]);
 
-  app->debug_lines.push_back(corners[4]);
-  app->debug_lines.push_back(corners[5]);
-  app->debug_lines.push_back(corners[5]);
-  app->debug_lines.push_back(corners[6]);
-  app->debug_lines.push_back(corners[6]);
-  app->debug_lines.push_back(corners[7]);
-  app->debug_lines.push_back(corners[7]);
-  app->debug_lines.push_back(corners[4]);
+  array::push_back(app->debug_lines, corners[0]);
+  array::push_back(app->debug_lines, corners[4]);
+  array::push_back(app->debug_lines, corners[1]);
+  array::push_back(app->debug_lines, corners[5]);
+  array::push_back(app->debug_lines, corners[2]);
+  array::push_back(app->debug_lines, corners[6]);
+  array::push_back(app->debug_lines, corners[3]);
+  array::push_back(app->debug_lines, corners[7]);
+
+  array::push_back(app->debug_lines, corners[4]);
+  array::push_back(app->debug_lines, corners[5]);
+  array::push_back(app->debug_lines, corners[5]);
+  array::push_back(app->debug_lines, corners[6]);
+  array::push_back(app->debug_lines, corners[6]);
+  array::push_back(app->debug_lines, corners[7]);
+  array::push_back(app->debug_lines, corners[7]);
+  array::push_back(app->debug_lines, corners[4]);
 }
 
 mat4 get_camera_projection(Camera *camera) {
