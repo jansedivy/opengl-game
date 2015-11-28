@@ -75,8 +75,6 @@ struct EntityGrass {
   vec3 *tints;
 
   GLuint position_data_id;
-  GLuint rotation_id;
-  GLuint tint_id;
 
   bool initialized;
   bool reload_data;

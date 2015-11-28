@@ -1,9 +1,6 @@
 void unload_model(Model *model) {
   if (platform.atomic_exchange(&model->state, AssetState::INITIALIZED, AssetState::PROCESSING)) {
-    glDeleteBuffers(1, &model->mesh.vertices_id);
-    glDeleteBuffers(1, &model->mesh.indices_id);
-    glDeleteBuffers(1, &model->mesh.normals_id);
-    glDeleteBuffers(1, &model->mesh.uv_id);
+    glDeleteBuffers(1, &model->mesh.buffer);
 
     free(model->mesh.data.data);
 
@@ -30,34 +27,28 @@ void optimize_model(Model *model) {
 }
 
 void initialize_model(Model *model) {
-  GLuint vertices_id;
-  glGenBuffers(1, &vertices_id);
-  glBindBuffer(GL_ARRAY_BUFFER, vertices_id);
-  glBufferData(GL_ARRAY_BUFFER, model->mesh.data.vertices_count * sizeof(GLfloat), model->mesh.data.vertices, GL_STATIC_DRAW);
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
+  u32 vertices_size = model->mesh.data.vertices_count * sizeof(vec3);
+  u32 normals_size = model->mesh.data.normals_count * sizeof(vec3);
+  u32 uv_size = model->mesh.data.uv_count * sizeof(vec2);
 
-  GLuint normals_id;
-  glGenBuffers(1, &normals_id);
-  glBindBuffer(GL_ARRAY_BUFFER, normals_id);
-  glBufferData(GL_ARRAY_BUFFER, model->mesh.data.normals_count * sizeof(GLfloat), model->mesh.data.normals, GL_STATIC_DRAW);
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
+  GLuint buffer;
+  glGenBuffers(1, &buffer);
+  glBindBuffer(GL_ARRAY_BUFFER, buffer);
+  glBufferData(GL_ARRAY_BUFFER, vertices_size + normals_size + uv_size, NULL, GL_STATIC_DRAW);
 
-  GLuint uv_id;
-  glGenBuffers(1, &uv_id);
-  glBindBuffer(GL_ARRAY_BUFFER, uv_id);
-  glBufferData(GL_ARRAY_BUFFER, model->mesh.data.uv_count * sizeof(GLfloat), model->mesh.data.uv, GL_STATIC_DRAW);
+  glBufferSubData(GL_ARRAY_BUFFER, 0, vertices_size, model->mesh.data.vertices);
+  glBufferSubData(GL_ARRAY_BUFFER, vertices_size, normals_size, model->mesh.data.normals);
+  glBufferSubData(GL_ARRAY_BUFFER, vertices_size + normals_size, uv_size, model->mesh.data.uv);
+
   glBindBuffer(GL_ARRAY_BUFFER, 0);
 
   GLuint indices_id;
   glGenBuffers(1, &indices_id);
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indices_id);
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, model->mesh.data.indices_count * sizeof(GLint), model->mesh.data.indices, GL_STATIC_DRAW);
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
 
+  model->mesh.buffer = buffer;
   model->mesh.indices_id = indices_id;
-  model->mesh.vertices_id = vertices_id;
-  model->mesh.normals_id = normals_id;
-  model->mesh.uv_id = uv_id;
 
   model->state = AssetState::INITIALIZED; // TODO(sedivy): atomic
 }
@@ -214,22 +205,24 @@ inline bool process_model(Memory *memory, Model *model) {
 }
 
 inline void use_model_mesh(App *app, Mesh *mesh) {
+  glBindBuffer(GL_ARRAY_BUFFER, mesh->buffer);
+
+  u32 vertices_size = mesh->data.vertices_count * sizeof(vec3);
+  u32 normals_size = mesh->data.normals_count * sizeof(vec3);
+
   if (shader_has_attribute(app->current_program, "position")) {
     GLuint id = shader_get_attribute_location(app->current_program, "position");
-    glBindBuffer(GL_ARRAY_BUFFER, mesh->vertices_id);
     glVertexAttribPointer(id, 3, GL_FLOAT, GL_FALSE, 0, 0);
   }
 
   if (shader_has_attribute(app->current_program, "normals")) {
     GLuint id = shader_get_attribute_location(app->current_program, "normals");
-    glBindBuffer(GL_ARRAY_BUFFER, mesh->normals_id);
-    glVertexAttribPointer(id, 3, GL_FLOAT, GL_FALSE, 0, 0);
+    glVertexAttribPointer(id, 3, GL_FLOAT, GL_FALSE, 0, (void *)(vertices_size));
   }
 
   if (shader_has_attribute(app->current_program, "uv")) {
     GLuint id = shader_get_attribute_location(app->current_program, "uv");
-    glBindBuffer(GL_ARRAY_BUFFER, mesh->uv_id);
-    glVertexAttribPointer(id, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glVertexAttribPointer(id, 2, GL_FLOAT, GL_FALSE, 0, (void *)(vertices_size + normals_size));
   }
 
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->indices_id);

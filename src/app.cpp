@@ -1289,53 +1289,36 @@ void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shade
 
             Mesh *mesh = &grass->grass_model->mesh;
 
-            GLuint id = shader_get_attribute_location(app->current_program, "position");
-            glBindBuffer(GL_ARRAY_BUFFER, mesh->vertices_id);
-            glVertexAttribPointer(id, 3, GL_FLOAT, GL_FALSE, 0, 0);
-
-            id = shader_get_attribute_location(app->current_program, "normals");
-            glBindBuffer(GL_ARRAY_BUFFER, mesh->normals_id);
-            glVertexAttribPointer(id, 3, GL_FLOAT, GL_FALSE, 0, 0);
-
-            id = shader_get_attribute_location(app->current_program, "uv");
-            glBindBuffer(GL_ARRAY_BUFFER, mesh->uv_id);
-            glVertexAttribPointer(id, 2, GL_FLOAT, GL_FALSE, 0, 0);
+            use_model_mesh(app, mesh);
 
             if (!grass->initialized) {
               grass->initialized = true;
 
               glGenBuffers(1, &grass->position_data_id);
-              glGenBuffers(1, &grass->rotation_id);
-              glGenBuffers(1, &grass->tint_id);
             }
 
             if (grass->reload_data) {
               grass->reload_data = false;
 
               glBindBuffer(GL_ARRAY_BUFFER, grass->position_data_id);
-              glBufferData(GL_ARRAY_BUFFER, grass->grass_count * sizeof(vec4), grass->positions, GL_STATIC_DRAW);
-              glBindBuffer(GL_ARRAY_BUFFER, 0);
+              glBufferData(GL_ARRAY_BUFFER, grass->grass_count * (sizeof(vec4) + sizeof(vec3) + sizeof(vec4)), NULL, GL_STATIC_DRAW);
 
-              glBindBuffer(GL_ARRAY_BUFFER, grass->rotation_id);
-              glBufferData(GL_ARRAY_BUFFER, grass->grass_count * sizeof(vec3), grass->rotations, GL_STATIC_DRAW);
-              glBindBuffer(GL_ARRAY_BUFFER, 0);
+              glBufferSubData(GL_ARRAY_BUFFER, 0, grass->grass_count * sizeof(vec4), grass->positions);
+              glBufferSubData(GL_ARRAY_BUFFER, grass->grass_count * sizeof(vec4), grass->grass_count * sizeof(vec3), grass->rotations);
+              glBufferSubData(GL_ARRAY_BUFFER, grass->grass_count * (sizeof(vec4) + sizeof(vec3)), grass->grass_count * sizeof(vec4), grass->tints);
 
-              glBindBuffer(GL_ARRAY_BUFFER, grass->tint_id);
-              glBufferData(GL_ARRAY_BUFFER, grass->grass_count * sizeof(vec3), grass->tints, GL_STATIC_DRAW);
               glBindBuffer(GL_ARRAY_BUFFER, 0);
             }
 
-            id = shader_get_attribute_location(app->current_program, "position_data");
+            GLuint position_id = shader_get_attribute_location(app->current_program, "position_data");
+            GLuint rotation_id = shader_get_attribute_location(app->current_program, "rotation");
+            GLuint tint_id = shader_get_attribute_location(app->current_program, "tint");
+
             glBindBuffer(GL_ARRAY_BUFFER, grass->position_data_id);
-            glVertexAttribPointer(id, 4, GL_FLOAT, GL_FALSE, 0, 0);
 
-            id = shader_get_attribute_location(app->current_program, "rotation");
-            glBindBuffer(GL_ARRAY_BUFFER, grass->rotation_id);
-            glVertexAttribPointer(id, 3, GL_FLOAT, GL_FALSE, 0, 0);
-
-            id = shader_get_attribute_location(app->current_program, "tint");
-            glBindBuffer(GL_ARRAY_BUFFER, grass->tint_id);
-            glVertexAttribPointer(id, 3, GL_FLOAT, GL_FALSE, 0, 0);
+            glVertexAttribPointer(position_id, 4, GL_FLOAT, GL_FALSE, 0, 0);
+            glVertexAttribPointer(rotation_id, 3, GL_FLOAT, GL_FALSE, 0, (void *)(grass->grass_count * sizeof(vec4)));
+            glVertexAttribPointer(tint_id, 3, GL_FLOAT, GL_FALSE, 0, (void *)(grass->grass_count * (sizeof(vec4) + sizeof(vec3))));
 
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->indices_id);
 
@@ -1886,6 +1869,8 @@ void tick(Memory *memory, Input input) {
           glActiveTexture(GL_TEXTURE0 + 1);
           glBindTexture(GL_TEXTURE_2D, app->frames[app->write_frame].texture);
 
+          glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
+
           {
             glBindFramebuffer(GL_FRAMEBUFFER, app->frames[app->write_frame].id);
             use_program(app, &app->fullscreen_program);
@@ -1895,7 +1880,6 @@ void tick(Memory *memory, Input input) {
 
             set_uniformi(app->current_program, "uSampler", app->read_frame);
 
-            glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
             glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
             glDrawArrays(GL_TRIANGLES, 0, 6);
 
@@ -1913,7 +1897,6 @@ void tick(Memory *memory, Input input) {
             set_uniformi(app->current_program, "color_correction_texture", 2);
             set_uniformf(app->current_program, "lut_size", 16.0f);
 
-            glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
             glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
             glDrawArrays(GL_TRIANGLES, 0, 6);
 
@@ -1927,7 +1910,6 @@ void tick(Memory *memory, Input input) {
             set_uniformi(app->current_program, "uSampler", app->read_frame);
             set_uniform(app->current_program, "texture_size", vec2(app->frames[0].width, app->frames[0].height));
 
-            glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
             glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
             glDrawArrays(GL_TRIANGLES, 0, 6);
 
@@ -1940,9 +1922,9 @@ void tick(Memory *memory, Input input) {
 
             set_uniformi(app->current_program, "uSampler", app->read_frame);
 
-            glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
             glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
             glDrawArrays(GL_TRIANGLES, 0, 6);
+
             std::swap(app->write_frame, app->read_frame);
           }
 
@@ -1952,9 +1934,9 @@ void tick(Memory *memory, Input input) {
 
             set_uniformi(app->current_program, "uSampler", app->read_frame);
 
-            glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
             glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
             glDrawArrays(GL_TRIANGLES, 0, 6);
+
             std::swap(app->write_frame, app->read_frame);
           }
 
@@ -1964,9 +1946,9 @@ void tick(Memory *memory, Input input) {
 
             set_uniformi(app->current_program, "uSampler", app->read_frame);
 
-            glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
             glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
             glDrawArrays(GL_TRIANGLES, 0, 6);
+
             std::swap(app->write_frame, app->read_frame);
           }
 
@@ -1978,7 +1960,6 @@ void tick(Memory *memory, Input input) {
 
             set_uniformi(app->current_program, "uSampler", app->read_frame);
 
-            glBindBuffer(GL_ARRAY_BUFFER, app->fullscreen_quad);
             glVertexAttribPointer(shader_get_attribute_location(app->current_program, "position"), 2, GL_FLOAT, GL_FALSE, 0, 0);
             glDrawArrays(GL_TRIANGLES, 0, 6);
           }

@@ -17,11 +17,8 @@ struct ModelData {
 };
 
 struct Mesh {
+  GLuint buffer;
   GLuint indices_id;
-
-  GLuint vertices_id;
-  GLuint normals_id;
-  GLuint uv_id;
 
   ModelData data;
 };
