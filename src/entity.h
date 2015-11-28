@@ -43,7 +43,7 @@ struct EntityHeader {
   Model *model = NULL;
   Texture *texture = 0;
 
-  quat rotation;
+  quat orientation;
   vec3 velocity;
   vec3 scale;
   vec4 color;

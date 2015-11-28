@@ -10,7 +10,7 @@ struct EntitySave {
   EntityType::EntityType type;
   vec3 position;
   vec3 scale;
-  quat rotation;
+  quat orientation;
   vec4 color;
   u32 flags;
 

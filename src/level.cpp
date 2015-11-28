@@ -7,7 +7,7 @@ void deserialize_entity(App *app, EntitySave *src, Entity *dest) {
   dest->header.texture = NULL;
 
   dest->header.scale = src->scale;
-  dest->header.rotation = src->rotation;
+  dest->header.orientation = src->orientation;
   dest->header.color = src->color;
   if (src->has_model) {
     dest->header.model = get_model_by_name(app, src->model_name);
@@ -69,7 +69,7 @@ void save_text_level_file(Memory *memory, LoadedLevel level) {
       platform.print_to_file(file, "model_name: %s\n", it->model_name);
     }
     platform.print_to_file(file, "scale: %f, %f, %f\n", it->scale.x, it->scale.y, it->scale.z);
-    platform.print_to_file(file, "rotation: %f, %f, %f\n", it->rotation.x, it->rotation.y, it->rotation.z);
+    platform.print_to_file(file, "orientation: %f, %f, %f\n", it->orientation.x, it->orientation.y, it->orientation.z);
     platform.print_to_file(file, "color: %f, %f, %f, %f\n", it->color.x, it->color.y, it->color.z, it->color.w);
 
     platform.close_file(file);
@@ -110,7 +110,7 @@ void save_level(Memory *memory, App *app) {
       save_entity.type = it->header.type;
       save_entity.position = get_world_position(it->header.position);
       save_entity.scale = it->header.scale;
-      save_entity.rotation = it->header.rotation;
+      save_entity.orientation = it->header.orientation;
       save_entity.color = it->header.color;
       save_entity.flags = it->header.flags;
       if (it->header.model) {
@@ -202,8 +202,8 @@ void load_debug_level(Memory *memory, App *app) {
                 sscanf(start, "%s", entity.model_name);
               } else if (strcmp(property_name, "scale") == 0) {
                 entity.scale = read_vector(start);
-              } else if (strcmp(property_name, "rotation") == 0) {
-                entity.rotation = read_quat(start);
+              } else if (strcmp(property_name, "orientation") == 0) {
+                entity.orientation = read_quat(start);
               } else if (strcmp(property_name, "color") == 0) {
                 entity.color = read_vector4(start);
               }

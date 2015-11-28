@@ -69,7 +69,7 @@ inline mat4 get_model_view(Entity *entity, Camera *camera) {
   mat4 model_view;
 
   model_view = glm::translate(model_view, get_world_position(entity->header.position));
-  model_view *= glm::toMat4(entity->header.rotation);
+  model_view *= glm::toMat4(entity->header.orientation);
   if (entity->header.flags & EntityFlags::LOOK_AT_CAMERA) {
     model_view *= make_billboard_matrix(entity->header.position, camera->position, vec3(camera->view_matrix[0][1], camera->view_matrix[1][1], camera->view_matrix[2][1]));
   }
@@ -237,7 +237,7 @@ void init(Memory *memory) {
   app->shadow_camera.near = 1.0f;
   app->shadow_camera.far = 100000.0f;
   app->shadow_camera.size = vec2(4096.0f, 4096.0f) / 2.0f;
-  app->shadow_camera.rotation = quat(0.82f, 0.55f, 0.0f, 0.0f);
+  app->shadow_camera.orientation = quat(0.82f, 0.55f, 0.0f, 0.0f);
 
   glGenVertexArrays(1, &app->vao);
   glBindVertexArray(app->vao);
@@ -581,7 +581,7 @@ void init(Memory *memory) {
   follow_entity.header.type = EntityType::EntityPlayer;
   follow_entity.header.flags = EntityFlags::RENDER_HIDDEN | EntityFlags::HIDE_IN_EDITOR;
   follow_entity.header.position = make_position(vec3(20000.0f, 20000.0f, 20000.0f));
-  follow_entity.header.rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
+  follow_entity.header.orientation = quat(1.0f, 0.0f, 0.0f, 0.0f);
   follow_entity.header.color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
   follow_entity.header.model = &app->sphere_model;
   array::push_back(app->entities, follow_entity);
@@ -609,7 +609,7 @@ void init(Memory *memory) {
       entity->scale = 100.0f * vec3(0.8f + get_next_float(&random) / 2.0f, 0.8f + get_next_float(&random) / 2.0f, 0.8f + get_next_float(&random) / 2.0f);
       entity->model = &app->rock_model;
       entity->color = vec4(get_random_float_between(0.2f, 0.5f), 0.45f, 0.5f, 1.0f);
-      entity->rotation = vec3(get_next_float(&random) * 0.5f - 0.25f, get_next_float(&random) * glm::pi<float>(), get_next_float(&random) * 0.5f - 0.25f);
+      entity->orientation = vec3(get_next_float(&random) * 0.5f - 0.25f, get_next_float(&random) * glm::pi<float>(), get_next_float(&random) * 0.5f - 0.25f);
       app->entity_count += 1;
     }
 #endif
@@ -905,12 +905,12 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)types[i].display_name, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
               Entity entity;
 
-              vec3 forward = get_forward(app->camera.rotation);
+              vec3 forward = get_forward(app->camera.orientation);
 
               entity.header.id = next_entity_id(app);
               entity.header.type = EntityType::EntityBlock;
               entity.header.position = add_offset(app->camera.position, forward * 400.0f);
-              entity.header.rotation = quat();
+              entity.header.orientation = quat();
               entity.header.scale = vec3(100.f);
               entity.header.model = get_model_by_name(app, (char *)types[i].id_name);
               entity.header.color = vec4(0.31f, 0.18f, 0.02f, 1.0f);
@@ -931,12 +931,12 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"particle emitter", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             Entity entity;
 
-            vec3 forward = get_forward(app->camera.rotation);
+            vec3 forward = get_forward(app->camera.orientation);
 
             entity.header.id = next_entity_id(app);
             entity.header.type = EntityType::EntityParticleEmitter;
             entity.header.position = add_offset(app->camera.position, forward * 400.0f);
-            entity.header.rotation = quat();
+            entity.header.orientation = quat();
             entity.header.model = NULL;
             entity.header.flags = EntityFlags::RENDER_HIDDEN | EntityFlags::PERMANENT_FLAG;
             ((EntityParticleEmitter *)&entity)->particle_size = 40.0f;
@@ -951,12 +951,12 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             Entity new_entity;
             EntityGrass *entity = (EntityGrass *)&new_entity;
 
-            vec3 forward = get_forward(app->camera.rotation);
+            vec3 forward = get_forward(app->camera.orientation);
 
             entity->header.id = next_entity_id(app);
             entity->header.type = EntityType::EntityGrass;
             entity->header.position = add_offset(app->camera.position, forward * 400.0f);
-            entity->header.rotation = quat();
+            entity->header.orientation = quat();
             entity->header.model = NULL;
             entity->header.flags = EntityFlags::MOUNT_TO_TERRAIN | EntityFlags::RENDER_HIDDEN | EntityFlags::PERMANENT_FLAG;
 
@@ -990,12 +990,12 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Water", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             Entity entity;
 
-            vec3 forward = get_forward(app->camera.rotation);
+            vec3 forward = get_forward(app->camera.orientation);
 
             entity.header.id = next_entity_id(app);
             entity.header.type = EntityType::EntityWater;
             entity.header.position = add_offset(app->camera.position, forward * 400.0f);
-            entity.header.rotation = quat();
+            entity.header.orientation = quat();
             entity.header.scale = vec3(100.0f);
             entity.header.model = get_model_by_name(app, (char *)"quad");
             entity.header.color = vec4(0.2f, 0.45f, 0.5f, 0.5f);
@@ -1009,12 +1009,12 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Phong", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             Entity entity;
 
-            vec3 forward = get_forward(app->camera.rotation);
+            vec3 forward = get_forward(app->camera.orientation);
 
             entity.header.id = next_entity_id(app);
             entity.header.type = EntityType::EntityBlock;
             entity.header.position = add_offset(app->camera.position, forward * 400.0f);
-            entity.header.rotation = quat();
+            entity.header.orientation = quat();
             entity.header.scale = vec3(100.0f);
             entity.header.model = get_model_by_name(app, (char *)"sphere");
             entity.header.color = vec4(0.2f, 0.45f, 0.5f, 1.0f);
@@ -1035,7 +1035,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
       }
       {
         case EditorLeftState::LIGHT:
-          push_debug_editable_quat(input, &draw_state, &app->font, command_buffer, 10.0f, "Sun rotation", &app->shadow_camera.rotation, default_background_color);
+          push_debug_editable_quat(input, &draw_state, &app->font, command_buffer, 10.0f, "Sun orientation", &app->shadow_camera.orientation, default_background_color);
           push_debug_range((char *)"near", input, &app->font, command_buffer, &draw_state, 10.0f, default_background_color, &app->shadow_camera.near, 0.0f, 100.0f);
           push_debug_range((char *)"far", input, &app->font, command_buffer, &draw_state, 10.0f, default_background_color, &app->shadow_camera.far, 0.0f, 100000.0f);
           break;
@@ -1148,7 +1148,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             push_debug_text(&app->font, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
             push_debug_vector(&draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "position", entity->header.position.offset_, default_background_color);
-            push_debug_editable_quat(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "rotation", &entity->header.rotation, default_background_color);
+            push_debug_editable_quat(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "orientation", &entity->header.orientation, default_background_color);
             push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "scale", &entity->header.scale, default_background_color, 0.0f, 200.0f);
 
             float start = draw_state.offset_top;
@@ -1229,7 +1229,7 @@ void render_skybox(App *app) {
   use_program(app, &app->skybox_program);
 
   mat4 projection = get_camera_projection(&app->camera);
-  projection *= glm::toMat4(app->camera.rotation);
+  projection *= glm::toMat4(app->camera.orientation);
 
   set_uniform(app->current_program, "projection", projection);
 
@@ -1311,7 +1311,7 @@ void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shade
             }
 
             GLuint position_id = shader_get_attribute_location(app->current_program, "position_data");
-            GLuint rotation_id = shader_get_attribute_location(app->current_program, "rotation");
+            GLuint rotation_id = shader_get_attribute_location(app->current_program, "orientation");
             GLuint tint_id = shader_get_attribute_location(app->current_program, "tint");
 
             glBindBuffer(GL_ARRAY_BUFFER, grass->position_data_id);
@@ -1508,20 +1508,20 @@ void tick(Memory *memory, Input input) {
         }
 
         if (input.is_mouse_locked) {
-          vec3 forward = get_forward(app->camera.rotation);
+          vec3 forward = get_forward(app->camera.orientation);
           vec3 right = glm::normalize(glm::cross(forward, vec3(0.0, 1.0, 0.0)));
 
-          follow_entity->header.rotation *= glm::angleAxis((float)input.rel_mouse_y/200.0f, right);
-          follow_entity->header.rotation *= glm::angleAxis((float)input.rel_mouse_x/200.0f, vec3(0.0, 1.0, 0.0));
-          follow_entity->header.rotation = glm::normalize(follow_entity->header.rotation);
+          follow_entity->header.orientation *= glm::angleAxis((float)input.rel_mouse_y/200.0f, right);
+          follow_entity->header.orientation *= glm::angleAxis((float)input.rel_mouse_x/200.0f, vec3(0.0, 1.0, 0.0));
+          follow_entity->header.orientation = glm::normalize(follow_entity->header.orientation);
         }
 
-        app->camera.rotation = glm::normalize(app->camera.rotation);
-        app->shadow_camera.rotation = glm::normalize(app->shadow_camera.rotation);
+        app->camera.orientation = glm::normalize(app->camera.orientation);
+        app->shadow_camera.orientation = glm::normalize(app->shadow_camera.orientation);
 
-        quat rotation = follow_entity->header.rotation;
+        quat orientation = follow_entity->header.orientation;
 
-        vec3 forward = get_forward(app->camera.rotation);
+        vec3 forward = get_forward(app->camera.orientation);
         vec3 right = glm::normalize(glm::cross(forward, vec3(0.0, 1.0, 0.0)));
 
         vec3 movement;
@@ -1618,11 +1618,11 @@ void tick(Memory *memory, Input input) {
           }
         }
 
-        app->camera.rotation = follow_entity->header.rotation;
+        app->camera.orientation = follow_entity->header.orientation;
         app->camera.position = add_offset(follow_entity->header.position, vec3(0.0f, 70.0f, 0.0f));
 
         app->camera.view_matrix = get_camera_projection(&app->camera);
-        app->camera.view_matrix *= glm::toMat4(app->camera.rotation);
+        app->camera.view_matrix *= glm::toMat4(app->camera.orientation);
         app->camera.view_matrix = glm::translate(app->camera.view_matrix, (get_world_position(app->camera.position) * -1.0f));
 
         fill_frustum_with_matrix(&app->camera.frustum, app->camera.view_matrix);
@@ -1695,11 +1695,11 @@ void tick(Memory *memory, Input input) {
         }
 
         {
-          vec3 forward = get_forward(app->shadow_camera.rotation);
+          vec3 forward = get_forward(app->shadow_camera.orientation);
 
           app->shadow_camera.position = add_offset(app->camera.position, glm::normalize(forward) * ((app->shadow_camera.far - app->shadow_camera.near) / 2.0f * -1.0f));
           app->shadow_camera.view_matrix = get_camera_projection(&app->shadow_camera);
-          app->shadow_camera.view_matrix *= glm::toMat4(app->shadow_camera.rotation);
+          app->shadow_camera.view_matrix *= glm::toMat4(app->shadow_camera.orientation);
           app->shadow_camera.view_matrix = glm::translate(app->shadow_camera.view_matrix, (get_world_position(app->shadow_camera.position) * -1.0f));
 
           fill_frustum_with_matrix(&app->shadow_camera.frustum, app->shadow_camera.view_matrix);

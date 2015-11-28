@@ -3,7 +3,7 @@
 struct Camera {
   mat4 view_matrix;
 
-  quat rotation;
+  quat orientation;
   WorldPosition position;
   Frustum frustum;
 
