@@ -32,6 +32,12 @@ vec4 read_vector4(char *start) {
   return result;
 }
 
+quat read_quat(char *start) {
+  quat result;
+  sscanf(start, "%f,%f,%f,%f", &result.x, &result.y, &result.z, &result.w);
+  return result;
+}
+
 void save_binary_level_file(LoadedLevel loaded_level) {
   LoadedLevelHeader header;
   header.entity_count = loaded_level.entities.size();
@@ -199,7 +205,7 @@ void load_debug_level(Memory *memory, App *app) {
               } else if (strcmp(property_name, "scale") == 0) {
                 entity.scale = read_vector(start);
               } else if (strcmp(property_name, "rotation") == 0) {
-                entity.rotation = read_vector(start);
+                entity.rotation = read_quat(start);
               } else if (strcmp(property_name, "color") == 0) {
                 entity.color = read_vector4(start);
               }

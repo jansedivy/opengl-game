@@ -196,7 +196,7 @@ void push_debug_text(Font *font, DebugDrawState *state, UICommandBuffer *command
   state->offset_top += 25.0f;
 }
 
-void debug_render_range(Input &input, UICommandBuffer *command_buffer, float x, float y, float width, float height, vec4 background_color, float *value, float min, float max) {
+bool debug_render_range(Input &input, UICommandBuffer *command_buffer, float x, float y, float width, float height, vec4 background_color, float *value, float min, float max) {
   PROFILE_BLOCK("Push Debug Range");
   float scale = *value / (max - min);
 
@@ -220,7 +220,10 @@ void debug_render_range(Input &input, UICommandBuffer *command_buffer, float x, 
   if (input.left_mouse_down && input.original_mouse_down_x > min_x && input.original_mouse_down_y > min_y && input.original_mouse_down_x < max_x && input.original_mouse_down_y < max_y) {
     *value = glm::clamp((input.mouse_x - min_x) / width * (max - min), min, max);
     input.mouse_click = false;
+    return true;
   }
+
+  return false;
 }
 
 void push_debug_range(char *name, Input &input, Font *font, UICommandBuffer *command_buffer, DebugDrawState *state, float x, vec4 background_color, float *value, float min, float max) {
@@ -290,37 +293,41 @@ void push_debug_editable_vector(Input &input, DebugDrawState *state, Font *font,
   state->offset_top += 25.0f;
 }
 
-void push_debug_editable_quat(Input &input, DebugDrawState *state, Font *font, UICommandBuffer *command_buffer, float x, const char *name, quat *vector, vec4 background_color, float min, float max) {
+void push_debug_editable_quat(Input &input, DebugDrawState *state, Font *font, UICommandBuffer *command_buffer, float x, const char *name, quat *vector, vec4 background_color) {
   PROFILE_BLOCK("Push Debug Quat");
+
+  float min = 0.0f;
+  float max = 1.0f;
+
   char text[256];
 
-  debug_render_rect(command_buffer, x, state->offset_top, state->width, 25.0f, background_color);
+  push_debug_text(font, state, command_buffer, x, (char *)name, vec3(1.0f, 1.0f, 1.0f), background_color);
 
   float text_offset_y = (25.0 + font->size) / 2.0f;
 
-  sprintf(text, "%s", name);
-  draw_string(command_buffer, font, x + 5.0f, state->offset_top + 25.0f, text, vec3(1.0f, 1.0f, 1.0f));
-  state->offset_top += 25.0f;
-
   sprintf(text, "%f", vector->x);
-  debug_render_range(input, command_buffer, x, state->offset_top + 25.0f, state->width, 25.0f, background_color, &vector->x, min, max);
+  bool changed_x = debug_render_range(input, command_buffer, x, state->offset_top, state->width, 25.0f, background_color, &vector->x, min, max);
   draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f - text_offset_y, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector->y);
-  debug_render_range(input, command_buffer, x, state->offset_top + 25.0f, state->width, 25.0f, background_color, &vector->y, min, max);
+  bool changed_y = debug_render_range(input, command_buffer, x, state->offset_top, state->width, 25.0f, background_color, &vector->y, min, max);
   draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f - text_offset_y, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector->z);
-  debug_render_range(input, command_buffer, x, state->offset_top + 25.0f, state->width, 25.0f, background_color, &vector->z, min, max);
+  bool changed_z = debug_render_range(input, command_buffer, x, state->offset_top, state->width, 25.0f, background_color, &vector->z, min, max);
   draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f - text_offset_y, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
 
   sprintf(text, "%f", vector->w);
-  debug_render_range(input, command_buffer, x, state->offset_top, state->width, 25.0f, background_color, &vector->w, min, max);
+  bool changed_w = debug_render_range(input, command_buffer, x, state->offset_top, state->width, 25.0f, background_color, &vector->w, min, max);
   draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f - text_offset_y, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
+
+  if (changed_x || changed_y || changed_z || changed_w) {
+    *vector = glm::normalize(*vector);
+  }
 }
 
 void push_debug_vector(DebugDrawState *state, Font *font, UICommandBuffer *command_buffer, float x, const char *name, vec3 vector, vec4 background_color) {

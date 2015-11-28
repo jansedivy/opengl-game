@@ -13,6 +13,14 @@ void update_world_position(WorldPosition *position) {
   position->chunk_y += z;
 }
 
+vec3 get_forward(quat value) {
+  return glm::inverse(value) * vec3(0.0, 0.0, -1.0);
+}
+
+vec3 get_up(quat value) {
+  return glm::inverse(value) * vec3(0.0, -1.0, 0.0);
+}
+
 vec3 get_world_position(WorldPosition position) {
   return position.offset_ + vec3(CHUNK_SIZE_X * position.chunk_x, 0.0, CHUNK_SIZE_Y * position.chunk_y);
 }
@@ -61,12 +69,10 @@ inline mat4 get_model_view(Entity *entity, Camera *camera) {
   mat4 model_view;
 
   model_view = glm::translate(model_view, get_world_position(entity->header.position));
+  model_view *= glm::toMat4(entity->header.rotation);
   if (entity->header.flags & EntityFlags::LOOK_AT_CAMERA) {
     model_view *= make_billboard_matrix(entity->header.position, camera->position, vec3(camera->view_matrix[0][1], camera->view_matrix[1][1], camera->view_matrix[2][1]));
   }
-  model_view = glm::rotate(model_view, entity->header.rotation.x, vec3(1.0, 0.0, 0.0));
-  model_view = glm::rotate(model_view, entity->header.rotation.y, vec3(0.0, 1.0, 0.0));
-  model_view = glm::rotate(model_view, entity->header.rotation.z, vec3(0.0, 0.0, 1.0));
   model_view = glm::scale(model_view, entity->header.scale);
 
   return model_view;
@@ -235,7 +241,7 @@ void init(Memory *memory) {
   app->shadow_camera.near = 1.0f;
   app->shadow_camera.far = 100000.0f;
   app->shadow_camera.size = vec2(4096.0f, 4096.0f) / 2.0f;
-  app->shadow_camera.rotation = vec3(1.759f, 3.841f, 0.0f);
+  app->shadow_camera.rotation = quat(0.82f, 0.55f, 0.0f, 0.0f);
 
   glGenVertexArrays(1, &app->vao);
   glBindVertexArray(app->vao);
@@ -579,6 +585,7 @@ void init(Memory *memory) {
   follow_entity->header.type = EntityType::EntityPlayer;
   follow_entity->header.flags = EntityFlags::RENDER_HIDDEN | EntityFlags::HIDE_IN_EDITOR;
   follow_entity->header.position = make_position(vec3(20000.0f, 20000.0f, 20000.0f));
+  follow_entity->header.rotation = quat(1.0f, 0.0f, 0.0f, 0.0f);
   follow_entity->header.color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
   follow_entity->header.model = &app->sphere_model;
   app->entity_count += 1;
@@ -904,14 +911,12 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
               EntityBlock *entity = (EntityBlock *)(app->entities + app->entity_count++);
 
-              vec3 forward;
-              forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
-              forward.y = -glm::sin(app->camera.rotation[0]);
-              forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
+              vec3 forward = get_forward(app->camera.rotation);
 
               entity->header.id = next_entity_id(app);
               entity->header.type = EntityType::EntityBlock;
               entity->header.position = add_offset(app->camera.position, forward * 400.0f);
+              entity->header.rotation = quat();
               entity->header.scale = vec3(100.f);
               entity->header.model = get_model_by_name(app, (char *)types[i].id_name);
               entity->header.color = vec4(0.31f, 0.18f, 0.02f, 1.0f);
@@ -931,14 +936,12 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"particle emitter", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             EntityParticleEmitter *entity = (EntityParticleEmitter *)(app->entities + app->entity_count++);
 
-            vec3 forward;
-            forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
-            forward.y = -glm::sin(app->camera.rotation[0]);
-            forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
+            vec3 forward = get_forward(app->camera.rotation);
 
             entity->header.id = next_entity_id(app);
             entity->header.type = EntityType::EntityParticleEmitter;
             entity->header.position = add_offset(app->camera.position, forward * 400.0f);
+            entity->header.rotation = quat();
             entity->header.model = NULL;
             entity->header.flags = EntityFlags::RENDER_HIDDEN | EntityFlags::PERMANENT_FLAG;
             entity->particle_size = 40.0f;
@@ -951,14 +954,12 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Grass", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             EntityGrass *entity = (EntityGrass *)(app->entities + app->entity_count++);
 
-            vec3 forward;
-            forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
-            forward.y = -glm::sin(app->camera.rotation[0]);
-            forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
+            vec3 forward = get_forward(app->camera.rotation);
 
             entity->header.id = next_entity_id(app);
             entity->header.type = EntityType::EntityGrass;
             entity->header.position = add_offset(app->camera.position, forward * 400.0f);
+            entity->header.rotation = quat();
             entity->header.model = NULL;
             entity->header.flags = EntityFlags::MOUNT_TO_TERRAIN | EntityFlags::RENDER_HIDDEN | EntityFlags::PERMANENT_FLAG;
 
@@ -989,14 +990,12 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Water", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             EntityWater *entity = (EntityWater *)(app->entities + app->entity_count++);
 
-            vec3 forward;
-            forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
-            forward.y = -glm::sin(app->camera.rotation[0]);
-            forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
+            vec3 forward = get_forward(app->camera.rotation);
 
             entity->header.id = next_entity_id(app);
             entity->header.type = EntityType::EntityWater;
             entity->header.position = add_offset(app->camera.position, forward * 400.0f);
+            entity->header.rotation = quat();
             entity->header.scale = vec3(100.0f);
             entity->header.model = get_model_by_name(app, (char *)"quad");
             entity->header.color = vec4(0.2f, 0.45f, 0.5f, 0.5f);
@@ -1009,14 +1008,12 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Phong", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
             EntityBlock *entity = (EntityBlock *)(app->entities + app->entity_count++);
 
-            vec3 forward;
-            forward.x = glm::sin(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
-            forward.y = -glm::sin(app->camera.rotation[0]);
-            forward.z = -glm::cos(app->camera.rotation[1]) * glm::cos(app->camera.rotation[0]);
+            vec3 forward = get_forward(app->camera.rotation);
 
             entity->header.id = next_entity_id(app);
             entity->header.type = EntityType::EntityBlock;
             entity->header.position = add_offset(app->camera.position, forward * 400.0f);
+            entity->header.rotation = quat();
             entity->header.scale = vec3(100.0f);
             entity->header.model = get_model_by_name(app, (char *)"sphere");
             entity->header.color = vec4(0.2f, 0.45f, 0.5f, 1.0f);
@@ -1036,7 +1033,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
       }
       {
         case EditorLeftState::LIGHT:
-          push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, 10.0f, "Sun rotation", &app->shadow_camera.rotation, default_background_color, 0.0f, tau);
+          push_debug_editable_quat(input, &draw_state, &app->font, command_buffer, 10.0f, "Sun rotation", &app->shadow_camera.rotation, default_background_color);
           push_debug_range((char *)"near", input, &app->font, command_buffer, &draw_state, 10.0f, default_background_color, &app->shadow_camera.near, 0.0f, 100.0f);
           push_debug_range((char *)"far", input, &app->font, command_buffer, &draw_state, 10.0f, default_background_color, &app->shadow_camera.far, 0.0f, 100000.0f);
           break;
@@ -1149,7 +1146,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             push_debug_text(&app->font, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), text, vec3(1.0f, 1.0f, 1.0f), default_background_color);
 
             push_debug_vector(&draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "position", entity->header.position.offset_, default_background_color);
-            push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "rotation", &entity->header.rotation, default_background_color, 0.0f, pi * 2);
+            push_debug_editable_quat(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "rotation", &entity->header.rotation, default_background_color);
             push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "scale", &entity->header.scale, default_background_color, 0.0f, 200.0f);
 
             float start = draw_state.offset_top;
@@ -1230,10 +1227,7 @@ void render_skybox(App *app) {
   use_program(app, &app->skybox_program);
 
   mat4 projection = get_camera_projection(&app->camera);
-
-  projection = glm::rotate(projection, app->camera.rotation.x, vec3(1.0, 0.0, 0.0));
-  projection = glm::rotate(projection, app->camera.rotation.y, vec3(0.0, 1.0, 0.0));
-  projection = glm::rotate(projection, app->camera.rotation.z, vec3(0.0, 0.0, 1.0));
+  projection *= glm::toMat4(app->camera.rotation);
 
   set_uniform(app->current_program, "projection", projection);
 
@@ -1531,27 +1525,20 @@ void tick(Memory *memory, Input input) {
         }
 
         if (input.is_mouse_locked) {
-          follow_entity->header.rotation.y += static_cast<float>(input.rel_mouse_x)/200.0f;
-          follow_entity->header.rotation.x += static_cast<float>(input.rel_mouse_y)/200.0f;
+          vec3 forward = get_forward(app->camera.rotation);
+          vec3 right = glm::normalize(glm::cross(forward, vec3(0.0, 1.0, 0.0)));
+
+          follow_entity->header.rotation *= glm::angleAxis((float)input.rel_mouse_y/200.0f, right);
+          follow_entity->header.rotation *= glm::angleAxis((float)input.rel_mouse_x/200.0f, vec3(0.0, 1.0, 0.0));
+          follow_entity->header.rotation = glm::normalize(follow_entity->header.rotation);
         }
 
-        static float halfpi = glm::half_pi<float>();
+        app->camera.rotation = glm::normalize(app->camera.rotation);
+        app->shadow_camera.rotation = glm::normalize(app->shadow_camera.rotation);
 
-        if (follow_entity->header.rotation[0] > halfpi - 0.001f) {
-          follow_entity->header.rotation[0] = halfpi - 0.001f;
-        }
+        quat rotation = follow_entity->header.rotation;
 
-        if (follow_entity->header.rotation[0] < -halfpi + 0.001f) {
-          follow_entity->header.rotation[0] = -halfpi + 0.001f;
-        }
-
-        vec3 rotation = follow_entity->header.rotation;
-
-        vec3 forward;
-        forward.x = glm::sin(rotation[1]) * glm::cos(rotation[0]);
-        forward.y = -glm::sin(rotation[0]);
-        forward.z = -glm::cos(rotation[1]) * glm::cos(rotation[0]);
-
+        vec3 forward = get_forward(app->camera.rotation);
         vec3 right = glm::normalize(glm::cross(forward, vec3(0.0, 1.0, 0.0)));
 
         vec3 movement;
@@ -1594,8 +1581,6 @@ void tick(Memory *memory, Input input) {
         for (u32 i=0; i<app->entity_count; i++) {
           Entity *entity = app->entities + i;
 
-          update_world_position(&entity->header.position);
-
           if (entity->header.type == EntityType::EntityParticleEmitter) {
             EntityParticleEmitter *emitter = (EntityParticleEmitter *)entity;
 
@@ -1616,6 +1601,8 @@ void tick(Memory *memory, Input input) {
 
             entity->header.position = add_offset(entity->header.position, entity->header.velocity * input.delta_time);
           }
+
+          update_world_position(&entity->header.position);
         }
 
         {
@@ -1654,10 +1641,9 @@ void tick(Memory *memory, Input input) {
         app->camera.position = add_offset(follow_entity->header.position, vec3(0.0f, 70.0f, 0.0f));
 
         app->camera.view_matrix = get_camera_projection(&app->camera);
-        app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.x, vec3(1.0, 0.0, 0.0));
-        app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.y, vec3(0.0, 1.0, 0.0));
-        app->camera.view_matrix = glm::rotate(app->camera.view_matrix, app->camera.rotation.z, vec3(0.0, 0.0, 1.0));
+        app->camera.view_matrix *= glm::toMat4(app->camera.rotation);
         app->camera.view_matrix = glm::translate(app->camera.view_matrix, (get_world_position(app->camera.position) * -1.0f));
+
         fill_frustum_with_matrix(&app->camera.frustum, app->camera.view_matrix);
 
         Ray ray = get_mouse_ray(app, input, memory);
@@ -1729,15 +1715,11 @@ void tick(Memory *memory, Input input) {
         }
 
         {
-          vec3 forward;
-          forward.x = glm::sin(app->shadow_camera.rotation[1]) * glm::cos(app->shadow_camera.rotation[0]);
-          forward.y = -glm::sin(app->shadow_camera.rotation[0]);
-          forward.z = -glm::cos(app->shadow_camera.rotation[1]) * glm::cos(app->shadow_camera.rotation[0]);
+          vec3 forward = get_forward(app->shadow_camera.rotation);
 
           app->shadow_camera.position = add_offset(app->camera.position, glm::normalize(forward) * ((app->shadow_camera.far - app->shadow_camera.near) / 2.0f * -1.0f));
           app->shadow_camera.view_matrix = get_camera_projection(&app->shadow_camera);
-          app->shadow_camera.view_matrix = glm::rotate(app->shadow_camera.view_matrix, app->shadow_camera.rotation.x, vec3(1.0, 0.0, 0.0));
-          app->shadow_camera.view_matrix = glm::rotate(app->shadow_camera.view_matrix, app->shadow_camera.rotation.y, vec3(0.0, 1.0, 0.0));
+          app->shadow_camera.view_matrix *= glm::toMat4(app->shadow_camera.rotation);
           app->shadow_camera.view_matrix = glm::translate(app->shadow_camera.view_matrix, (get_world_position(app->shadow_camera.position) * -1.0f));
 
           fill_frustum_with_matrix(&app->shadow_camera.frustum, app->shadow_camera.view_matrix);
