@@ -69,6 +69,7 @@ struct EntityGrass {
   u32 grass_count;
   Model *grass_model;
 
+  void *data;
   vec4 *positions;
   vec3 *rotations;
   vec3 *tints;

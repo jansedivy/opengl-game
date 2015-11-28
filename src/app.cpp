@@ -971,9 +971,11 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             entity->min_scale = 30.0f;
             entity->max_scale = 40.0f;
 
-            entity->positions = (vec4 *)malloc(sizeof(vec4) * MAX_GRASS_GROUP_COUNT);
-            entity->rotations = (vec3 *)malloc(sizeof(vec3) * MAX_GRASS_GROUP_COUNT);
-            entity->tints = (vec3 *)malloc(sizeof(vec3) * MAX_GRASS_GROUP_COUNT);
+            entity->data = malloc((sizeof(vec4) + sizeof(vec3) + sizeof(vec3)) * MAX_GRASS_GROUP_COUNT);
+            entity->positions = (vec4 *)entity->data;
+            entity->rotations = (vec3 *)(entity->positions + MAX_GRASS_GROUP_COUNT);
+            entity->tints = (vec3 *)(entity->rotations + MAX_GRASS_GROUP_COUNT);
+
             entity->initialized = false;
             entity->reload_data = true;
             entity->render = false;
