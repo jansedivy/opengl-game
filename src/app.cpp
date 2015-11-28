@@ -1311,7 +1311,7 @@ void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shade
             }
 
             GLuint position_id = shader_get_attribute_location(app->current_program, "position_data");
-            GLuint rotation_id = shader_get_attribute_location(app->current_program, "orientation");
+            GLuint rotation_id = shader_get_attribute_location(app->current_program, "rotation");
             GLuint tint_id = shader_get_attribute_location(app->current_program, "tint");
 
             glBindBuffer(GL_ARRAY_BUFFER, grass->position_data_id);
