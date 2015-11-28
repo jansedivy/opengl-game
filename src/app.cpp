@@ -405,26 +405,41 @@ void init(Memory *memory) {
     model = static_cast<Model *>(malloc(sizeof(Model)));
     model->path = allocate_string("assets/models/plant.lwo");
     model->id_name = allocate_string("plant");
+    model->state = AssetState::EMPTY;
+    model->mesh = {};
+    model->radius = 0.0f;
     app->models[model->id_name] = model;
 
     model = static_cast<Model *>(malloc(sizeof(Model)));
     model->path = allocate_string("assets/models/plant_01.lwo");
     model->id_name = allocate_string("plant_001");
+    model->state = AssetState::EMPTY;
+    model->mesh = {};
+    model->radius = 0.0f;
     app->models[model->id_name] = model;
 
     model = static_cast<Model *>(malloc(sizeof(Model)));
     model->path = allocate_string("assets/models/tree_01.obj");
     model->id_name = allocate_string("tree_001");
+    model->state = AssetState::EMPTY;
+    model->mesh = {};
+    model->radius = 0.0f;
     app->models[model->id_name] = model;
 
     model = static_cast<Model *>(malloc(sizeof(Model)));
     model->path = allocate_string("assets/models/tree_02.obj");
     model->id_name = allocate_string("tree_002");
+    model->state = AssetState::EMPTY;
+    model->mesh = {};
+    model->radius = 0.0f;
     app->models[model->id_name] = model;
 
     model = static_cast<Model *>(malloc(sizeof(Model)));
     model->path = allocate_string("assets/models/tree_03.obj");
     model->id_name = allocate_string("tree_003");
+    model->state = AssetState::EMPTY;
+    model->mesh = {};
+    model->radius = 0.0f;
     app->models[model->id_name] = model;
   }
 
@@ -903,7 +918,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
           for (u32 i=0; i<array_count(types); i++) {
             if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)types[i].display_name, vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-              Entity entity;
+              Entity entity = {};
 
               vec3 forward = get_forward(app->camera.orientation);
 
@@ -929,7 +944,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           draw_state.offset_top += 10.0f;
 
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"particle emitter", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-            Entity entity;
+            Entity entity = {};
 
             vec3 forward = get_forward(app->camera.orientation);
 
@@ -948,7 +963,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           }
 
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Grass", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-            Entity new_entity;
+            Entity new_entity = {};
             EntityGrass *entity = (EntityGrass *)&new_entity;
 
             vec3 forward = get_forward(app->camera.orientation);
@@ -988,7 +1003,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           }
 
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Water", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-            Entity entity;
+            Entity entity = {};
 
             vec3 forward = get_forward(app->camera.orientation);
 
@@ -1007,7 +1022,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           }
 
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 20.0f, (char *)"Phong", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-            Entity entity;
+            Entity entity = {};
 
             vec3 forward = get_forward(app->camera.orientation);
 
@@ -1259,7 +1274,7 @@ void render_scene(Memory *memory, App *app, Camera *camera, Shader *forced_shade
   second_render_group.shadow_pass = false;
 
   for (auto it = array::begin(app->entities); it != array::end(app->entities); it++) {
-    if (!shadow_pass) {
+    if (it->header.type == EntityType::EntityGrass && !shadow_pass) {
       if ((shadow_pass && (it->header.flags & EntityFlags::CASTS_SHADOW)) || !shadow_pass) {
         EntityGrass *grass = (EntityGrass *)it;
         if (grass->render) {

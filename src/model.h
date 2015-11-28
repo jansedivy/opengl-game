@@ -24,14 +24,14 @@ struct Mesh {
 };
 
 struct Model {
-  const char *path = NULL;
+  const char *path;
   const char *id_name;
 
   Mesh mesh;
 
-  float radius = 0.0f;
+  float radius;
 
-  u32 state = AssetState::EMPTY;
+  u32 state;
 };
 
 struct LoadModelWork {
