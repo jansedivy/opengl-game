@@ -229,13 +229,13 @@ void init(Memory *memory) {
   app->last_id = 0;
 
   app->camera.ortho = false;
-  app->camera.near = 0.5f;
-  app->camera.far = 50000.0f;
+  app->camera.near = 0.05f;
+  app->camera.far = 500.0f;
   app->camera.size = vec2((float)memory->width, (float)memory->height);
 
   app->shadow_camera.ortho = true;
-  app->shadow_camera.near = 1.0f;
-  app->shadow_camera.far = 100000.0f;
+  app->shadow_camera.near = 0.1f;
+  app->shadow_camera.far = 1000.0f;
   app->shadow_camera.size = vec2(20.0f, 20.0f);
   app->shadow_camera.orientation = quat(0.82f, 0.55f, 0.0f, 0.0f);
 
@@ -786,7 +786,11 @@ void flush_2d_render(App *app, Memory *memory) {
   glVertexAttribPointer(shader_get_attribute_location(app->current_program, "uv"), 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void *)(2 * sizeof(GLfloat)));
 
   for (auto it = array::begin(command_buffer->commands); it != array::end(command_buffer->commands); it++) {
-    glBindTexture(GL_TEXTURE_2D, it->texture_id);
+    if (it->has_texture) {
+      glBindTexture(GL_TEXTURE_2D, it->texture_id);
+    } else {
+      glBindTexture(GL_TEXTURE_2D, 0);
+    }
     set_uniform(app->current_program, "background_color", it->color);
     set_uniform(app->current_program, "image_color", it->image_color);
     glDrawArrays(GL_TRIANGLES, vertices_index, it->vertices_count);
@@ -957,7 +961,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             entity.header.orientation = quat();
             entity.header.model = NULL;
             entity.header.flags = EntityFlags::RENDER_HIDDEN | EntityFlags::PERMANENT_FLAG;
-            ((EntityParticleEmitter *)&entity)->particle_size = 40.0f;
+            ((EntityParticleEmitter *)&entity)->particle_size = 0.4f;
             ((EntityParticleEmitter *)&entity)->initial_color = vec4(1.0f);
 
             app->editor.entity_id = entity.header.id;
@@ -983,8 +987,8 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             }
 
             entity->grass_count = 0;
-            entity->min_radius = 25.0f;
-            entity->max_radius = 51.0f;
+            entity->min_radius = 0.25f;
+            entity->max_radius = 0.51f;
 
             entity->min_scale = 0.3f;
             entity->max_scale = 0.4f;
@@ -1221,8 +1225,8 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
               draw_state.offset_top += 10.0f;
 
-              push_debug_range((char *)"min_radius", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->min_radius, 10.0f, 400.0f);
-              push_debug_range((char *)"max_radius", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->max_radius, 10.0f, 500.0f);
+              push_debug_range((char *)"min_radius", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->min_radius, 0.1f, 4.0f);
+              push_debug_range((char *)"max_radius", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->max_radius, 0.1f, 5.0f);
               push_debug_range((char *)"min_scale", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->min_scale, 0.5f, 2.0f);
               push_debug_range((char *)"max_scale", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->max_scale, 0.5f, 2.0f);
 
@@ -1560,7 +1564,7 @@ void tick(Memory *memory, Input input) {
           movement += right;
         }
 
-        float speed = 900.0f;
+        float speed = 9.0f;
 
         if (input.alt && input.once.enter) {
           platform.toggle_fullscreen();
@@ -1570,7 +1574,7 @@ void tick(Memory *memory, Input input) {
           speed = app->editor.speed;
         } else {
           if (input.shift) {
-            speed = 10000.0f;
+            speed = 100.0f;
           }
           movement.y = 0;
         }
@@ -1591,7 +1595,7 @@ void tick(Memory *memory, Input input) {
             particle->position = get_world_position(emitter->header.position);
             particle->color = emitter->initial_color;
             particle->size = emitter->particle_size;
-            particle->velocity = vec3(get_random_float_between(-500.0f, 500.0f), get_random_float_between(0.0f, 1000.0f), get_random_float_between(-500.0f, 500.0f));
+            particle->velocity = vec3(get_random_float_between(-5.0f, 5.0f), get_random_float_between(0.0f, 10.0f), get_random_float_between(-5.0f, 5.0f));
             particle->gravity = emitter->gravity;
 
           } else if (it->header.type == EntityType::EntityPlayer) {
@@ -1611,7 +1615,7 @@ void tick(Memory *memory, Input input) {
 
             particle->velocity.y += particle->gravity * input.delta_time;
             particle->position += particle->velocity * input.delta_time;
-            particle->size = std::max(particle->size - 60.0f * input.delta_time, 0.0f);
+            particle->size = std::max(particle->size - 0.6f * input.delta_time, 0.0f);
             particle->velocity = glm::mix(particle->velocity, vec3(0.0f), input.delta_time);
             particle->color.a = glm::mix(particle->color.a, 0.0f, input.delta_time * 4.0f);
           }

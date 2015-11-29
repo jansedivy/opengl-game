@@ -13,6 +13,7 @@ struct UICommand {
   vec4 image_color;
   u32 vertices_count;
   UICommandType::UICommandType type;
+  bool has_texture;
   GLuint texture_id;
 };
 

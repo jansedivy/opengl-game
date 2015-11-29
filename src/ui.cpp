@@ -12,6 +12,7 @@ void draw_string(UICommandBuffer *command_buffer, Font *font, float x, float y, 
   command.image_color = vec4(color, 1.0f);
   command.color = vec4(0.0f);
   command.texture_id = font->texture;
+  command.has_texture = true;
 
   while (*text != '\0') {
     font_get_quad(font, *text++, &font_x, &font_y, &q);
@@ -87,7 +88,9 @@ void debug_render_rect(UICommandBuffer *command_buffer, float x, float y, float 
   command.color = color;
   command.image_color = image_color;
   command.type = UICommandType::RECT;
+  command.has_texture = false;
   if (texture && texture->state == AssetState::INITIALIZED) {
+    command.has_texture = true;
     command.texture_id = texture->id;
   }
 
@@ -283,7 +286,7 @@ void push_debug_editable_vector(Input &input, DebugDrawState *state, Font *font,
 void push_debug_editable_quat(Input &input, DebugDrawState *state, Font *font, UICommandBuffer *command_buffer, float x, const char *name, quat *vector, vec4 background_color) {
   PROFILE_BLOCK("Push Debug Quat");
 
-  float min = -1.0f;
+  float min = 0.0f;
   float max = 1.0f;
 
   char text[256];

@@ -80,6 +80,8 @@ void end_render_group(App *app, RenderGroup *group, bool sort=true) {
 
   glEnable(GL_CULL_FACE);
 
+  glEnable(GL_LINE_SMOOTH);
+
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   set_depth_mode(group, GL_LESS, true);
@@ -116,7 +118,6 @@ void end_render_group(App *app, RenderGroup *group, bool sort=true) {
       }
 
       if ((it->flags & EntityFlags::RENDER_WIREFRAME) != 0) {
-        glEnable(GL_LINE_SMOOTH);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
       } else {
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
