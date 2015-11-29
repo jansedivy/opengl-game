@@ -400,6 +400,9 @@ void init(Memory *memory) {
     Model *model = (Model *)malloc(sizeof(Model));
     model->path = allocate_string("assets/models/rock.obj");
     model->id_name = allocate_string("rock");
+    model->state = AssetState::EMPTY;
+    model->mesh = {};
+    model->radius = 0.0f;
     app->models[model->id_name] = model;
 
     model = (Model *)malloc(sizeof(Model));
