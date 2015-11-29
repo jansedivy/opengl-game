@@ -397,12 +397,12 @@ void init(Memory *memory) {
       app->models[app->quad_model.id_name] = &app->quad_model;
     }
 
-    Model *model = static_cast<Model *>(malloc(sizeof(Model)));
+    Model *model = (Model *)malloc(sizeof(Model));
     model->path = allocate_string("assets/models/rock.obj");
     model->id_name = allocate_string("rock");
     app->models[model->id_name] = model;
 
-    model = static_cast<Model *>(malloc(sizeof(Model)));
+    model = (Model *)malloc(sizeof(Model));
     model->path = allocate_string("assets/models/plant.lwo");
     model->id_name = allocate_string("plant");
     model->state = AssetState::EMPTY;
@@ -410,7 +410,7 @@ void init(Memory *memory) {
     model->radius = 0.0f;
     app->models[model->id_name] = model;
 
-    model = static_cast<Model *>(malloc(sizeof(Model)));
+    model = (Model *)malloc(sizeof(Model));
     model->path = allocate_string("assets/models/plant_01.lwo");
     model->id_name = allocate_string("plant_001");
     model->state = AssetState::EMPTY;
@@ -418,7 +418,7 @@ void init(Memory *memory) {
     model->radius = 0.0f;
     app->models[model->id_name] = model;
 
-    model = static_cast<Model *>(malloc(sizeof(Model)));
+    model = (Model *)malloc(sizeof(Model));
     model->path = allocate_string("assets/models/tree_01.obj");
     model->id_name = allocate_string("tree_001");
     model->state = AssetState::EMPTY;
@@ -426,7 +426,7 @@ void init(Memory *memory) {
     model->radius = 0.0f;
     app->models[model->id_name] = model;
 
-    model = static_cast<Model *>(malloc(sizeof(Model)));
+    model = (Model *)malloc(sizeof(Model));
     model->path = allocate_string("assets/models/tree_02.obj");
     model->id_name = allocate_string("tree_002");
     model->state = AssetState::EMPTY;
@@ -434,7 +434,7 @@ void init(Memory *memory) {
     model->radius = 0.0f;
     app->models[model->id_name] = model;
 
-    model = static_cast<Model *>(malloc(sizeof(Model)));
+    model = (Model *)malloc(sizeof(Model));
     model->path = allocate_string("assets/models/tree_03.obj");
     model->id_name = allocate_string("tree_003");
     model->state = AssetState::EMPTY;
@@ -446,7 +446,7 @@ void init(Memory *memory) {
   setup_all_shaders(app);
 
   app->chunk_cache_count = 4096;
-  app->chunk_cache = static_cast<TerrainChunk *>(malloc(sizeof(TerrainChunk) * app->chunk_cache_count));
+  app->chunk_cache = (TerrainChunk *)malloc(sizeof(TerrainChunk) * app->chunk_cache_count);
 
   for (u32 i=0; i<app->chunk_cache_count; i++) {
     TerrainChunk *chunk = app->chunk_cache + i;

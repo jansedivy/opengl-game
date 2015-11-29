@@ -144,7 +144,7 @@ Shader *create_shader(Shader *shader, const char *vert_filename, const char *fra
   GLenum type;
   glGetProgramiv(shaderProgram, GL_ACTIVE_UNIFORMS, &count);
   for (int i=0; i<count; i++) {
-    glGetActiveUniform(shaderProgram, static_cast<GLuint>(i), sizeof(name), &length, &size, &type, name);
+    glGetActiveUniform(shaderProgram, (GLuint)i, sizeof(name), &length, &size, &type, name);
     shader->uniforms[name] = glGetUniformLocation(shaderProgram, name);
   }
 

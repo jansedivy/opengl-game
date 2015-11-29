@@ -16,7 +16,7 @@ void load_texture(Texture *texture, int type=0) {
 }
 
 void load_texture_work(void *data) {
-  load_texture(static_cast<Texture*>(data));
+  load_texture((Texture *)data);
 }
 
 void initialize_texture(Texture *texture, GLenum interal_type=GL_RGB, GLenum type=GL_RGB, bool mipmap=true, GLenum wrap_type=GL_REPEAT) {

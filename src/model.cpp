@@ -59,7 +59,7 @@ void allocate_mesh(Mesh *mesh, u32 vertices_count, u32 normals_count, u32 indice
   u32 indices_size = indices_count * sizeof(int);
   u32 uv_size = uv_count * sizeof(float);
 
-  u8 *data = static_cast<u8*>(malloc(vertices_size + normals_size + indices_size + uv_size));
+  u8 *data = (u8 *)malloc(vertices_size + normals_size + indices_size + uv_size);
 
   float *vertices = (float*)data;
   float *normals = (float*)(data + vertices_size);
@@ -82,7 +82,7 @@ void allocate_mesh(Mesh *mesh, u32 vertices_count, u32 normals_count, u32 indice
 
 void load_model_work(void *data) {
   PROFILE_BLOCK("Loading Model");
-  LoadModelWork *work = static_cast<LoadModelWork *>(data);
+  LoadModelWork *work = (LoadModelWork *)data;
 
   if (platform.atomic_exchange(&work->model->state, AssetState::EMPTY, AssetState::PROCESSING)) {
     acquire_asset_file((char *)work->model->path);
@@ -187,7 +187,7 @@ inline bool process_model(Memory *memory, Model *model) {
 
   if (platform.queue_has_free_spot(memory->low_queue)) {
     if (model->state == AssetState::EMPTY) {
-      LoadModelWork *work = static_cast<LoadModelWork *>(malloc(sizeof(LoadModelWork)));
+      LoadModelWork *work = (LoadModelWork *)malloc(sizeof(LoadModelWork));
       work->model = model;
 
       platform.add_work(memory->low_queue, load_model_work, work);

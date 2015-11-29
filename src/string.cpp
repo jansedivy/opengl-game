@@ -1,5 +1,5 @@
 char *join_string(char *first, char *second) {
-  char *result = static_cast<char *>(malloc(strlen(first) + strlen(second) + 1));
+  char *result = (char *)malloc(strlen(first) + strlen(second) + 1);
 
   strcpy(result, first);
   strcat(result, second);
@@ -8,7 +8,7 @@ char *join_string(char *first, char *second) {
 }
 
 char *allocate_string(const char *string) {
-  char *new_location = static_cast<char *>(malloc(strlen(string)));
+  char *new_location = (char *)malloc(strlen(string));
 
   strcpy(new_location, string);
 

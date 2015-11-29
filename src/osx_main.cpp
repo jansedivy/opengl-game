@@ -257,7 +257,7 @@ PlatformDirectoryEntry read_next_directory_entry(PlatformDirectory directory) {
 }
 
 bool is_directory_entry_file(PlatformDirectoryEntry directory) {
-  return static_cast<dirent *>(directory.platform)->d_type == 0x8;
+  return ((dirent *)(directory.platform))->d_type == 0x8;
 }
 
 PlatformFile open_file(char *path, const char *flags) {
@@ -270,11 +270,11 @@ PlatformFile open_file(char *path, const char *flags) {
 }
 
 void close_file(PlatformFile file) {
-  fclose(static_cast<FILE *>(file.platform));
+  fclose((FILE *)file.platform);
 }
 
 void write_to_file(PlatformFile file, u64 len, void *value) {
-  fwrite(value, 1, len, static_cast<FILE *>(file.platform));
+  fwrite(value, 1, len, (FILE *)file.platform);
 }
 
 inline void format_string(char* buf, int buf_size, const char* fmt, va_list args) {
@@ -325,7 +325,7 @@ PlatformFileLine read_file_line(PlatformFile file) {
   PlatformFileLine result;
   result.contents = NULL;
 
-  if (getline(&result.contents, &result.length, static_cast<FILE *>(file.platform)) == -1) {
+  if (getline(&result.contents, &result.length, (FILE *)file.platform) == -1) {
     result.empty = true;
   } else {
     result.empty = false;
@@ -335,7 +335,7 @@ PlatformFileLine read_file_line(PlatformFile file) {
 }
 
 void close_directory(PlatformDirectory directory) {
-  closedir(static_cast<DIR *>(directory.platform));
+  closedir((DIR *)directory.platform);
 }
 
 int main() {

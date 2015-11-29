@@ -29,7 +29,7 @@ TerrainChunk *get_chunk_at(TerrainChunk *chunks, u32 count, u32 x, u32 y) {
       }
 
       if (!chunk->next) {
-        chunk->next = static_cast<TerrainChunk *>(malloc(sizeof(TerrainChunk)));
+        chunk->next = (TerrainChunk *)(malloc(sizeof(TerrainChunk)));
         chunk->next->initialized = false;
         chunk->next->prev = chunk;
       }
@@ -76,8 +76,8 @@ void generate_ground(Model *model, int chunk_x, int chunk_y, float detail) {
 
   for (int x=0; x<width; x++) {
     for (int y=0; y<height; y++) {
-      float x_coord = static_cast<float>(x) / detail;
-      float y_coord = static_cast<float>(y) / detail;
+      float x_coord = (float)(x) / detail;
+      float y_coord = (float)(y) / detail;
 
       float value = get_terrain_height_at(x_coord + offset_x, y_coord + offset_y);
 
@@ -164,7 +164,7 @@ struct GenerateGrountWorkData {
 };
 
 void generate_ground_work(void *data) {
-  auto *work = static_cast<GenerateGrountWorkData*>(data);
+  auto *work = (GenerateGrountWorkData*)(data);
 
   TerrainChunk *chunk = work->chunk;
 
@@ -204,7 +204,7 @@ inline bool process_terrain(Memory *memory, TerrainChunk *chunk, int detail_leve
 
   if (platform.queue_has_free_spot(memory->main_queue)) {
     if (model->state == AssetState::EMPTY) {
-      auto *work = static_cast<GenerateGrountWorkData*>(malloc(sizeof(GenerateGrountWorkData)));
+      auto *work = (GenerateGrountWorkData*)(malloc(sizeof(GenerateGrountWorkData)));
       work->chunk = chunk;
       work->detail_level = detail_level;
 

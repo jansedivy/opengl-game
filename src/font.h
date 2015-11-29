@@ -19,12 +19,12 @@ Font create_font(void *font_data, float font_size) {
   font.height = 512;
   font.size = STBTT_POINT_SIZE(font_size);
 
-  u8 *alpha_buffer = static_cast<u8 *>(malloc(font.width * font.height));
-  u8 *color_buffer = static_cast<u8 *>(malloc(font.width * font.height * 4));
+  u8 *alpha_buffer = (u8 *)malloc(font.width * font.height);
+  u8 *color_buffer = (u8 *)malloc(font.width * font.height * 4);
 
   stbtt_PackBegin(&font.pc, alpha_buffer, font.width, font.height, 0, 1, NULL);
     stbtt_PackSetOversampling(&font.pc, 1, 1);
-    stbtt_PackFontRange(&font.pc, static_cast<u8 *>(font_data), 0, font.size, 32, 95, font.chardata[0] + 32);
+    stbtt_PackFontRange(&font.pc, (u8 *)font_data, 0, font.size, 32, 95, font.chardata[0] + 32);
   stbtt_PackEnd(&font.pc);
 
   u32 alpha_index = 0;
