@@ -283,7 +283,7 @@ void push_debug_editable_vector(Input &input, DebugDrawState *state, Font *font,
 void push_debug_editable_quat(Input &input, DebugDrawState *state, Font *font, UICommandBuffer *command_buffer, float x, const char *name, quat *vector, vec4 background_color) {
   PROFILE_BLOCK("Push Debug Quat");
 
-  float min = 0.0f;
+  float min = -1.0f;
   float max = 1.0f;
 
   char text[256];
