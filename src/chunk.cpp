@@ -1,8 +1,8 @@
 float get_terrain_height_at(float x, float y) {
   return (
-    scaled_octave_noise_2d(1.0f, 1.0f, 10.0f, -100.0f, 500.0f, x / 40000.0f, y / 40000.0f) +
-    scaled_octave_noise_2d(1.0f, 1.0f, 10.0f, 00.0f, 1000.0f, x / 400000.0f, y / 400000.0f) +
-    scaled_octave_noise_2d(1.0f, 1.0f, 100.0f, 00.0f, 1000.0f, x / 800000.0f, y / 800000.0f) +
+    scaled_octave_noise_2d(1.0f, 1.0f, 10.0f, -1.0f, 5.0f, x / 400.0f, y / 400.0f) +
+    scaled_octave_noise_2d(1.0f, 1.0f, 10.0f, 0.0f, 10.0f, x / 4000.0f, y / 4000.0f) +
+    scaled_octave_noise_2d(1.0f, 1.0f, 100.0f, 0.0f, 10.0f, x / 8000.0f, y / 8000.0f) +
 
     0.0f
   );
@@ -173,11 +173,11 @@ void generate_ground_work(void *data) {
   if (platform.atomic_exchange(&model->state, AssetState::EMPTY, AssetState::PROCESSING)) {
     float resolution = 0.0f;
     if (work->detail_level == 0) {
-      resolution = 0.03f;
+      resolution = 3.0f;
     } else if (work->detail_level == 1) {
-      resolution = 0.01f;
+      resolution = 1.0f;
     } else if (work->detail_level == 2) {
-      resolution = 0.005f;
+      resolution = 0.5f;
     }
 
     generate_ground(model, chunk->x, chunk->y, resolution);

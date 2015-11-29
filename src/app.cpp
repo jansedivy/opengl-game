@@ -214,13 +214,13 @@ void init(Memory *memory) {
 
   app->current_program = NULL;
 
-  app->editor.handle_size = 40.0f;
+  app->editor.handle_size = 0.4f;
   app->editor.holding_entity = false;
   app->editor.inspect_entity = false;
   app->editor.show_left = true;
   app->editor.show_right = true;
   app->editor.left_state = EditorLeftState::MODELING;
-  app->editor.speed = 10000.0f;
+  app->editor.speed = 100.0f;
 
   debug_global_memory = memory;
 
@@ -236,7 +236,7 @@ void init(Memory *memory) {
   app->shadow_camera.ortho = true;
   app->shadow_camera.near = 1.0f;
   app->shadow_camera.far = 100000.0f;
-  app->shadow_camera.size = vec2(4096.0f, 4096.0f) / 2.0f;
+  app->shadow_camera.size = vec2(20.0f, 20.0f);
   app->shadow_camera.orientation = quat(0.82f, 0.55f, 0.0f, 0.0f);
 
   glGenVertexArrays(1, &app->vao);
@@ -598,7 +598,7 @@ void init(Memory *memory) {
   follow_entity.header.id = next_entity_id(app);
   follow_entity.header.type = EntityType::EntityPlayer;
   follow_entity.header.flags = EntityFlags::RENDER_HIDDEN | EntityFlags::HIDE_IN_EDITOR;
-  follow_entity.header.position = make_position(vec3(20000.0f, 20000.0f, 20000.0f));
+  follow_entity.header.position = make_position(vec3(200.0f, 200.0f, 200.0f));
   follow_entity.header.orientation = quat(1.0f, 0.0f, 0.0f, 0.0f);
   follow_entity.header.color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
   follow_entity.header.model = &app->sphere_model;
@@ -927,9 +927,9 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
               entity.header.id = next_entity_id(app);
               entity.header.type = EntityType::EntityBlock;
-              entity.header.position = add_offset(app->camera.position, forward * 400.0f);
+              entity.header.position = add_offset(app->camera.position, forward * 4.0f);
               entity.header.orientation = quat();
-              entity.header.scale = vec3(100.f);
+              entity.header.scale = vec3(1.f);
               entity.header.model = get_model_by_name(app, (char *)types[i].id_name);
               entity.header.color = vec4(0.31f, 0.18f, 0.02f, 1.0f);
               entity.header.flags = EntityFlags::CASTS_SHADOW | EntityFlags::PERMANENT_FLAG;
@@ -953,7 +953,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
             entity.header.id = next_entity_id(app);
             entity.header.type = EntityType::EntityParticleEmitter;
-            entity.header.position = add_offset(app->camera.position, forward * 400.0f);
+            entity.header.position = add_offset(app->camera.position, forward * 4.0f);
             entity.header.orientation = quat();
             entity.header.model = NULL;
             entity.header.flags = EntityFlags::RENDER_HIDDEN | EntityFlags::PERMANENT_FLAG;
@@ -973,7 +973,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
             entity->header.id = next_entity_id(app);
             entity->header.type = EntityType::EntityGrass;
-            entity->header.position = add_offset(app->camera.position, forward * 400.0f);
+            entity->header.position = add_offset(app->camera.position, forward * 4.0f);
             entity->header.orientation = quat();
             entity->header.model = NULL;
             entity->header.flags = EntityFlags::MOUNT_TO_TERRAIN | EntityFlags::RENDER_HIDDEN | EntityFlags::PERMANENT_FLAG;
@@ -986,8 +986,8 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
             entity->min_radius = 25.0f;
             entity->max_radius = 51.0f;
 
-            entity->min_scale = 30.0f;
-            entity->max_scale = 40.0f;
+            entity->min_scale = 0.3f;
+            entity->max_scale = 0.4f;
 
             entity->data = malloc((sizeof(vec4) + sizeof(vec3) + sizeof(vec3)) * MAX_GRASS_GROUP_COUNT);
             entity->positions = (vec4 *)entity->data;
@@ -1012,9 +1012,9 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
             entity.header.id = next_entity_id(app);
             entity.header.type = EntityType::EntityWater;
-            entity.header.position = add_offset(app->camera.position, forward * 400.0f);
+            entity.header.position = add_offset(app->camera.position, forward * 4.0f);
             entity.header.orientation = quat();
-            entity.header.scale = vec3(100.0f);
+            entity.header.scale = vec3(1.0f);
             entity.header.model = get_model_by_name(app, (char *)"quad");
             entity.header.color = vec4(0.2f, 0.45f, 0.5f, 0.5f);
             entity.header.flags = EntityFlags::PERMANENT_FLAG;
@@ -1031,9 +1031,9 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
             entity.header.id = next_entity_id(app);
             entity.header.type = EntityType::EntityBlock;
-            entity.header.position = add_offset(app->camera.position, forward * 400.0f);
+            entity.header.position = add_offset(app->camera.position, forward * 4.0f);
             entity.header.orientation = quat();
-            entity.header.scale = vec3(100.0f);
+            entity.header.scale = vec3(1.0f);
             entity.header.model = get_model_by_name(app, (char *)"sphere");
             entity.header.color = vec4(0.2f, 0.45f, 0.5f, 1.0f);
             entity.header.flags = EntityFlags::PERMANENT_FLAG;
@@ -1066,15 +1066,15 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
           }
 
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"slow speed", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-            app->editor.speed = 10000.0f;
+            app->editor.speed = 100.0f;
           }
 
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"medium speed", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-            app->editor.speed = 40000.0f;
+            app->editor.speed = 400.0f;
           }
 
           if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"fast speed", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
-            app->editor.speed = 60000.0f;
+            app->editor.speed = 600.0f;
           }
 
           sprintf(text, "Experimenal editing: %d\n", app->editor.experimental_terrain_entity_movement);
@@ -1167,7 +1167,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
             push_debug_vector(&draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "position", entity->header.position.offset_, default_background_color);
             push_debug_editable_quat(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "orientation", &entity->header.orientation, default_background_color);
-            push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "scale", &entity->header.scale, default_background_color, 0.0f, 200.0f);
+            push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "scale", &entity->header.scale, default_background_color, 0.0f, 4.0f);
 
             float start = draw_state.offset_top;
             push_debug_editable_vector(input, &draw_state, &app->font, command_buffer, memory->width - (draw_state.width + 25.0f), "color", &entity->header.color, default_background_color, 0.0f, 1.0f);
@@ -1223,8 +1223,8 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
               push_debug_range((char *)"min_radius", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->min_radius, 10.0f, 400.0f);
               push_debug_range((char *)"max_radius", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->max_radius, 10.0f, 500.0f);
-              push_debug_range((char *)"min_scale", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->min_scale, 5.0f, 100.0f);
-              push_debug_range((char *)"max_scale", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->max_scale, 5.0f, 100.0f);
+              push_debug_range((char *)"min_scale", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->min_scale, 0.5f, 2.0f);
+              push_debug_range((char *)"max_scale", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->max_scale, 0.5f, 2.0f);
 
               if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), 35.0f, (char *)"Rebuild grass", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
                 platform.add_work(memory->low_queue, generate_grass_work, grass);
@@ -1637,7 +1637,7 @@ void tick(Memory *memory, Input input) {
         }
 
         app->camera.orientation = follow_entity->header.orientation;
-        app->camera.position = add_offset(follow_entity->header.position, vec3(0.0f, 70.0f, 0.0f));
+        app->camera.position = add_offset(follow_entity->header.position, vec3(0.0f, 0.7f, 0.0f));
 
         app->camera.view_matrix = get_camera_projection(&app->camera);
         app->camera.view_matrix *= glm::toMat4(app->camera.orientation);
