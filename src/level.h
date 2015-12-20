@@ -6,7 +6,7 @@ struct LoadedLevelHeader {
 };
 
 struct EntitySave {
-  u32 id;
+  Pid id;
   EntityType::EntityType type;
   vec3 position;
   vec3 scale;

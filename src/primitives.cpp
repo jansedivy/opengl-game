@@ -8,7 +8,7 @@ void generate_sphere_mesh(Mesh *mesh, float *radius_out, int bands) {
   u32 uv_count = vertices_count;
   u32 indices_count = latitude_bands * longitude_bands * 6;
 
-  allocate_mesh(mesh, vertices_count, normals_count, indices_count, uv_count);
+  allocate_mesh(mesh, vertices_count, normals_count, indices_count, uv_count, 0);
 
   u32 vertices_index = 0;
   u32 normals_index = 0;

@@ -169,7 +169,7 @@ bool push_debug_button(Input &input,
 }
 
 bool debug_button_image(App *app, Input &input, DebugDrawState *state, UICommandBuffer *command_buffer, float x, vec4 background_color, Texture *texture) {
-  float margin = 5.0f;
+  float margin = 8.0f;
   float min_x = (state->next_width) * state->pushed_count + x;
 
   bool result = push_debug_button(input, app, state, command_buffer, x, state->next_width, (char *)"", vec3(0.0f), background_color);
@@ -188,29 +188,27 @@ void push_debug_text(Font *font, DebugDrawState *state, UICommandBuffer *command
 
 bool debug_render_range(Input &input, UICommandBuffer *command_buffer, float x, float y, float width, float height, vec4 background_color, float *value, float min, float max) {
   PROFILE_BLOCK("Push Debug Range");
-  float scale = *value / (max - min);
-
   vec4 bg_color = vec4(0.5f, 1.0f, 0.2f, 1.0f);
 
-  float min_x = x;
-  float min_y = y;
-  float max_x = min_x + width;
-  float max_y = min_y + height;
+  float max_x = x + width;
+  float max_y = y + height;
 
   if (!input.is_mouse_locked) {
-    if (input.mouse_x > min_x && input.mouse_y > min_y && input.mouse_x < max_x && input.mouse_y < max_y) {
+    if (input.mouse_x > x && input.mouse_y > y && input.mouse_x < max_x && input.mouse_y < max_y) {
       bg_color = shade_color(bg_color, -0.2f);
       background_color = shade_color(background_color, -0.4f);
     }
   }
 
   debug_render_rect(command_buffer, x, y, width, height, background_color);
-  debug_render_rect(command_buffer, x, y, width * scale, height, bg_color);
+  debug_render_rect(command_buffer, x, y, width * glm::clamp((*value - min) / (max - min), 0.0f, 1.0f), height, bg_color);
 
-  if (input.left_mouse_down && input.original_mouse_down_x > min_x && input.original_mouse_down_y > min_y && input.original_mouse_down_x < max_x && input.original_mouse_down_y < max_y) {
-    *value = glm::clamp((input.mouse_x - min_x) / width * (max - min), min, max);
-    input.mouse_click = false;
-    return true;
+  if (input.left_mouse_down) {
+    if (input.original_mouse_down_x > x && input.original_mouse_down_y > y && input.original_mouse_down_x < max_x && input.original_mouse_down_y < max_y) {
+      *value = glm::mix(min, max, glm::clamp((input.mouse_x - x) / width, 0.0f, 1.0f));
+      input.mouse_click = false;
+      return true;
+    }
   }
 
   return false;
@@ -226,6 +224,7 @@ void push_debug_range(char *name, Input &input, Font *font, UICommandBuffer *com
   } else {
     sprintf(text, "%f", *value);
   }
+
   debug_render_range(input, command_buffer, x, state->offset_top, state->width, 25.0f, background_color, value, min, max);
   draw_string(command_buffer, font, x + 25.0f, state->offset_top + 25.0f - text_offset_y, text, vec3(1.0f, 1.0f, 1.0f));
   state->offset_top += 25.0f;
@@ -286,7 +285,7 @@ void push_debug_editable_vector(Input &input, DebugDrawState *state, Font *font,
 void push_debug_editable_quat(Input &input, DebugDrawState *state, Font *font, UICommandBuffer *command_buffer, float x, const char *name, quat *vector, vec4 background_color) {
   PROFILE_BLOCK("Push Debug Quat");
 
-  float min = 0.0f;
+  float min = -1.0f;
   float max = 1.0f;
 
   char text[256];

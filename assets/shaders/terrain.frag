@@ -4,6 +4,7 @@ out vec4 color;
 
 in vec3 inNormals;
 in vec4 inPosition;
+in vec3 inColors;
 
 uniform vec4 in_color;
 
@@ -75,5 +76,6 @@ void main() {
     shadow = sum * 1.0 / 144;
   }
 
+  color = vec4(inColors, 1.0);
   color = vec4(in_color.xyz * (vec3(0.8) + light * shadow), 1.0);
 }

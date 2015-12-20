@@ -63,12 +63,14 @@ void generate_ground(Model *model, int chunk_x, int chunk_y, float detail) {
 
   u32 vertices_count = width * height * 3;
   u32 normals_count = vertices_count;
+  u32 colors_count = vertices_count;
   u32 indices_count = (width - 1) * (height - 1) * 6;
 
-  Mesh mesh;
-  allocate_mesh(&mesh, vertices_count, normals_count, indices_count, 0);
+  Mesh mesh = {};
+  allocate_mesh(&mesh, vertices_count, normals_count, indices_count, 0, colors_count);
 
   u32 vertices_index = 0;
+  u32 colors_index = 0;
   u32 normals_index = 0;
   u32 indices_index = 0;
 
@@ -84,6 +86,16 @@ void generate_ground(Model *model, int chunk_x, int chunk_y, float detail) {
       mesh.data.vertices[vertices_index++] = x_coord;
       mesh.data.vertices[vertices_index++] = value;
       mesh.data.vertices[vertices_index++] = y_coord;
+
+      vec3 color = vec3(0.4392f, 0.4588f, 0.3412f);
+
+      if (value < 7.0f) {
+        color = vec3(0.8118f, 0.5686f, 0.3804f);
+      }
+
+      mesh.data.colors[colors_index++] = color.r;
+      mesh.data.colors[colors_index++] = color.g;
+      mesh.data.colors[colors_index++] = color.b;
 
       // TODO(sedivy): calculate center
       float distance = glm::length(vec3(x_coord, value, y_coord));
@@ -115,16 +127,16 @@ void generate_ground(Model *model, int chunk_x, int chunk_y, float detail) {
     int indices_c = mesh.data.indices[i + 2] * 3;
 
     vec3 v0 = vec3(mesh.data.vertices[indices_a + 0],
-                             mesh.data.vertices[indices_a + 1],
-                             mesh.data.vertices[indices_a + 2]);
+                   mesh.data.vertices[indices_a + 1],
+                   mesh.data.vertices[indices_a + 2]);
 
     vec3 v1 = vec3(mesh.data.vertices[indices_b + 0],
-                             mesh.data.vertices[indices_b + 1],
-                             mesh.data.vertices[indices_b + 2]);
+                   mesh.data.vertices[indices_b + 1],
+                   mesh.data.vertices[indices_b + 2]);
 
     vec3 v2 = vec3(mesh.data.vertices[indices_c + 0],
-                             mesh.data.vertices[indices_c + 1],
-                             mesh.data.vertices[indices_c + 2]);
+                   mesh.data.vertices[indices_c + 1],
+                   mesh.data.vertices[indices_c + 2]);
 
     vec3 normal = glm::normalize(glm::cross(v2 - v0, v1 - v0));
 

@@ -2,6 +2,8 @@
 
 #define MAX_GRASS_GROUP_COUNT 500
 
+typedef u32 Pid;
+
 namespace EntityFlags {
   enum EntityFlags {
     PERMANENT_FLAG = (1 << 0),
@@ -34,7 +36,7 @@ struct WorldPosition {
 };
 
 struct EntityHeader {
-  u32 id = 0;
+  Pid id;
   u32 flags = 0;
   EntityType::EntityType type;
 

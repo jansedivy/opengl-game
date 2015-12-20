@@ -27,8 +27,8 @@ struct Editor {
   bool holding_entity = false;
   bool hovering_entity = false;
   bool inspect_entity = false;
-  u32 entity_id;
-  u32 hover_entity;
+  Pid entity_id;
+  Pid hover_entity;
   float distance_from_entity_offset;
   vec3 hold_offset;
   float handle_size;

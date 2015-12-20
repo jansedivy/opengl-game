@@ -75,23 +75,15 @@ mat4 get_camera_projection(Camera *camera) {
 
 Ray get_mouse_ray(App *app, Input input, Memory *memory) {
   PROFILE_BLOCK("Mouse Ray");
-  vec3 from = glm::unProject(
-      vec3(input.mouse_x, memory->height - input.mouse_y, 0.0f),
-      mat4(),
-      app->camera.view_matrix,
-      vec4(0.0f, 0.0f, memory->width, memory->height));
-
   vec3 to = glm::unProject(
       vec3(input.mouse_x, memory->height - input.mouse_y, 1.0f),
       mat4(),
       app->camera.view_matrix,
       vec4(0.0f, 0.0f, memory->width, memory->height));
 
-  vec3 direction = glm::normalize(to - from);
-
   Ray ray;
-  ray.start = from;
-  ray.direction = direction;
+  ray.start = get_world_position(app->camera.position);
+  ray.direction = glm::normalize(to - ray.start);
 
   return ray;
 }

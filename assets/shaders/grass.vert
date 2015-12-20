@@ -25,10 +25,10 @@ void main() {
 
   vec3 grass_position = position_data.xyz + position * position_data.w;
 
-  float size = 4.0;
+  float size = 0.1;
 
   float up = position.y;
-  float time_offset = (position_data.x + position_data.z) / 100;
+  float time_offset = (position_data.x + position_data.z) / 2;
 
   grass_position += vec3(sin(time / 2 + time_offset) * size * up, 0.0, sin(time / 2 + time_offset) * size * up);
 

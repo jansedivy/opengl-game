@@ -102,7 +102,7 @@ Model *get_model_by_name(App *app, char *name) {
 
 #include "level.cpp"
 
-inline Entity *get_entity_by_id(App *app, u32 id) {
+inline Entity *get_entity_by_id(App *app, Pid id) {
   PROFILE_BLOCK("Finding entity");
   for (auto it = array::begin(app->entities); it != array::end(app->entities); it++) {
     if (it->header.id == id) {
@@ -113,7 +113,7 @@ inline Entity *get_entity_by_id(App *app, u32 id) {
   return NULL;
 }
 
-u32 next_entity_id(App *app) {
+Pid next_entity_id(App *app) {
   return ++app->last_id;
 }
 
@@ -165,7 +165,7 @@ void generate_random_grass_positions(vec2 start, vec4 *positions, u32 position_c
   }
 }
 
-void quit(Memory *memory) {
+void quit(Memory *) {
 }
 
 void setup_all_shaders(App *app) {
@@ -230,19 +230,18 @@ void init(Memory *memory) {
 
   app->camera.ortho = false;
   app->camera.near = 0.05f;
-  app->camera.far = 500.0f;
+  app->camera.far = 1000.0f;
   app->camera.size = vec2((float)memory->width, (float)memory->height);
 
   app->shadow_camera.ortho = true;
   app->shadow_camera.near = 0.1f;
   app->shadow_camera.far = 1000.0f;
-  app->shadow_camera.size = vec2(20.0f, 20.0f);
+  app->shadow_camera.size = vec2(40.0f, 40.0f);
   app->shadow_camera.orientation = quat(0.82f, 0.55f, 0.0f, 0.0f);
 
   glGenVertexArrays(1, &app->vao);
   glBindVertexArray(app->vao);
 
-  /* glEnable(GL_MULTISAMPLE); */
   glEnable(GL_DEPTH_TEST);
   glEnable(GL_CULL_FACE);
 
@@ -349,7 +348,7 @@ void init(Memory *memory) {
       };
 
       Mesh mesh;
-      allocate_mesh(&mesh, array_count(vertices), array_count(normals), array_count(indices), array_count(uvs));
+      allocate_mesh(&mesh, array_count(vertices), array_count(normals), array_count(indices), array_count(uvs), 0);
       memcpy(mesh.data.vertices, &vertices, sizeof(vertices));
       memcpy(mesh.data.normals, &normals, sizeof(normals));
       memcpy(mesh.data.indices, &indices, sizeof(indices));
@@ -382,7 +381,7 @@ void init(Memory *memory) {
       };
 
       Mesh mesh;
-      allocate_mesh(&mesh, array_count(vertices), array_count(normals), array_count(indices), array_count(uvs));
+      allocate_mesh(&mesh, array_count(vertices), array_count(normals), array_count(indices), array_count(uvs), 0);
       memcpy(mesh.data.vertices, &vertices, sizeof(vertices));
       memcpy(mesh.data.normals, &normals, sizeof(normals));
       memcpy(mesh.data.indices, &indices, sizeof(indices));
@@ -676,7 +675,7 @@ bool sort_particles_by_distance(const Particle &a, const Particle &b) {
   return a.distance_from_camera > b.distance_from_camera;
 }
 
-void render_debug_circle(Array<EditorHandleRenderCommand> *commands, Camera *camera, WorldPosition &position, float size, vec4 color) {
+void push_debug_circle(Array<EditorHandleRenderCommand> *commands, Camera *camera, WorldPosition &position, float size, vec4 color) {
   vec3 world_position = get_world_position(position);
 
   if (!is_sphere_in_frustum(&camera->frustum, world_position, size)) { return; }
@@ -713,8 +712,6 @@ void draw_3d_debug_info(Input &input, App *app) {
 
   use_model_mesh(app, &app->quad_model.mesh);
 
-  Array<EditorHandleRenderCommand> render_commands;
-
   if (app->editor.show_handles && !app->editor.holding_entity) {
     for (auto it = array::begin(app->entities); it != array::end(app->entities); it++) {
       if (it->header.flags & EntityFlags::HIDE_IN_EDITOR) { continue; }
@@ -738,22 +735,26 @@ void draw_3d_debug_info(Input &input, App *app) {
           for (u32 grass_index=0; grass_index<grass->grass_count; grass_index++) {
             vec4 data = grass->positions[grass_index];
             WorldPosition position = make_position(vec3(data));
-            render_debug_circle(&render_commands, &app->camera, position, data.w / 7.0f, vec4(0.4, 1.0, 0.4, 0.4));
+            push_debug_circle(&app->debug_circle_commands, &app->camera, position, data.w / 7.0f, vec4(0.4, 1.0, 0.4, 0.4));
           }
         }
       }
 
-      render_debug_circle(&render_commands, &app->camera, it->header.position, app->editor.handle_size, color);
+      push_debug_circle(&app->debug_circle_commands, &app->camera, it->header.position, app->editor.handle_size, color);
     }
   }
 
-  std::sort(array::begin(render_commands), array::end(render_commands), sort_by_distance);
+  /* push_debug_circle(&render_commands, &app->camera, app->shadow_camera.position, 100.0f, vec4(1.0, 0.0, 0.0, 1.0)); */
 
-  for (auto it = array::begin(render_commands); it != array::end(render_commands); it++) {
+  std::sort(array::begin(app->debug_circle_commands), array::end(app->debug_circle_commands), sort_by_distance);
+
+  for (auto it = array::begin(app->debug_circle_commands); it != array::end(app->debug_circle_commands); it++) {
     set_uniform(app->current_program, "uMVMatrix", it->model_view);
     set_uniform(app->current_program, "in_color", it->color);
-    glDrawElements(GL_TRIANGLES, app->quad_model.mesh.data.indices_count, GL_UNSIGNED_INT, 0);
+    glDrawElements(GL_TRIANGLES, app->cube_model.mesh.data.indices_count, GL_UNSIGNED_INT, 0);
   }
+
+  array::clear(app->debug_circle_commands);
 
   glDisable(GL_BLEND);
   glDepthFunc(GL_LESS);
@@ -879,7 +880,7 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
     debug_layout_set(&draw_state, 4);
 
-    if (debug_button_image(app, input, &draw_state, command_buffer, 10.0f, app->editor.left_state == EditorLeftState::MODELING ? selected_button_background_color : button_background_color, get_texture(app, (char *)"model.png"))) {
+    if (debug_button_image(app, input, &draw_state, command_buffer, 10.0f, app->editor.left_state == EditorLeftState::MODELING ? selected_button_background_color : button_background_color, get_texture(app, (char *)"cube.png"))) {
       app->editor.left_state = EditorLeftState::MODELING;
     }
 
@@ -887,21 +888,24 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
       app->editor.left_state = EditorLeftState::LIGHT;
     }
 
-    draw_state.offset_top += draw_state.next_width;
-
-    debug_layout_reset(&draw_state);
-
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Terrain", vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::TERRAIN ? selected_button_background_color : button_background_color)) {
+    if (debug_button_image(app, input, &draw_state, command_buffer, 10.0f, app->editor.left_state == EditorLeftState::TERRAIN ? selected_button_background_color : button_background_color, get_texture(app, (char *)"terrain.png"))) {
       app->editor.left_state = EditorLeftState::TERRAIN;
     }
 
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Post Processing", vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::POST_PROCESSING ? selected_button_background_color : button_background_color)) {
+    if (debug_button_image(app, input, &draw_state, command_buffer, 10.0f, app->editor.left_state == EditorLeftState::POST_PROCESSING ? selected_button_background_color : button_background_color, get_texture(app, (char *)"post.png"))) {
       app->editor.left_state = EditorLeftState::POST_PROCESSING;
     }
 
-    if (push_debug_button(input, app, &draw_state, command_buffer, 10.0f, 25.0f, (char *)"Editor settings", vec3(1.0f, 1.0f, 1.0f), app->editor.left_state == EditorLeftState::EDITOR_SETTINGS ? selected_button_background_color : button_background_color)) {
+    draw_state.offset_top += draw_state.next_width;
+    debug_layout_reset(&draw_state);
+    debug_layout_set(&draw_state, 4);
+
+    if (debug_button_image(app, input, &draw_state, command_buffer, 10.0f, app->editor.left_state == EditorLeftState::EDITOR_SETTINGS ? selected_button_background_color : button_background_color, get_texture(app, (char *)"settings.png"))) {
       app->editor.left_state = EditorLeftState::EDITOR_SETTINGS;
     }
+
+    draw_state.offset_top += draw_state.next_width;
+    debug_layout_reset(&draw_state);
 
     draw_state.offset_top += 10.0f;
 
@@ -1227,8 +1231,8 @@ void draw_2d_debug_info(App *app, Memory *memory, Input &input) {
 
               push_debug_range((char *)"min_radius", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->min_radius, 0.1f, 4.0f);
               push_debug_range((char *)"max_radius", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->max_radius, 0.1f, 5.0f);
-              push_debug_range((char *)"min_scale", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->min_scale, 0.5f, 2.0f);
-              push_debug_range((char *)"max_scale", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->max_scale, 0.5f, 2.0f);
+              push_debug_range((char *)"min_scale", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->min_scale, 0.05f, 2.0f);
+              push_debug_range((char *)"max_scale", input, &app->font, command_buffer, &draw_state, memory->width - (draw_state.width + 25.0f), default_background_color, &grass->max_scale, 0.05f, 2.0f);
 
               if (push_debug_button(input, app, &draw_state, command_buffer, memory->width - (draw_state.width + 25.0f), 35.0f, (char *)"Rebuild grass", vec3(1.0f, 1.0f, 1.0f), button_background_color)) {
                 platform.add_work(memory->low_queue, generate_grass_work, grass);
@@ -1433,9 +1437,9 @@ void render_terrain(Memory *memory, App *app) {
   int y_coord = app->camera.position.chunk_y;
 
   {
-    PROFILE_BLOCK("Terrain render", 17*17);
-    for (int y=-8 + y_coord; y<=8 + y_coord; y++) {
-      for (int x=-8 + x_coord; x<=8 + x_coord; x++) {
+    PROFILE_BLOCK("Terrain render", 9*9);
+    for (int y=-4 + y_coord; y<=4 + y_coord; y++) {
+      for (int x=-4 + x_coord; x<=4 + x_coord; x++) {
         if (x < 0 || y < 0 ) { continue; }
 
         TerrainChunk *chunk = get_chunk_at(app->chunk_cache, app->chunk_cache_count, x, y);
@@ -1540,8 +1544,6 @@ void tick(Memory *memory, Input input) {
 
         app->camera.orientation = glm::normalize(app->camera.orientation);
         app->shadow_camera.orientation = glm::normalize(app->shadow_camera.orientation);
-
-        quat orientation = follow_entity->header.orientation;
 
         vec3 forward = get_forward(app->camera.orientation);
         vec3 right = glm::normalize(glm::cross(forward, vec3(0.0, 1.0, 0.0)));
@@ -1719,7 +1721,7 @@ void tick(Memory *memory, Input input) {
         {
           vec3 forward = get_forward(app->shadow_camera.orientation);
 
-          app->shadow_camera.position = add_offset(app->camera.position, glm::normalize(forward) * ((app->shadow_camera.far - app->shadow_camera.near) / 2.0f * -1.0f));
+          app->shadow_camera.position = add_offset(app->camera.position, glm::normalize(forward) * -100.0f);
           app->shadow_camera.view_matrix = get_camera_projection(&app->shadow_camera);
           app->shadow_camera.view_matrix *= glm::toMat4(app->shadow_camera.orientation);
           app->shadow_camera.view_matrix = glm::translate(app->shadow_camera.view_matrix, (get_world_position(app->shadow_camera.position) * -1.0f));

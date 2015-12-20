@@ -7,13 +7,11 @@
 #include <ctype.h>
 
 #include <sys/types.h>
-#include <sys/stat.h>
 
 #include <SDL2/SDL.h>
 
 #include <dirent.h>
 #include <cstdio>
-#include <sys/stat.h>
 
 #include "app.h"
 
@@ -182,13 +180,12 @@ void add_work(Queue *queue, PlatformWorkQueueCallback *callback, void *data) {
 }
 
 void complete_all_work(Queue *queue) {
-/*   while (queue->completed != queue->count) { */
-/*     do_queue_work(queue); */
-/*   } */
+  while (queue->completion_goal != queue->completion_count) {
+    do_queue_work(queue);
+  }
 
-/*   queue->count = 0; */
-/*   queue->completed = 0; */
-/*   queue->next_entry_to_read = 0; */
+  queue->completion_count = 0;
+  queue->completion_goal = 0;
 }
 
 bool queue_has_free_spot(Queue *queue) {

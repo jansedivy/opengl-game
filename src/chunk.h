@@ -1,7 +1,7 @@
 #pragma once
 
-#define CHUNK_SIZE_X 20
-#define CHUNK_SIZE_Y 20
+#define CHUNK_SIZE_X 50
+#define CHUNK_SIZE_Y 50
 
 struct TerrainChunk {
   u32 x;

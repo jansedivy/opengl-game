@@ -7,14 +7,6 @@ char *join_string(char *first, char *second) {
   return result;
 }
 
-char *allocate_string(const char *string) {
-  char *new_location = (char *)malloc(strlen(string));
-
-  strcpy(new_location, string);
-
-  return new_location;
-}
-
 const char *get_filename_ext(const char *filename) {
   const char *dot = strrchr(filename, '.');
   if (!dot || dot == filename) return "";
@@ -29,4 +21,8 @@ char *mprintf(const char *format, ...) {
   va_end(args);
 
   return data;
+}
+
+char *allocate_string(const char *string) {
+  return mprintf("%s", string);
 }

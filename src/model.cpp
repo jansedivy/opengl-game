@@ -23,22 +23,24 @@ float calculate_radius(Mesh *mesh) {
 
 void optimize_model(Model *model) {
   VertexCacheOptimizer vco;
-  vco.Optimize(model->mesh.data.indices, model->mesh.data.indices_count / 3);
+  vco.Optimize(model->mesh.data.indices, model->mesh.data.indices_count / 3); // TODO(sedivy): why divide by three
 }
 
 void initialize_model(Model *model) {
-  u32 vertices_size = model->mesh.data.vertices_count * sizeof(vec3);
-  u32 normals_size = model->mesh.data.normals_count * sizeof(vec3);
-  u32 uv_size = model->mesh.data.uv_count * sizeof(vec2);
+  u32 vertices_size = model->mesh.data.vertices_count * sizeof(float);
+  u32 normals_size = model->mesh.data.normals_count * sizeof(float);
+  u32 uv_size = model->mesh.data.uv_count * sizeof(float);
+  u32 colors_size = model->mesh.data.colors_count + sizeof(float);
 
   GLuint buffer;
   glGenBuffers(1, &buffer);
   glBindBuffer(GL_ARRAY_BUFFER, buffer);
-  glBufferData(GL_ARRAY_BUFFER, vertices_size + normals_size + uv_size, NULL, GL_STATIC_DRAW);
+  glBufferData(GL_ARRAY_BUFFER, vertices_size + normals_size + uv_size + colors_size, NULL, GL_STATIC_DRAW);
 
   glBufferSubData(GL_ARRAY_BUFFER, 0, vertices_size, model->mesh.data.vertices);
   glBufferSubData(GL_ARRAY_BUFFER, vertices_size, normals_size, model->mesh.data.normals);
   glBufferSubData(GL_ARRAY_BUFFER, vertices_size + normals_size, uv_size, model->mesh.data.uv);
+  glBufferSubData(GL_ARRAY_BUFFER, vertices_size + normals_size + uv_size, colors_size, model->mesh.data.colors);
 
   glBindBuffer(GL_ARRAY_BUFFER, 0);
 
@@ -53,20 +55,23 @@ void initialize_model(Model *model) {
   model->state = AssetState::INITIALIZED; // TODO(sedivy): atomic
 }
 
-void allocate_mesh(Mesh *mesh, u32 vertices_count, u32 normals_count, u32 indices_count, u32 uv_count) {
+void allocate_mesh(Mesh *mesh, u32 vertices_count, u32 normals_count, u32 indices_count, u32 uv_count, u32 colors_count) {
   u32 vertices_size = vertices_count * sizeof(float);
   u32 normals_size = normals_count * sizeof(float);
-  u32 indices_size = indices_count * sizeof(int);
+  u32 indices_size = indices_count * sizeof(GLint);
   u32 uv_size = uv_count * sizeof(float);
+  u32 colors_size = colors_count * sizeof(float);
 
-  u8 *data = (u8 *)malloc(vertices_size + normals_size + indices_size + uv_size);
+  u8 *data = (u8 *)malloc(vertices_size + normals_size + indices_size + uv_size + colors_size);
 
   float *vertices = (float*)data;
   float *normals = (float*)(data + vertices_size);
   int *indices = (int*)(data + vertices_size + normals_size);
   float *uv = (float*)(data + vertices_size + normals_size + indices_size);
+  float *colors = (float*)(data + vertices_size + normals_size + indices_size + uv_size);
 
   mesh->data.data = data;
+
   mesh->data.vertices = vertices;
   mesh->data.vertices_count = vertices_count;
 
@@ -78,6 +83,9 @@ void allocate_mesh(Mesh *mesh, u32 vertices_count, u32 normals_count, u32 indice
 
   mesh->data.uv = uv;
   mesh->data.uv_count = uv_count;
+
+  mesh->data.colors = colors;
+  mesh->data.colors_count = colors_count;
 }
 
 void load_model_work(void *data) {
@@ -120,7 +128,7 @@ void load_model_work(void *data) {
       }
 
       u32 vertices_count = count * 3;
-      u32 normals_count = vertices_count;
+      u32 normals_count = count * 3;
       u32 uv_count = count * 2;
       u32 indices_count = index_count;
 
@@ -129,8 +137,8 @@ void load_model_work(void *data) {
       u32 uv_index = 0;
       u32 indices_index = 0;
 
-      Mesh mesh;
-      allocate_mesh(&mesh, vertices_count, normals_count, indices_count, uv_count);
+      Mesh mesh = {};
+      allocate_mesh(&mesh, vertices_count, normals_count, indices_count, uv_count, 0);
 
       for (u32 i=0; i<scene->mNumMeshes; i++) {
         aiMesh *mesh_data = scene->mMeshes[i];
@@ -207,24 +215,35 @@ inline bool process_model(Memory *memory, Model *model) {
 inline void use_model_mesh(App *app, Mesh *mesh) {
   glBindBuffer(GL_ARRAY_BUFFER, mesh->buffer);
 
-  u32 vertices_size = mesh->data.vertices_count * sizeof(vec3);
-  u32 normals_size = mesh->data.normals_count * sizeof(vec3);
+  u32 offset = 0;
 
   if (shader_has_attribute(app->current_program, "position")) {
     GLuint id = shader_get_attribute_location(app->current_program, "position");
-    glVertexAttribPointer(id, 3, GL_FLOAT, GL_FALSE, 0, 0);
+    glVertexAttribPointer(id, 3, GL_FLOAT, GL_FALSE, 0, (void *)offset);
   }
+
+  offset += mesh->data.vertices_count * sizeof(float);
 
   if (shader_has_attribute(app->current_program, "normals")) {
     GLuint id = shader_get_attribute_location(app->current_program, "normals");
-    glVertexAttribPointer(id, 3, GL_FLOAT, GL_FALSE, 0, (void *)(vertices_size));
+    glVertexAttribPointer(id, 3, GL_FLOAT, GL_FALSE, 0, (void *)offset);
   }
+
+  offset += mesh->data.normals_count * sizeof(float);
 
   if (shader_has_attribute(app->current_program, "uv")) {
     GLuint id = shader_get_attribute_location(app->current_program, "uv");
-    glVertexAttribPointer(id, 2, GL_FLOAT, GL_FALSE, 0, (void *)(vertices_size + normals_size));
+    glVertexAttribPointer(id, 2, GL_FLOAT, GL_FALSE, 0, (void *)offset);
   }
+
+  offset += mesh->data.uv_count * sizeof(float);
+
+  if (shader_has_attribute(app->current_program, "colors")) {
+    GLuint id = shader_get_attribute_location(app->current_program, "colors");
+    glVertexAttribPointer(id, 3, GL_FLOAT, GL_FALSE, 0, (void *)offset);
+  }
+
+  offset += mesh->data.colors_count * sizeof(float);
 
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->indices_id);
 }
-

@@ -18,6 +18,7 @@
 #include <glm/gtc/constants.hpp>
 #include <glm/gtx/component_wise.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/string_cast.hpp>
 #include <glm/gtx/intersect.hpp>
 #include <glm/gtx/norm.hpp>
@@ -103,8 +104,6 @@ struct Particle {
 };
 
 struct App {
-  u32 last_id;
-
   Shader main_object_program;
   Shader transparent_program;
   Shader water_program;
@@ -143,6 +142,7 @@ struct App {
   u32 read_frame;
   u32 write_frame;
   FrameBuffer frames[2];
+  GLuint bloom_buffer;
 
   GLuint shadow_buffer;
   GLuint shadow_depth_texture;
@@ -165,11 +165,12 @@ struct App {
   std::unordered_map<std::string, Model*> models;
 
   Array<Entity> entities;
+  Pid last_id;
 
   Camera shadow_camera;
 
   Camera camera;
-  u32 camera_follow;
+  Pid camera_follow;
 
   GLuint *last_shader;
 
@@ -206,4 +207,6 @@ struct App {
 
   GLuint particle_model;
   Memory *memory;
+
+  Array<EditorHandleRenderCommand> debug_circle_commands;
 };

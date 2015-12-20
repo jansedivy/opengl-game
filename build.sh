@@ -6,7 +6,7 @@ app_name='Explore.app'
 executable_name='explore'
 
 shared_flags='
--g -Wall -Wextra -std=c++11 -Wno-missing-field-initializers -Wno-unused-parameter -Wno-int-to-void-pointer-cast
+-g -Wall -Wextra -std=c++11 -Wno-missing-field-initializers -Wno-int-to-void-pointer-cast
 '
 optimalization='-O0'
 internal=''
@@ -102,10 +102,10 @@ build_libraries() {
   pushd libs > /dev/null
 
   # build_assimp &
-  # build_glew &
+  build_glew &
   # build_jemalloc &
-  build_stb &
-  build_perlin &
+  # build_stb &
+  # build_perlin &
 
   popd > /dev/null
 

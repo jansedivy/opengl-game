@@ -2,18 +2,17 @@
 
 struct ModelData {
   void *data = NULL;
-
   float *vertices = NULL;
-  u32 vertices_count = 0;
-
   float *normals = NULL;
-  u32 normals_count = 0;
-
   float *uv = NULL;
-  u32 uv_count = 0;
-
   int *indices = NULL;
+  float *colors = NULL;
+
+  u32 vertices_count = 0;
+  u32 normals_count = 0;
+  u32 uv_count = 0;
   u32 indices_count = 0;
+  u32 colors_count = 0;
 };
 
 struct Mesh {
