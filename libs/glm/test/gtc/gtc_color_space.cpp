@@ -24,41 +24,58 @@
 /// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 /// THE SOFTWARE.
 ///
-/// @ref gtx_multiple
-/// @file glm/gtx/multiple.inl
-/// @date 2009-10-26 / 2011-06-07
+/// @file test/gtc/gtc_color.cpp
+/// @date 2015-02-10 / 2015-02-10
 /// @author Christophe Riccio
 ///////////////////////////////////////////////////////////////////////////////////
 
-namespace glm
+#include <glm/gtc/color_space.hpp>
+#include <glm/gtc/epsilon.hpp>
+#include <glm/gtc/constants.hpp>
+
+namespace srgb
 {
-	//////////////////////
-	// higherMultiple
-
-	template <typename genType>
-	GLM_FUNC_QUALIFIER genType higherMultiple(genType Source, genType Multiple)
+	int test()
 	{
-		return detail::compute_ceilMultiple<std::numeric_limits<genType>::is_iec559, std::numeric_limits<genType>::is_signed>::call(Source, Multiple);
-	}
+		int Error(0);
 
-	template <typename T, precision P, template <typename, precision> class vecType>
-	GLM_FUNC_QUALIFIER vecType<T, P> higherMultiple(vecType<T, P> const & Source, vecType<T, P> const & Multiple)
-	{
-		return detail::functor2<T, P, vecType>::call(higherMultiple, Source, Multiple);
-	}
+		glm::vec3 const ColorSourceRGB(1.0, 0.5, 0.0);
 
-	//////////////////////
-	// lowerMultiple
+		{
+			glm::vec3 const ColorSRGB = glm::convertLinearToSRGB(ColorSourceRGB);
+			glm::vec3 const ColorRGB = glm::convertSRGBToLinear(ColorSRGB);
+			Error += glm::all(glm::epsilonEqual(ColorSourceRGB, ColorRGB, 0.00001f)) ? 0 : 1;
+		}
 
-	template <typename genType>
-	GLM_FUNC_QUALIFIER genType lowerMultiple(genType Source, genType Multiple)
-	{
-		return detail::compute_floorMultiple<std::numeric_limits<genType>::is_iec559, std::numeric_limits<genType>::is_signed>::call(Source, Multiple);
-	}
+		{
+			glm::vec3 const ColorSRGB = glm::convertLinearToSRGB(ColorSourceRGB, 2.8f);
+			glm::vec3 const ColorRGB = glm::convertSRGBToLinear(ColorSRGB, 2.8f);
+			Error += glm::all(glm::epsilonEqual(ColorSourceRGB, ColorRGB, 0.00001f)) ? 0 : 1;
+		}
 
-	template <typename T, precision P, template <typename, precision> class vecType>
-	GLM_FUNC_QUALIFIER vecType<T, P> lowerMultiple(vecType<T, P> const & Source, vecType<T, P> const & Multiple)
-	{
-		return detail::functor2<T, P, vecType>::call(lowerMultiple, Source, Multiple);
+		glm::vec4 const ColorSourceRGBA(1.0, 0.5, 0.0, 1.0);
+
+		{
+			glm::vec4 const ColorSRGB = glm::convertLinearToSRGB(ColorSourceRGBA);
+			glm::vec4 const ColorRGB = glm::convertSRGBToLinear(ColorSRGB);
+			Error += glm::all(glm::epsilonEqual(ColorSourceRGBA, ColorRGB, 0.00001f)) ? 0 : 1;
+		}
+
+		{
+			glm::vec4 const ColorSRGB = glm::convertLinearToSRGB(ColorSourceRGBA, 2.8f);
+			glm::vec4 const ColorRGB = glm::convertSRGBToLinear(ColorSRGB, 2.8f);
+			Error += glm::all(glm::epsilonEqual(ColorSourceRGBA, ColorRGB, 0.00001f)) ? 0 : 1;
+		}
+
+		return Error;
 	}
-}//namespace glm
+}//namespace srgb
+
+int main()
+{
+	int Error(0);
+
+	Error += srgb::test();
+
+	return Error;
+}
